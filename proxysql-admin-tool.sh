@@ -123,8 +123,7 @@ check_cmd(){
 }
 
 check_proxysql(){
-  IS_ALIVE=`service proxysql status | grep -c "ProxySQL is running"`
-  if pidof proxysql >/dev/null ; then
+  if ! pidof proxysql >/dev/null ; then
     echo "ProxySQL is not running, please check the error log at /var/lib/proxysql/proxysql.log"
     exit 1
   fi
