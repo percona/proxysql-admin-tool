@@ -1,24 +1,24 @@
 #!/bin/bash
-# This script will help us to configure proxysql with Percona XtraDB cluster.
+# This script will assist with configuring ProxySQL in combination with Percona XtraDB cluster.
 # Version 1.0
-#############################################################################
+###############################################################################################
 
-# User Configurable Variables
+# User configurable variables
 PIDFILE=/tmp/pxc-proxysql-monitor.pid
 
 # Dispay script usage details
 usage () {
   echo "Usage: [ options ]"
   echo "Options:"
-    echo " --user=user_name, -u user_name         user to use when connecting to PXC server"
-    echo " --password[=password], -p[password]    password to use when connecting to PXC server"
-    echo " --port=port_num, -P port_num           port to use when connecting to PXC server"
-    echo " --host=host_name, -h host_name         hostname to use when connecting to PXC server"
-    echo " --socket=path, -S path                 socket to use when connecting to PXC server"
-    echo " --enable                               Auto configure PXC nodes into ProxySQL"
-    echo " --disable                              Remove PXC configurations from ProxySQL"
-    echo " --start                                Starts PXC ProxySQL monitoring daemon"
-    echo " --stop                                 Stops PXC ProxySQL monitoring daemon"
+    echo " --user=user_name, -u user_name         User to use when connecting to the Percona XtraDB Cluster server node"
+    echo " --password[=password], -p[password]    Password to use when connecting to the Percona XtraDB Cluster server node"
+    echo " --port=port_num, -P port_num           Port to use when connecting to the Percona XtraDB Cluster server node"
+    echo " --host=host_name, -h host_name         Hostname to use when connecting to the Percona XtraDB Cluster server node"
+    echo " --socket=path, -S path                 socket to use when connecting to the Percona XtraDB Cluster server node"
+    echo " --enable                               Auto-configure Percona XtraDB Cluster nodes into ProxySQL"
+    echo " --disable                              Remove Percona XtraDB Cluster configurations from ProxySQL"
+    echo " --start                                Starts Percona XTraDB Cluster ProxySQL monitoring daemon"
+    echo " --stop                                 Stops Percona XtraDB Cluster ProxySQL monitoring daemon"
 }
 
 # Check if we have a functional getopt(1)
@@ -92,9 +92,9 @@ do
   esac
 done
 
-# Check the options which gathered from command line
+# Check the options gathered from the command line
 if [ -z "$usr" ];then
-  echo "PXC username is must!"
+  echo "The Percona XtraDB Cluster username is a required option!"
   usage
   exit
 elif [[ -z "$hostname" ]]; then
@@ -118,57 +118,58 @@ check_cmd(){
 check_proxysql(){
   IS_ALIVE=`/etc/init.d/proxysql status | grep -c "ProxySQL is running"`
   if [ "$IS_ALIVE" != "1" ]; then
-    echo "ProxySQL not running, please check error log /var/lib/proxysql/proxysql.log"
+    echo "ProxySQL is not running, please check the error log at /var/lib/proxysql/proxysql.log"
     exit 1
   fi
 }
-#Auto configure PXC nodes into ProxySQL
+
+# Auto configure Percona XtraDB Cluster nodes into ProxySQL
 enable_proxysql(){
-  #Checking existing proxysql process
+  # Check for existing proxysql process
   IS_ALIVE=`/etc/init.d/proxysql status | grep -c "ProxySQL is running"`
   PROCESS_CHK=`ps ax | grep -v grep | grep -c proxysql`
   if [ "$IS_ALIVE" == "1" -o "$PROCESS_CHK" != "0" ]; then
-    echo "ProxySQL process is running please clean existing process"
+    echo "A pre-existing ProxySQL process is present; please clean existing process"
     exit 1
   fi
 
   if [[ ! -e `which proxysql` ]];then 
-    echo "proxysql not found, Please install proxysql package" 
+    echo "The proxysql binary was not found, please install the ProxySQL package" 
     exit 1
   else
     PROXYSQL=`which proxysql`
   fi
 
-  #Starting proxysql with default configuration
-  echo -e "Starting proxysql.."
+  # Starting proxysql with default configuration
+  echo -e "Starting ProxySQL.."
   /etc/init.d/proxysql initial > /dev/null 2>&1 
   check_cmd $? "ProxySQL initialization failed"
 
   check_proxysql
 
-  echo -e "\nConfiguring ProxySQL montioring user.."
-  echo -n "Enter monitoring username: "
+  echo -e "\nConfiguring ProxySQL monitoring user.."
+  echo -n "Enter ProxySQL monitoring username: "
   read mon_uname
-  echo -n "Enter monitoring password: "
+  echo -n "Enter ProxySQL monitoring password: "
   read mon_password
   mysql  -u$usr $pass $hostname $port $socket --protocol=tcp -e "GRANT USAGE ON *.* TO $mon_uname@'%' IDENTIFIED BY '$mon_password';" 2>/dev/null
-  check_cmd $?  "Cannot create monitoring user"
+  check_cmd $?  "Cannot create the ProxySQL monitoring user"
   echo "update global_variables set variable_value='$mon_uname' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$mon_password' where variable_name='mysql-monitor_password'; " | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
-  check_cmd $?  "Cannot set mysql-monitor variables in ProxySQL"
+  check_cmd $?  "Cannot set the mysql-monitor variables in ProxySQL"
   echo "LOAD MYSQL VARIABLES TO RUNTIME;SAVE MYSQL VARIABLES TO DISK;" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
 
-  echo "Adding PXC nodes to ProxySQL"
-  #Adding PXC nodes to ProxySQL
+  echo "Adding the Percona XtraDB Cluster server nodes to ProxySQL"
+  #Adding Percona XtraDB Cluster nodes to ProxySQL
   wsrep_address=(`mysql  -u$usr $pass $hostname $port $socket --protocol=tcp -Bse "show status like 'wsrep_incoming_addresses'" 2>/dev/null | awk '{print $2}' | sed 's|,| |g'`)
   for i in "${wsrep_address[@]}"; do	
     ws_ip=`echo $i | cut -d':' -f1`
     ws_port=`echo $i | cut -d':' -f2`
     echo "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight) VALUES ('$ws_ip',10,$ws_port,1000);" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
-    check_cmd $? "Cannot add PXC node $ws_ip:$ws_port"
+    check_cmd $? "Failed to add the Percona XtraDB Cluster server node $ws_ip:$ws_port"
   done
   echo "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
 
-  #Adding PXC monitoring script
+  #Adding Percona XtraDB Cluster monitoring script
   if [[ ! -e `which galera_check.pl` ]];then 
     wget -O /var/lib/proxysql/galera_check.pl https://raw.githubusercontent.com/Tusamarco/proxy_sql_tools/master/galera_check.pl
     chmod 755 /var/lib/proxysql/galera_check.pl 
@@ -181,18 +182,18 @@ enable_proxysql(){
   echo "DELETE FROM SCHEDULER WHERE ID=10;" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
   check_cmd $?
   echo "INSERT  INTO SCHEDULER (id,active,interval_ms,filename,arg1) VALUES (10,1,2000,'$GALERA_CHK','-u=admin -p=admin -h=127.0.0.1 -H=10:W,10:R -P=6032 --execution_time=1 --retry_down=2 --retry_up=1 --main_segment=1 --debug=0  --log=/var/lib/proxysql/galera-check.log');" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
-  check_cmd $? "Cannot add PXC monitoring scheduler in ProxySQL"
+  check_cmd $? "Failed to add the Percona XtraDB Cluster monitoring scheduler in ProxySQL"
   echo "LOAD SCHEDULER TO RUNTIME;SAVE SCHEDULER TO DISK;" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
 
-  echo -e "\nConfiguring PXC user to connect through ProxySQL"
-  echo -n "Enter PXC user name: "
+  echo -e "\nConfiguring Percona XtraDB Cluster user to connect through ProxySQL"
+  echo -n "Enter Percona XtraDB Cluster user name: "
   read pxc_uname
-  echo -n "Enter PXC user password: "
+  echo -n "Enter Percona XtraDB Cluster user password: "
   read pxc_password
   mysql  -u$usr $pass $hostname $port $socket --protocol=tcp -e "GRANT ALL ON test.* TO $pxc_uname@'%' IDENTIFIED BY '$pxc_password';" 2>/dev/null
-  check_cmd $? "Cannot add PXC user : $pxc_uname"
+  check_cmd $? "Cannot add Percona XtraDB Cluster user : $pxc_uname (GRANT)"
   echo "INSERT INTO mysql_users (username,password,active,default_hostgroup,default_schema) values ('$pxc_uname','$pxc_password',1,10,'test');" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
-  check_cmd $? "Cannot add PXC user : $pxc_uname"
+  check_cmd $? "Cannot add Percona XtraDB Cluster user : $pxc_uname (mysql_users update)"
   if [ -f $PIDFILE ]; then
     echo "$PIDFILE pid file exists"
   else
@@ -206,7 +207,7 @@ disable_proxysql(){
   /etc/init.d/proxysql stop > /dev/null 2>&1 
 }
 
-#Starts PXC ProxySQL monitoring daemon
+#Starts Percona XtraDB Cluster ProxySQL monitoring daemon
 start_daemon(){
   check_proxysql
   while true
@@ -221,7 +222,7 @@ start_daemon(){
           ws_ip=`echo $i | cut -d':' -f1`
           ws_port=`echo $i | cut -d':' -f2`
           echo "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight) VALUES ('$ws_ip',10,$ws_port,1000);" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
-          check_cmd $? "Cannot add PXC node $ws_ip:$ws_port"
+          check_cmd $? "Cannot add Percona XtraDB Cluster server node $ws_ip:$ws_port"
         done
         echo "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
         break
@@ -231,13 +232,13 @@ start_daemon(){
   done
 }
 
-#Stops PXC ProxySQL monitoring daemon
+#Stops Percona XtraDB Cluster ProxySQL monitoring daemon
 stop_daemon(){
   if [ -f $PIDFILE ]; then
     PID=$(cat ${PIDFILE});
     kill ${PID}
   else
-    echo "PXC proxysql monitoring daemon is not running"
+    echo "Percona XtraDB Cluster ProxySQL monitoring daemon is not running"
   fi 
 }
 if [ "$enable" == 1 -o "$disable" == 1 -o "$start_daemon"  == 1 -o "$stop_daemon" == 1 ]; then
