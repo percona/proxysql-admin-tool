@@ -3,8 +3,11 @@
 # Version 1.0
 ###############################################################################################
 
-# User configurable variables
 PIDFILE=/tmp/pxc-proxysql-monitor.pid
+ADMIN_USER=`grep admin_credentials /etc/proxysql.cnf | sed 's|^[ \t]*admin_credentials=||;s|"||;s|"||' | cut -d':' -f1`
+ADMIN_PASS=`grep admin_credentials /etc/proxysql.cnf | sed 's|^[ \t]*admin_credentials=||;s|"||;s|"||' | cut -d':' -f2`
+PROXYSQL_IP=`grep mysql_ifaces /etc/proxysql.cnf | sed 's|^[ \t]*mysql_ifaces=||;s|"||' | cut -d':' -f1`
+PROXYSQL_PORT=`grep mysql_ifaces /etc/proxysql.cnf | sed 's|^[ \t]*mysql_ifaces=||;s|"||' | cut -d';' -f1 |  cut -d':' -f2`
 
 # Dispay script usage details
 usage () {
@@ -103,6 +106,10 @@ elif [[ -z "$port" ]]; then
   port="-P3306"
 fi
 
+if [[ -z "$socket" ]];then
+  tcp_str="--protocol=tcp"
+fi
+
 # Make sure only root can run this script
 if [ $(id -u) -ne 0 ]; then
   echo "ERROR: This script must be run as root!" 1>&2
@@ -116,8 +123,8 @@ check_cmd(){
 }
 
 check_proxysql(){
-  IS_ALIVE=`/etc/init.d/proxysql status | grep -c "ProxySQL is running"`
-  if [ "$IS_ALIVE" != "1" ]; then
+  IS_ALIVE=`service proxysql status | grep -c "ProxySQL is running"`
+  if pidof proxysql >/dev/null ; then
     echo "ProxySQL is not running, please check the error log at /var/lib/proxysql/proxysql.log"
     exit 1
   fi
@@ -126,9 +133,7 @@ check_proxysql(){
 # Auto configure Percona XtraDB Cluster nodes into ProxySQL
 enable_proxysql(){
   # Check for existing proxysql process
-  IS_ALIVE=`/etc/init.d/proxysql status | grep -c "ProxySQL is running"`
-  PROCESS_CHK=`ps ax | grep -v grep | grep -c proxysql`
-  if [ "$IS_ALIVE" == "1" -o "$PROCESS_CHK" != "0" ]; then
+  if  pidof proxysql >/dev/null ; then
     echo "A pre-existing ProxySQL process is present; please clean existing process"
     exit 1
   fi
@@ -143,7 +148,7 @@ enable_proxysql(){
 
   # Starting proxysql with default configuration
   echo -e "Starting ProxySQL.."
-  /etc/init.d/proxysql initial > /dev/null 2>&1 
+  service proxysql initial > /dev/null 2>&1 
   check_cmd $? "ProxySQL initialization failed"
 
   check_proxysql
@@ -153,40 +158,45 @@ enable_proxysql(){
   read mon_uname
   echo -n "Enter ProxySQL monitoring password: "
   read mon_password
-  mysql  -u$usr $pass $hostname $port $socket --protocol=tcp -e "GRANT USAGE ON *.* TO $mon_uname@'%' IDENTIFIED BY '$mon_password';" 2>/dev/null
+  mysql  -u$usr $pass $hostname $port $socket $tcp_str -e "GRANT USAGE ON *.* TO $mon_uname@'%' IDENTIFIED BY '$mon_password';" 2>/dev/null
   check_cmd $?  "Cannot create the ProxySQL monitoring user"
-  echo "update global_variables set variable_value='$mon_uname' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$mon_password' where variable_name='mysql-monitor_password'; " | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
+  echo "update global_variables set variable_value='$mon_uname' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$mon_password' where variable_name='mysql-monitor_password'; " | mysql  -h$PROXYSQL_IP -P$PROXYSQL_PORT  -u$ADMIN_USER  -p$ADMIN_PASS 2>/dev/null
   check_cmd $?  "Cannot set the mysql-monitor variables in ProxySQL"
-  echo "LOAD MYSQL VARIABLES TO RUNTIME;SAVE MYSQL VARIABLES TO DISK;" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
+  echo "LOAD MYSQL VARIABLES TO RUNTIME;SAVE MYSQL VARIABLES TO DISK;" | mysql  -h$PROXYSQL_IP -P$PROXYSQL_PORT  -u$ADMIN_USER  -p$ADMIN_PASS 2>/dev/null
 
   echo "Adding the Percona XtraDB Cluster server nodes to ProxySQL"
   # Adding Percona XtraDB Cluster nodes to ProxySQL
-  wsrep_address=(`mysql  -u$usr $pass $hostname $port $socket --protocol=tcp -Bse "show status like 'wsrep_incoming_addresses'" 2>/dev/null | awk '{print $2}' | sed 's|,| |g'`)
+  wsrep_address=(`mysql  -u$usr $pass $hostname $port $socket $tcp_str -Bse "show status like 'wsrep_incoming_addresses'" 2>/dev/null | awk '{print $2}' | sed 's|,| |g'`)
   for i in "${wsrep_address[@]}"; do	
     ws_ip=`echo $i | cut -d':' -f1`
     ws_port=`echo $i | cut -d':' -f2`
-    echo "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight) VALUES ('$ws_ip',10,$ws_port,1000);" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
+    echo "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight) VALUES ('$ws_ip',10,$ws_port,1000);" | mysql  -h$PROXYSQL_IP -P$PROXYSQL_PORT  -u$ADMIN_USER  -p$ADMIN_PASS 2>/dev/null
     check_cmd $? "Failed to add the Percona XtraDB Cluster server node $ws_ip:$ws_port"
   done
-  echo "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
+  echo "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;" | mysql  -h$PROXYSQL_IP -P$PROXYSQL_PORT  -u$ADMIN_USER  -p$ADMIN_PASS 2>/dev/null
 
   # Adding Percona XtraDB Cluster monitoring script
 
-  echo "DELETE FROM SCHEDULER WHERE ID=10;" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
+  echo "DELETE FROM SCHEDULER WHERE ID=10;" | mysql  -h$PROXYSQL_IP -P$PROXYSQL_PORT  -u$ADMIN_USER  -p$ADMIN_PASS 2>/dev/null
   check_cmd $?
-  echo "INSERT  INTO SCHEDULER (id,active,interval_ms,filename,arg1,arg2,arg3,arg4,arg5) VALUES (10,1,2000,'$PROXYSQL_GALERA_CHECK',10,10,${#wsrep_address[@]},1,'/var/lib/proxysql/galera-check.log');" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
+  echo "INSERT  INTO SCHEDULER (id,active,interval_ms,filename,arg1,arg2,arg3,arg4,arg5) VALUES (10,1,2000,'$PROXYSQL_GALERA_CHECK',10,10,${#wsrep_address[@]},1,'/var/lib/proxysql/galera-check.log');" | mysql  -h$PROXYSQL_IP -P$PROXYSQL_PORT  -u$ADMIN_USER  -p$ADMIN_PASS 2>/dev/null
   check_cmd $? "Failed to add the Percona XtraDB Cluster monitoring scheduler in ProxySQL"
-  echo "LOAD SCHEDULER TO RUNTIME;SAVE SCHEDULER TO DISK;" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
+  echo "LOAD SCHEDULER TO RUNTIME;SAVE SCHEDULER TO DISK;" | mysql  -h$PROXYSQL_IP -P$PROXYSQL_PORT  -u$ADMIN_USER  -p$ADMIN_PASS 2>/dev/null
 
   echo -e "\nConfiguring Percona XtraDB Cluster user to connect through ProxySQL"
   echo -n "Enter Percona XtraDB Cluster user name: "
   read pxc_uname
   echo -n "Enter Percona XtraDB Cluster user password: "
   read pxc_password
-  mysql  -u$usr $pass $hostname $port $socket --protocol=tcp -e "GRANT ALL ON test.* TO $pxc_uname@'%' IDENTIFIED BY '$pxc_password';" 2>/dev/null
-  check_cmd $? "Cannot add Percona XtraDB Cluster user : $pxc_uname (GRANT)"
-  echo "INSERT INTO mysql_users (username,password,active,default_hostgroup,default_schema) values ('$pxc_uname','$pxc_password',1,10,'test');" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
-  check_cmd $? "Cannot add Percona XtraDB Cluster user : $pxc_uname (mysql_users update)"
+  check_user=`mysql  -u$usr $pass $hostname $port $socket $tcp_str -Bse"SELECT user,host FROM mysql.user where user='test' and host='%';"`
+
+  if [[ -n "$check_user" ]]; then
+    mysql  -u$usr $pass $hostname $port $socket $tcp_str -e "GRANT CREATE, DROP, ALTER, TRUNCATE, RENAME, SELECT,INSERT,DELETE,UPDATE, LOCK TABLE  ON test.* TO $pxc_uname@'%' IDENTIFIED BY '$pxc_password';" 2>/dev/null
+    check_cmd $? "Cannot add Percona XtraDB Cluster user : $pxc_uname (GRANT)"
+    echo "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$pxc_uname','$pxc_password',1,10);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS TO DISK;" | mysql  -h$PROXYSQL_IP -P$PROXYSQL_PORT  -u$ADMIN_USER  -p$ADMIN_PASS 2>/dev/null
+    check_cmd $? "Cannot add Percona XtraDB Cluster user : $pxc_uname (mysql_users update)"
+  fi
+
   if [ -f $PIDFILE ]; then
     echo "$PIDFILE pid file exists"
   else
@@ -197,7 +207,7 @@ enable_proxysql(){
 
 # Stop proxysql service
 disable_proxysql(){
-  /etc/init.d/proxysql stop > /dev/null 2>&1 
+  service proxysql stop > /dev/null 2>&1 
 }
 
 # Starts Percona XtraDB Cluster ProxySQL monitoring daemon
@@ -206,18 +216,18 @@ start_daemon(){
   while true
   do
     check_proxysql
-    current_hosts=(`mysql -h127.0.0.1 -P6032 -uadmin -padmin -Bse"SELECT hostname,port FROM mysql_servers WHERE status='ONLINE'" | sed 's|\t|:|g' | tr '\n' ' '`)
-    wsrep_address=(`mysql  -u$usr $pass $hostname $port $socket --protocol=tcp -Bse "SHOW STATUS LIKE 'wsrep_incoming_addresses'" 2>/dev/null | awk '{print $2}' | sed 's|,| |g'`)
+    current_hosts=(`mysql  -h$PROXYSQL_IP -P$PROXYSQL_PORT  -u$ADMIN_USER  -p$ADMIN_PASS -Bse"SELECT hostname,port FROM mysql_servers WHERE status='ONLINE'" | sed 's|\t|:|g' | tr '\n' ' '`)
+    wsrep_address=(`mysql  -u$usr $pass $hostname $port $socket $tcp_str -Bse "SHOW STATUS LIKE 'wsrep_incoming_addresses'" 2>/dev/null | awk '{print $2}' | sed 's|,| |g'`)
     for i in "${wsrep_address[@]}"; do
       if [[ ! " ${current_hosts[@]} " =~ " ${i} " ]]; then
-        echo "DELETE FROM mysql_servers;" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
+        echo "DELETE FROM mysql_servers;" | mysql  -h$PROXYSQL_IP -P$PROXYSQL_PORT  -u$ADMIN_USER  -p$ADMIN_PASS 2>/dev/null
         for i in "${wsrep_address[@]}"; do	
           ws_ip=`echo $i | cut -d':' -f1`
           ws_port=`echo $i | cut -d':' -f2`
-          echo "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight) VALUES ('$ws_ip',10,$ws_port,1000);" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
+          echo "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight) VALUES ('$ws_ip',10,$ws_port,1000);" | mysql  -h$PROXYSQL_IP -P$PROXYSQL_PORT  -u$ADMIN_USER  -p$ADMIN_PASS 2>/dev/null
           check_cmd $? "Cannot add Percona XtraDB Cluster server node $ws_ip:$ws_port"
         done
-        echo "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
+        echo "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;" | mysql  -h$PROXYSQL_IP -P$PROXYSQL_PORT  -u$ADMIN_USER  -p$ADMIN_PASS 2>/dev/null
         break
       fi
     done
