@@ -159,7 +159,7 @@ enable_proxysql(){
   echo "LOAD MYSQL VARIABLES TO RUNTIME;SAVE MYSQL VARIABLES TO DISK;" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
 
   echo "Adding the Percona XtraDB Cluster server nodes to ProxySQL"
-  #Adding Percona XtraDB Cluster nodes to ProxySQL
+  # Adding Percona XtraDB Cluster nodes to ProxySQL
   wsrep_address=(`mysql  -u$usr $pass $hostname $port $socket --protocol=tcp -Bse "show status like 'wsrep_incoming_addresses'" 2>/dev/null | awk '{print $2}' | sed 's|,| |g'`)
   for i in "${wsrep_address[@]}"; do	
     ws_ip=`echo $i | cut -d':' -f1`
@@ -169,7 +169,7 @@ enable_proxysql(){
   done
   echo "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
 
-  #Adding Percona XtraDB Cluster monitoring script
+  # Adding Percona XtraDB Cluster monitoring script
   if [[ ! -e `which galera_check.pl` ]];then 
     wget -O /var/lib/proxysql/galera_check.pl https://raw.githubusercontent.com/Tusamarco/proxy_sql_tools/master/galera_check.pl
     chmod 755 /var/lib/proxysql/galera_check.pl 
@@ -202,12 +202,12 @@ enable_proxysql(){
   fi
 }
 
-#Stop proxysql service
+# Stop proxysql service
 disable_proxysql(){
   /etc/init.d/proxysql stop > /dev/null 2>&1 
 }
 
-#Starts Percona XtraDB Cluster ProxySQL monitoring daemon
+# Starts Percona XtraDB Cluster ProxySQL monitoring daemon
 start_daemon(){
   check_proxysql
   while true
@@ -232,7 +232,7 @@ start_daemon(){
   done
 }
 
-#Stops Percona XtraDB Cluster ProxySQL monitoring daemon
+# Stops Percona XtraDB Cluster ProxySQL monitoring daemon
 stop_daemon(){
   if [ -f $PIDFILE ]; then
     PID=$(cat ${PIDFILE});
