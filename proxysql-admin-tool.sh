@@ -4,6 +4,7 @@
 ###############################################################################################
 
 PIDFILE=/tmp/pxc-proxysql-monitor.pid
+rm -rf ${PIDFILE}
 ADMIN_USER=`grep admin_credentials /etc/proxysql.cnf | sed 's|^[ \t]*admin_credentials=||;s|"||;s|"||' | cut -d':' -f1`
 ADMIN_PASS=`grep admin_credentials /etc/proxysql.cnf | sed 's|^[ \t]*admin_credentials=||;s|"||;s|"||' | cut -d':' -f2`
 PROXYSQL_IP=`grep mysql_ifaces /etc/proxysql.cnf | sed 's|^[ \t]*mysql_ifaces=||;s|"||' | cut -d':' -f1`
@@ -189,11 +190,13 @@ enable_proxysql(){
   read pxc_password
   check_user=`mysql  -u$usr $pass $hostname $port $socket $tcp_str -Bse"SELECT user,host FROM mysql.user where user='test' and host='%';"`
 
-  if [[ -n "$check_user" ]]; then
+  if [[ -z "$check_user" ]]; then
     mysql  -u$usr $pass $hostname $port $socket $tcp_str -e "GRANT CREATE, DROP, ALTER, TRUNCATE, RENAME, SELECT,INSERT,DELETE,UPDATE, LOCK TABLE  ON test.* TO $pxc_uname@'%' IDENTIFIED BY '$pxc_password';" 2>/dev/null
     check_cmd $? "Cannot add Percona XtraDB Cluster user : $pxc_uname (GRANT)"
     echo "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$pxc_uname','$pxc_password',1,10);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS TO DISK;" | mysql  -h$PROXYSQL_IP -P$PROXYSQL_PORT  -u$ADMIN_USER  -p$ADMIN_PASS 2>/dev/null
     check_cmd $? "Cannot add Percona XtraDB Cluster user : $pxc_uname (mysql_users update)"
+  else
+    echo "User ${pxc_uname}@'%' already present in Percona XtraDB Cluster"
   fi
 
   if [ -f $PIDFILE ]; then
@@ -239,6 +242,7 @@ stop_daemon(){
   if [ -f $PIDFILE ]; then
     PID=$(cat ${PIDFILE});
     kill ${PID}
+    rm -rf ${PIDFILE}
   else
     echo "Percona XtraDB Cluster ProxySQL monitoring daemon is not running"
   fi 
