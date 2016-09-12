@@ -133,11 +133,12 @@ enable_proxysql(){
     exit 1
   fi
 
-  if [[ ! -e `which proxysql` ]];then 
-    echo "The proxysql binary was not found, please install the ProxySQL package" 
+  if [[ ! -e `which proxysql` ]] && [[ ! -e `which proxysql_galera_checker` ]] ;then
+    echo "The proxysql binaries were not found, please install the ProxySQL package" 
     exit 1
   else
     PROXYSQL=`which proxysql`
+    PROXYSQ_GALERA_CHECK=`which proxysql_galera_checker`
   fi
 
   # Starting proxysql with default configuration
@@ -170,18 +171,10 @@ enable_proxysql(){
   echo "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
 
   # Adding Percona XtraDB Cluster monitoring script
-  if [[ ! -e `which galera_check.pl` ]];then 
-    wget -O /var/lib/proxysql/galera_check.pl https://raw.githubusercontent.com/Tusamarco/proxy_sql_tools/master/galera_check.pl
-    chmod 755 /var/lib/proxysql/galera_check.pl 
-    ln -s /var/lib/proxysql/galera_check.pl /usr/bin/galera_check.pl
-    GALERA_CHK=`which galera_check.pl`
-  else
-    GALERA_CHK=`which galera_check.pl`
-  fi
 
   echo "DELETE FROM SCHEDULER WHERE ID=10;" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
   check_cmd $?
-  echo "INSERT  INTO SCHEDULER (id,active,interval_ms,filename,arg1) VALUES (10,1,2000,'$GALERA_CHK','-u=admin -p=admin -h=127.0.0.1 -H=10:W,10:R -P=6032 --execution_time=1 --retry_down=2 --retry_up=1 --main_segment=1 --debug=0  --log=/var/lib/proxysql/galera-check.log');" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
+  echo "INSERT  INTO SCHEDULER (id,active,interval_ms,filename,arg1,arg2,arg3,arg4,arg5) VALUES (10,1,2000,'$PROXYSQ_GALERA_CHECK',10,10,${#wsrep_address[@]},1,'/var/lib/proxysql/galera-check.log');" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
   check_cmd $? "Failed to add the Percona XtraDB Cluster monitoring scheduler in ProxySQL"
   echo "LOAD SCHEDULER TO RUNTIME;SAVE SCHEDULER TO DISK;" | mysql -h127.0.0.1 -P6032 -uadmin -padmin 2>/dev/null
 
