@@ -178,7 +178,7 @@ enable_proxysql(){
   check_cmd $?  "Cannot set the mysql-monitor variables in ProxySQL"
   echo "LOAD MYSQL VARIABLES TO RUNTIME;SAVE MYSQL VARIABLES TO DISK;" | mysql  -h$PROXYSQL_IP -P$PROXYSQL_PORT  -u$ADMIN_USER  -p$ADMIN_PASS 2>/dev/null
 
-  echo "Adding the Percona XtraDB Cluster server nodes to ProxySQL"
+  echo -e "\nAdding the Percona XtraDB Cluster server nodes to ProxySQL"
   # Adding Percona XtraDB Cluster nodes to ProxySQL
   wsrep_address=(`mysql  -u$usr $pass $hostname $port $socket $tcp_str -Bse "show status like 'wsrep_incoming_addresses'" 2>/dev/null | awk '{print $2}' | sed 's|,| |g'`)
   for i in "${wsrep_address[@]}"; do	
@@ -222,12 +222,12 @@ enable_proxysql(){
   fi
 
   if [ -f $PIDFILE ]; then
-    echo "$PIDFILE pid file exists"
+    echo -e "\n$PIDFILE pid file exists"
     echo "Percona XtraDB Cluster ProxySQL monitoring daemon not started"
   else
     start_daemon  > /dev/null 2>&1 &
     echo $! > ${PIDFILE}
-    echo "Percona XtraDB Cluster ProxySQL monitoring daemon started"
+    echo -e "\nPercona XtraDB Cluster ProxySQL monitoring daemon started"
   fi
 }
 
