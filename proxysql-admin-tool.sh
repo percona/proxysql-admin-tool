@@ -101,6 +101,11 @@ do
   esac
 done
 
+if [[ ! -e `which mysql` ]] ;then
+  echo "mysql client is not found, please install the mysql client package" 
+  exit 1
+fi
+
 # Check the options gathered from the command line
 if [ -z "$usr" ];then
   echo "The Percona XtraDB Cluster username is required!"
