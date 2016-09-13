@@ -3,6 +3,12 @@
 # Version 1.0
 ###############################################################################################
 
+# Make sure only root can run this script
+if [ $(id -u) -ne 0 ]; then
+  echo "ERROR: This script must be run as root!" 1>&2
+  exit
+fi
+
 PIDFILE=/tmp/pxc-proxysql-monitor.pid
 ADMIN_USER=`grep admin_credentials /etc/proxysql.cnf | sed 's|^[ \t]*admin_credentials=||;s|"||;s|"||' | cut -d':' -f1`
 ADMIN_PASS=`grep admin_credentials /etc/proxysql.cnf | sed 's|^[ \t]*admin_credentials=||;s|"||;s|"||' | cut -d':' -f2`
@@ -45,14 +51,14 @@ do
     -p | --password )
     case "$2" in
       "")
-      read -s -p "Enter password:" INPUT_PASS
+      read -s -p "Enter PXC password:" INPUT_PASS
       if [ -z "$INPUT_PASS" ]; then
         pass=""
-	printf "\nContinuing without password...\n";
+	printf "\nContinuing without PXC password...\n";
       else
         pass="-p$INPUT_PASS"
       fi
-      printf "\n\n"
+      printf "\n"
       ;;
       *)
       pass="$2"
@@ -97,7 +103,7 @@ done
 
 # Check the options gathered from the command line
 if [ -z "$usr" ];then
-  echo "The Percona XtraDB Cluster username is a required option!"
+  echo "The Percona XtraDB Cluster username is required!"
   usage
   exit
 elif [[ -z "$hostname" ]]; then
@@ -108,12 +114,6 @@ fi
 
 if [[ -z "$socket" ]];then
   tcp_str="--protocol=tcp"
-fi
-
-# Make sure only root can run this script
-if [ $(id -u) -ne 0 ]; then
-  echo "ERROR: This script must be run as root!" 1>&2
-  exit
 fi
 
 check_cmd(){
