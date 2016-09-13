@@ -155,8 +155,18 @@ enable_proxysql(){
   echo -e "\nConfiguring ProxySQL monitoring user.."
   echo -n "Enter ProxySQL monitoring username: "
   read mon_uname
-  echo -n "Enter ProxySQL monitoring password: "
-  read mon_password
+  while [[ -z "$mon_uname" ]]
+  do
+    echo -n "No input entered, Enter ProxySQL monitoring username: "
+    read mon_uname
+  done
+
+  read -s -p "Enter ProxySQL monitoring password: " mon_password
+  while [[ -z "$mon_password" ]]
+  do
+    read -s -p "No input entered, Enter ProxySQL monitoring password: " mon_password
+  done
+
   mysql  -u$usr $pass $hostname $port $socket $tcp_str -e "GRANT USAGE ON *.* TO $mon_uname@'%' IDENTIFIED BY '$mon_password';" 2>/dev/null
   check_cmd $?  "Cannot create the ProxySQL monitoring user"
   echo "update global_variables set variable_value='$mon_uname' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$mon_password' where variable_name='mysql-monitor_password'; " | mysql  -h$PROXYSQL_IP -P$PROXYSQL_PORT  -u$ADMIN_USER  -p$ADMIN_PASS 2>/dev/null
@@ -185,8 +195,16 @@ enable_proxysql(){
   echo -e "\nConfiguring Percona XtraDB Cluster user to connect through ProxySQL"
   echo -n "Enter Percona XtraDB Cluster user name: "
   read pxc_uname
-  echo -n "Enter Percona XtraDB Cluster user password: "
-  read pxc_password
+  while [[ -z "$pxc_uname" ]]
+  do
+    echo -n "No input entered, Enter Percona XtraDB Cluster user name: "
+    read pxc_uname
+  done
+  read -s -p "Enter Percona XtraDB Cluster user password: " pxc_password
+  while [[ -z "$pxc_password" ]]
+  do
+    read -s -p "No input entered, Enter Percona XtraDB Cluster user password: " pxc_password
+  done
   check_user=`mysql  -u$usr $pass $hostname $port $socket $tcp_str -Bse"SELECT user,host FROM mysql.user where user='$pxc_uname' and host='%';"`
 
   if [[ -z "$check_user" ]]; then
