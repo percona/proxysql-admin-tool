@@ -223,9 +223,11 @@ enable_proxysql(){
 
   if [ -f $PIDFILE ]; then
     echo "$PIDFILE pid file exists"
+    echo "Percona XtraDB Cluster ProxySQL monitoring daemon not started"
   else
     start_daemon  > /dev/null 2>&1 &
     echo $! > ${PIDFILE}
+    echo "Percona XtraDB Cluster ProxySQL monitoring daemon started"
   fi
 }
 
@@ -272,24 +274,30 @@ stop_daemon(){
 if [ "$enable" == 1 -o "$disable" == 1 -o "$start_daemon"  == 1 -o "$stop_daemon" == 1 ]; then
   if [ "$enable" == 1 ];then
     enable_proxysql
+    echo "ProxySQL configuration completed!"
   fi
 
   if [ "$disable" == 1 ];then
     disable_proxysql
+    echo "ProxySQL configuration removed!"
   fi
 
   if [ "$start_daemon" == 1 ];then
     if [ -f $PIDFILE ]; then
       echo "$PIDFILE pid file exists"
+      echo "Percona XtraDB Cluster ProxySQL monitoring daemon not started"
     else
       start_daemon  > /dev/null 2>&1 &
       echo $! > ${PIDFILE}
+      echo "Percona XtraDB Cluster ProxySQL monitoring daemon started"
     fi
   fi
 
   if [ "$stop_daemon" == 1 ];then
     stop_daemon
+    echo "Percona XtraDB Cluster ProxySQL monitoring daemon stopped"
   fi
+  
 else
   usage
 fi
