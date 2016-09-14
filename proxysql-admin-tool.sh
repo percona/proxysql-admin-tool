@@ -10,10 +10,10 @@ if [ $(id -u) -ne 0 ]; then
 fi
 
 PIDFILE=/tmp/pxc-proxysql-monitor.pid
-ADMIN_USER=`grep admin_credentials /etc/proxysql.cnf | sed 's|^[ \t]*admin_credentials=||;s|"||;s|"||' | cut -d':' -f1`
-ADMIN_PASS=`grep admin_credentials /etc/proxysql.cnf | sed 's|^[ \t]*admin_credentials=||;s|"||;s|"||' | cut -d':' -f2`
-PROXYSQL_IP=`grep mysql_ifaces /etc/proxysql.cnf | sed 's|^[ \t]*mysql_ifaces=||;s|"||' | cut -d':' -f1`
-PROXYSQL_PORT=`grep mysql_ifaces /etc/proxysql.cnf | sed 's|^[ \t]*mysql_ifaces=||;s|"||' | cut -d';' -f1 |  cut -d':' -f2`
+ADMIN_USER="admin"
+ADMIN_PASS="admin"
+PROXYSQL_IP="127.0.0.1"
+PROXYSQL_PORT="6033"
 
 # Dispay script usage details
 usage () {
@@ -231,8 +231,12 @@ enable_proxysql(){
   fi
 }
 
-# Stop proxysql service
+# Removing PXC configuration from proxysql and shutting down proxysql service
 disable_proxysql(){
+  echo "DELETE FROM mysql_users" | mysql  -h$PROXYSQL_IP -P$PROXYSQL_PORT  -u$ADMIN_USER  -p$ADMIN_PASS 2>/dev/null
+  check_cmd $? "Cannot delete Percona XtraDB Cluster users from ProxySQL"
+  echo "DELETE FROM mysql_servers" | mysql  -h$PROXYSQL_IP -P$PROXYSQL_PORT  -u$ADMIN_USER  -p$ADMIN_PASS 2>/dev/null
+  check_cmd $? "Cannot delete Percona XtraDB Cluster nodes from ProxySQL"
   service proxysql stop > /dev/null 2>&1 
 }
 
@@ -279,7 +283,7 @@ if [ "$enable" == 1 -o "$disable" == 1 -o "$start_daemon"  == 1 -o "$stop_daemon
 
   if [ "$disable" == 1 ];then
     disable_proxysql
-    echo "ProxySQL configuration removed!"
+    echo "ProxySQL configuration removed and stopped proxysql daemon!"
   fi
 
   if [ "$start_daemon" == 1 ];then
