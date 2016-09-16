@@ -9,12 +9,6 @@ if [ $(id -u) -ne 0 ]; then
   exit
 fi
 
-PIDFILE=/tmp/pxc-proxysql-monitor.pid
-ADMIN_USER="admin"
-ADMIN_PASS="admin"
-PROXYSQL_IP="127.0.0.1"
-PROXYSQL_PORT="6033"
-
 # Dispay script usage details
 usage () {
   echo "Usage: [ options ]"
@@ -34,7 +28,7 @@ usage () {
 if ! getopt --test
   then
   go_out="$(getopt --options=u:p::S:h:P:ed \
-  --longoptions=user:,password::,socket:,host:,port:,enable,disable,start,stop,help: \
+  --longoptions=user:,password::,socket:,host:,port:,enable,disable,start,stop,status,help: \
   --name="$(basename "$0")" -- "$@")"
   test $? -eq 0 || exit 1
   eval set -- $go_out
@@ -94,6 +88,10 @@ do
     shift
     stop_daemon=1
     ;;
+    --status )
+    shift
+    status_daemon=1
+    ;;
     --help )
     usage
     exit 0
@@ -120,6 +118,12 @@ fi
 if [[ -z "$socket" ]];then
   tcp_str="--protocol=tcp"
 fi
+
+PIDFILE=/tmp/pxc-proxysql-monitor.pid
+ADMIN_USER="admin"
+ADMIN_PASS="admin"
+PROXYSQL_IP="127.0.0.1"
+PROXYSQL_PORT="6033"
 
 check_cmd(){
   MPID=$1
@@ -275,7 +279,22 @@ stop_daemon(){
     echo "Percona XtraDB Cluster ProxySQL monitoring daemon is not running"
   fi 
 }
-if [ "$enable" == 1 -o "$disable" == 1 -o "$start_daemon"  == 1 -o "$stop_daemon" == 1 ]; then
+
+# Check status of Percona XtraDB Cluster ProxySQL monitoring daemon
+
+status_daemon(){
+  if [ -f $PIDFILE ] ; then
+    PID=`cat $PIDFILE`
+    if [ -z $PID ]; then
+      if ps -p $PID > /dev/null; then
+        echo "Percona XtraDB Cluster ProxySQL monitoring daemon is running ($PID)"; 
+      fi
+    fi
+  fi
+}
+
+
+if [ "$enable" == 1 -o "$disable" == 1 -o "$start_daemon"  == 1 -o "$stop_daemon" == 1 -o "$status_daemon" == 1 ]; then
   if [ "$enable" == 1 ];then
     enable_proxysql
     echo "ProxySQL configuration completed!"
@@ -301,7 +320,10 @@ if [ "$enable" == 1 -o "$disable" == 1 -o "$start_daemon"  == 1 -o "$stop_daemon
     stop_daemon
     echo "Percona XtraDB Cluster ProxySQL monitoring daemon stopped"
   fi
-  
+
+  if [ "$status_daemon" == 1 ];then
+    status_daemon
+  fi
 else
   usage
 fi
