@@ -32,7 +32,7 @@ This script will accept five different options to configure/monitor Percona Xtra
 
   PS : Please make sure to use super user credentials from PXC to setup to create default users. 
 ```bash  
-  $ ./proxysql-admin-tool-v1.sh -uadmin -padmin -h127.0.0.1 -P6032 --enable
+  $ ./proxysql-admin -uadmin -padmin -h127.0.0.1 -P6032 --enable
 
   Please provide Percona XtraDB Cluster connection parameters to configure PXC nodes into ProxySQL in following format
   <username>:<password>:<hostname>:<port> : root:root:208.88.225.240:3306
@@ -55,9 +55,9 @@ This script will accept five different options to configure/monitor Percona Xtra
   
   It will remove Percona XtraDB cluster nodes from ProxySQL and stop ProxySQL monitoring daemon.
 ```bash
-  $ ./proxysql-admin-tool-v1.sh -uadmin -padmin -h127.0.0.1 -P6032 --disable
+  $ ./proxysql-admin -uadmin -padmin -h127.0.0.1 -P6032 --disable
   ProxySQL configuration removed! 
-  $ ./proxysql-admin-tool-v1.sh -uadmin -padmin -h127.0.0.1 -P6032 --status
+  $ ./proxysql-admin -uadmin -padmin -h127.0.0.1 -P6032 --status
   Percona XtraDB Cluster ProxySQL monitoring daemon is not running
   $ 
 ```
@@ -65,7 +65,7 @@ This script will accept five different options to configure/monitor Percona Xtra
   
   Starts Percona XtraDB Cluster ProxySQL monitoring daemon
 ```bash
-  $ ./proxysql-admin-tool-v1.sh -uadmin -padmin -h127.0.0.1 -P6032 --start
+  $ ./proxysql-admin -uadmin -padmin -h127.0.0.1 -P6032 --start
   mysql: [Warning] Using a password on the command line interface can be insecure.
 
   Please provide Percona XtraDB Cluster connection parameters to configure PXC nodes into ProxySQL in following format
@@ -78,7 +78,7 @@ This script will accept five different options to configure/monitor Percona Xtra
   
   Stops Percona XtraDB Cluster ProxySQL monitoring daemon
 ```bash
-  $ ./proxysql-admin-tool-v1.sh -uadmin -padmin -h127.0.0.1 -P6032 --stop
+  $ ./proxysql-admin -uadmin -padmin -h127.0.0.1 -P6032 --stop
   Percona XtraDB Cluster ProxySQL monitoring daemon stopped
   $ 
 ```
@@ -86,7 +86,7 @@ This script will accept five different options to configure/monitor Percona Xtra
   
   Checks status of Percona XtraDB Cluster ProxySQL monitoring daemon
 ```bash
-  $ ./proxysql-admin-tool-v1.sh -uadmin -padmin -h127.0.0.1 -P6032 --status
+  $ ./proxysql-admin -uadmin -padmin -h127.0.0.1 -P6032 --status
   Percona XtraDB Cluster ProxySQL monitoring daemon is running (13355)
   $ 
 ```
