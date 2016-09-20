@@ -8,13 +8,17 @@ proxysql-admin-tool usage info
 ```bash
 Usage: [ options ]
 Options:
- --user=user_name, -u user_name         User to use when connecting to the ProxySQL service
- --password[=password], -p[password]    Password to use when connecting to the ProxySQL service
- --port=port_num, -P port_num           Port to use when connecting to the ProxySQL service
- --host=host_name, -h host_name         Hostname to use when connecting to the ProxySQL service
+ --proxysql-user=user_name              User to use when connecting to the ProxySQL service
+ --proxysql-password[=password]         Password to use when connecting to the ProxySQL service
+ --proxysql-port=port_num               Port to use when connecting to the ProxySQL service
+ --proxysql-host=host_name              Hostname to use when connecting to the ProxySQL service
+ --cluster-user=user_name               User to use when connecting to the Percona XTraDB Cluster node
+ --cluster-password[=password]          Password to use when connecting to the Percona XTraDB Cluster node
+ --cluster-port=port_num                Port to use when connecting to the Percona XTraDB Cluster node
+ --cluster-host=host_name               Hostname to use when connecting to the Percona XTraDB Cluster node
  --enable                               Auto-configure Percona XtraDB Cluster nodes into ProxySQL
  --disable                              Remove Percona XtraDB Cluster configurations from ProxySQL
- --start                                Starts Percona XtraDB Cluster ProxySQL monitoring daemon
+ --start                                Starts Percona XTraDB Cluster ProxySQL monitoring daemon
  --stop                                 Stops Percona XtraDB Cluster ProxySQL monitoring daemon
  --status                               Checks Percona XtraDB Cluster ProxySQL monitoring daemon status.
 ```
@@ -28,36 +32,40 @@ This script will accept five different options to configure/monitor Percona Xtra
   __1) --enable__
 
   It will configure Percona XtraDB Cluster nodes into ProxySQL and start ProxySQL monitoring daemon. ProxySQL monitoring daemon will be running as backgound service to check cluster node membership and re-configure ProxySQL if cluster membership changes occur.
-  It will also add two new users into Percona XtraDB Cluster. One is for monitoring cluster nodes through ProxySQL and another for connecting to PXC node via ProxySQL console.
+  It will also add two new users into Percona XtraDB Cluster with USAGE privilege. One is for monitoring cluster nodes through ProxySQL and another for connecting to PXC node via ProxySQL console.
 
-  PS : Please make sure to use super user credentials from PXC to setup to create default users. 
+  PS : Please make sure to use super user credentials from PXC to setup to create default users.
 ```bash  
-  $ ./proxysql-admin -uadmin -padmin -h127.0.0.1 -P6032 --enable
+$  ./proxysql-admin --proxysql-user=admin --proxysql-password=admin  --proxysql-port=6032 --proxysql-host=127.0.0.1 --cluster-user=root --cluster-password=root --cluster-port=3306 --cluster-host=10.101.6.1 --enable
 
-  Please provide Percona XtraDB Cluster connection parameters to configure PXC nodes into ProxySQL in following format
-  <username>:<password>:<hostname>:<port> : root:root:208.88.225.240:3306
+Configuring ProxySQL monitoring user..
+Enter ProxySQL monitoring username: monitor
+Enter ProxySQL monitoring password: 
 
-  Configuring ProxySQL monitoring user..
-  Enter ProxySQL monitoring username: monitor
-  Enter ProxySQL monitoring password: 
+User monitor@'%' has been added with USAGE privilege
 
-  Adding the Percona XtraDB Cluster server nodes to ProxySQL
 
-  Configuring Percona XtraDB Cluster user to connect through ProxySQL
-  Enter Percona XtraDB Cluster user name: proxysql_user 
-  Enter Percona XtraDB Cluster user password:
 
-  Percona XtraDB Cluster ProxySQL monitoring daemon started
-  ProxySQL configuration completed!
-  $ 
+Adding the Percona XtraDB Cluster server nodes to ProxySQL
+
+Configuring Percona XtraDB Cluster user to connect through ProxySQL
+Enter Percona XtraDB Cluster user name: proxysql_user
+Enter Percona XtraDB Cluster user password: 
+
+User proxysql_user@'%' has been added with USAGE privilege, please make sure to grant appropriate privileges
+
+
+Percona XtraDB Cluster ProxySQL monitoring daemon started
+ProxySQL configuration completed!
+$
 ```
   __2) --disable__ 
   
   It will remove Percona XtraDB cluster nodes from ProxySQL and stop ProxySQL monitoring daemon.
 ```bash
-  $ ./proxysql-admin -uadmin -padmin -h127.0.0.1 -P6032 --disable
+  $ ./proxysql-admin --proxysql-user=admin --proxysql-password=admin  --proxysql-port=6032 --proxysql-host=127.0.0.1 --cluster-user=root --cluster-password=root --cluster-port=3306 --cluster-host=10.101.6.1 --disable
   ProxySQL configuration removed! 
-  $ ./proxysql-admin -uadmin -padmin -h127.0.0.1 -P6032 --status
+  $ ./proxysql-admin --proxysql-user=admin --proxysql-password=admin  --proxysql-port=6032 --proxysql-host=127.0.0.1 --cluster-user=root --cluster-password=root --cluster-port=3306 --cluster-host=10.101.6.1 --status
   Percona XtraDB Cluster ProxySQL monitoring daemon is not running
   $ 
 ```
@@ -65,11 +73,7 @@ This script will accept five different options to configure/monitor Percona Xtra
   
   Starts Percona XtraDB Cluster ProxySQL monitoring daemon
 ```bash
-  $ ./proxysql-admin -uadmin -padmin -h127.0.0.1 -P6032 --start
-  mysql: [Warning] Using a password on the command line interface can be insecure.
-
-  Please provide Percona XtraDB Cluster connection parameters to configure PXC nodes into ProxySQL in following format
-  <username>:<password>:<hostname>:<port> : root:root:208.88.225.240:3306
+  $ ./proxysql-admin --proxysql-user=admin --proxysql-password=admin  --proxysql-port=6032 --proxysql-host=127.0.0.1 --cluster-user=root --cluster-password=root --cluster-port=3306 --cluster-host=10.101.6.1 --start
   Percona XtraDB Cluster ProxySQL monitoring daemon started
   $ 
 ```
@@ -78,7 +82,7 @@ This script will accept five different options to configure/monitor Percona Xtra
   
   Stops Percona XtraDB Cluster ProxySQL monitoring daemon
 ```bash
-  $ ./proxysql-admin -uadmin -padmin -h127.0.0.1 -P6032 --stop
+  $ ./proxysql-admin --proxysql-user=admin --proxysql-password=admin  --proxysql-port=6032 --proxysql-host=127.0.0.1 --cluster-user=root --cluster-password=root --cluster-port=3306 --cluster-host=10.101.6.1 --stop
   Percona XtraDB Cluster ProxySQL monitoring daemon stopped
   $ 
 ```
@@ -86,7 +90,7 @@ This script will accept five different options to configure/monitor Percona Xtra
   
   Checks status of Percona XtraDB Cluster ProxySQL monitoring daemon
 ```bash
-  $ ./proxysql-admin -uadmin -padmin -h127.0.0.1 -P6032 --status
+  $ ./proxysql-admin --proxysql-user=admin --proxysql-password=admin  --proxysql-port=6032 --proxysql-host=127.0.0.1 --cluster-user=root --cluster-password=root --cluster-port=3306 --cluster-host=10.101.6.1 --status
   Percona XtraDB Cluster ProxySQL monitoring daemon is running (13355)
   $ 
 ```
