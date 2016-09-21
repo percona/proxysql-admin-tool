@@ -1,9 +1,9 @@
-proxysql-admin-tool
-===================
+ProxySQL Admin
+==============
 
-proxysql-admin-tool is one step solution to configure Percona XtraDB cluster nodes into ProxySQL.
+The ProxySQL Admin (proxysql-admin) solution configures Percona XtraDB cluster nodes into ProxySQL.
 
-proxysql-admin-tool usage info
+proxysql-admin usage info
 
 ```bash
 Usage: [ options ]
@@ -30,12 +30,12 @@ This script will accept two different options to configure Percona XtraDB Cluste
 
   __1) --enable__
 
-  It will configure Percona XtraDB Cluster nodes into ProxySQL database and add two cluster monitoring scripts into ProxySQL scheduler table for checking cluster status.
+  This option will configure Percona XtraDB Cluster nodes into the ProxySQL database, and add two cluster monitoring scripts into the ProxySQL scheduler table for checking the cluster status.
   _scheduler script info :_
-  * proxysql_node_monitor : will be checking cluster node membership and re-configure ProxySQL if cluster membership changes occur
-  * proxysql_galera_checker : will be checking desynced nodes and temporarily deactivate them
+  * proxysql_node_monitor : will check cluster node membership, and re-configure ProxySQL if cluster membership changes occur
+  * proxysql_galera_checker : will check desynced nodes, and temporarily deactivate them
 
-  It will also add two new users into Percona XtraDB Cluster with USAGE privilege. One is for monitoring cluster nodes through ProxySQL and another for connecting to PXC node via ProxySQL console.
+  It will also add two new users into Percona XtraDB Cluster with USAGE privilege. One is for monitoring cluster nodes through ProxySQL, and the other is for connecting to PXC node via ProxySQL console.
 
   PS : Please make sure to use super user credentials from PXC to setup to create default users.
 ```bash  
@@ -64,7 +64,7 @@ $
 ```
   __2) --disable__ 
   
-  It will remove Percona XtraDB cluster nodes from ProxySQL and stop ProxySQL monitoring daemon.
+  This option will remove Percona XtraDB cluster nodes from ProxySQL and stop the ProxySQL monitoring daemon.
 ```bash
   $ ./proxysql-admin --proxysql-user=admin --proxysql-password=admin  --proxysql-port=6032 --proxysql-host=127.0.0.1 --cluster-user=root --cluster-password=root --cluster-port=3306 --cluster-host=10.101.6.1 --disable
   ProxySQL configuration removed! 
