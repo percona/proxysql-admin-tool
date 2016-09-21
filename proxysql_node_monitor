@@ -4,7 +4,7 @@
 
 HOSTGROUP_ID="${1:-0}"
 ERR_FILE="${2:-/dev/null}"
-
+CHECK_STATUS=0
 if [ -f /etc/proxysql-admin.cnf ]; then
   source /etc/proxysql-admin.cnf
 else
@@ -43,6 +43,9 @@ update_cluster(){
       echo "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;" | mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port 2>/dev/null
       echo "Restored cluster membership!" >> $ERR_FILE
       break
+      CHECK_STATUS=0
+    else
+      CHECK_STATUS=1
     fi
   done
 }
@@ -65,4 +68,8 @@ else
   update_cluster
 fi
 
+if [ $CHECK_STATUS -eq 1 ]; then
+  echo "Percona XtraDB Cluster membership looks good" >> $ERR_FILE
+fi
 exit 0
+
