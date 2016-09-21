@@ -19,6 +19,7 @@ Options:
  --enable                               Auto-configure Percona XtraDB Cluster nodes into ProxySQL
  --disable                              Remove Percona XtraDB Cluster configurations from ProxySQL
  --galera-check-interval                Interval for monitoring proxysql_galera_checker script(in milliseconds)
+ --mode                                 ProxySQL read/write configuration mode, currently it only support 'loadbal' mode
 ```
 Pre-requisites 
 --------------
@@ -29,7 +30,7 @@ This script will accept two different options to configure Percona XtraDB Cluste
 
   __1) --enable__
 
-  It will configure Percona XtraDB Cluster nodes into ProxySQL and add two scheduler scripts into ProxySQL database for monitoring cluster node health.
+  It will configure Percona XtraDB Cluster nodes into ProxySQL database and add two cluster monitoring scripts into ProxySQL scheduler table for checking cluster status.
   _scheduler script info :_
   * proxysql_node_monitor : will be checking cluster node membership and re-configure ProxySQL if cluster membership changes occur
   * proxysql_galera_checker : will be checking desynced nodes and temporarily deactivate them
