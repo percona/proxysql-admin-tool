@@ -18,9 +18,7 @@ Options:
  --cluster-host=host_name               Hostname to use when connecting to the Percona XTraDB Cluster node
  --enable                               Auto-configure Percona XtraDB Cluster nodes into ProxySQL
  --disable                              Remove Percona XtraDB Cluster configurations from ProxySQL
- --start                                Starts Percona XTraDB Cluster ProxySQL monitoring daemon
- --stop                                 Stops Percona XtraDB Cluster ProxySQL monitoring daemon
- --status                               Checks Percona XtraDB Cluster ProxySQL monitoring daemon status.
+ --galera-check-interval                Interval for monitoring proxysql_galera_checker script(in milliseconds)
 ```
 Pre-requisites 
 --------------
@@ -31,7 +29,11 @@ This script will accept five different options to configure/monitor Percona Xtra
 
   __1) --enable__
 
-  It will configure Percona XtraDB Cluster nodes into ProxySQL and start ProxySQL monitoring daemon. ProxySQL monitoring daemon will be running as backgound service to check cluster node membership and re-configure ProxySQL if cluster membership changes occur.
+  It will configure Percona XtraDB Cluster nodes into ProxySQL and add two scheduler scripts into ProxySQL database for monitoring cluster node health.
+  _scheduler script info :_
+  * proxysql_node_monitor : will be checking cluster node membership and re-configure ProxySQL if cluster membership changes occur
+  * proxysql_galera_checker : will be checking desynced nodes and temporarily deactivate them
+
   It will also add two new users into Percona XtraDB Cluster with USAGE privilege. One is for monitoring cluster nodes through ProxySQL and another for connecting to PXC node via ProxySQL console.
 
   PS : Please make sure to use super user credentials from PXC to setup to create default users.
@@ -69,29 +71,3 @@ $
   Percona XtraDB Cluster ProxySQL monitoring daemon is not running
   $ 
 ```
-  __3) --start__ 
-  
-  Starts Percona XtraDB Cluster ProxySQL monitoring daemon
-```bash
-  $ ./proxysql-admin --proxysql-user=admin --proxysql-password=admin  --proxysql-port=6032 --proxysql-host=127.0.0.1 --cluster-user=root --cluster-password=root --cluster-port=3306 --cluster-host=10.101.6.1 --start
-  Percona XtraDB Cluster ProxySQL monitoring daemon started
-  $ 
-```
-
-  __4) --stop__
-  
-  Stops Percona XtraDB Cluster ProxySQL monitoring daemon
-```bash
-  $ ./proxysql-admin --proxysql-user=admin --proxysql-password=admin  --proxysql-port=6032 --proxysql-host=127.0.0.1 --cluster-user=root --cluster-password=root --cluster-port=3306 --cluster-host=10.101.6.1 --stop
-  Percona XtraDB Cluster ProxySQL monitoring daemon stopped
-  $ 
-```
-  __5) --status__
-  
-  Checks status of Percona XtraDB Cluster ProxySQL monitoring daemon
-```bash
-  $ ./proxysql-admin --proxysql-user=admin --proxysql-password=admin  --proxysql-port=6032 --proxysql-host=127.0.0.1 --cluster-user=root --cluster-password=root --cluster-port=3306 --cluster-host=10.101.6.1 --status
-  Percona XtraDB Cluster ProxySQL monitoring daemon is running (13355)
-  $ 
-```
-
