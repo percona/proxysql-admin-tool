@@ -25,7 +25,7 @@ Pre-requisites
 * ProxySQL and Percona XtraDB cluster should be up and running.
 * As part of security, make sure to change default user settings in ProxySQL configuration file.
 
-This script will accept five different options to configure/monitor Percona XtraDB Cluster nodes
+This script will accept two different options to configure Percona XtraDB Cluster nodes
 
   __1) --enable__
 
