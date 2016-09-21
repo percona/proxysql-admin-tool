@@ -14,23 +14,24 @@ fi
 usage () {
   echo "Usage: [ options ]"
   echo "Options:"
-    echo " --proxysql-user=user_name              User to use when connecting to the ProxySQL service"
-    echo " --proxysql-password[=password]         Password to use when connecting to the ProxySQL service"
-    echo " --proxysql-port=port_num               Port to use when connecting to the ProxySQL service"
-    echo " --proxysql-host=host_name              Hostname to use when connecting to the ProxySQL service"
-    echo " --cluster-user=user_name               User to use when connecting to the Percona XTraDB Cluster node"
-    echo " --cluster-password[=password]          Password to use when connecting to the Percona XTraDB Cluster node"
-    echo " --cluster-port=port_num                Port to use when connecting to the Percona XTraDB Cluster node"
-    echo " --cluster-host=host_name               Hostname to use when connecting to the Percona XTraDB Cluster node"
-    echo " --enable                               Auto-configure Percona XtraDB Cluster nodes into ProxySQL"
-    echo " --disable                              Remove Percona XtraDB Cluster configurations from ProxySQL"
-    echo " --galera-check-interval                Interval for monitoring proxysql_galera_checker script(in milliseconds)"
+    echo " --proxysql-user=user_name       User to use when connecting to the ProxySQL service"
+    echo " --proxysql-password[=password]  Password to use when connecting to the ProxySQL service"
+    echo " --proxysql-port=port_num        Port to use when connecting to the ProxySQL service"
+    echo " --proxysql-host=host_name       Hostname to use when connecting to the ProxySQL service"
+    echo " --cluster-user=user_name        User to use when connecting to the Percona XTraDB Cluster node"
+    echo " --cluster-password[=password]   Password to use when connecting to the Percona XTraDB Cluster node"
+    echo " --cluster-port=port_num         Port to use when connecting to the Percona XTraDB Cluster node"
+    echo " --cluster-host=host_name        Hostname to use when connecting to the Percona XTraDB Cluster node"
+    echo " --enable                        Auto-configure Percona XtraDB Cluster nodes into ProxySQL"
+    echo " --disable                       Remove Percona XtraDB Cluster configurations from ProxySQL"
+    echo " --galera-check-interval         Interval for monitoring proxysql_galera_checker script(in milliseconds)"
+    echo " --mode                          ProxySQL read/write configuration mode, currently it only support 'loadbal' mode" 
 }
 
 # Check if we have a functional getopt(1)
 if ! getopt --test
   then
-  go_out="$(getopt --options= --longoptions=proxysql-user:,proxysql-password::,proxysql-host:,proxysql-port:,cluster-user:,cluster-password::,cluster-host:,cluster-port:,galera-check-interval:,enable,disable,start,stop,status,help: \
+  go_out="$(getopt --options= --longoptions=proxysql-user:,proxysql-password::,proxysql-host:,proxysql-port:,cluster-user:,cluster-password::,cluster-host:,cluster-port:,galera-check-interval:,mode:,enable,disable,start,stop,status,help: \
   --name="$(basename "$0")" -- "$@")"
   test $? -eq 0 || exit 1
   eval set -- $go_out
@@ -112,6 +113,10 @@ do
     galera_check_interval="$2"
     shift 2
     ;;
+    --mode )
+    rw_mode="$2"
+    shift 2
+    ;;
     --help )
     usage
     exit 0
@@ -156,6 +161,16 @@ fi
 if [[ -z "$galera_check_interval" ]]; then
   galera_check_interval=3000
 fi
+
+if [[ -z "$rw_mode" ]]; then
+  rw_mode="loadbal"
+elif [[ "$rw_mode" != "loadbal" ]];then
+  echo "Alert !For now, the only supported mode is 'loadbal'  which will be the default for a load balanced set of evenly weighted read/write nodes."
+  echo "Please run with default mode."
+  usage
+  exit 1
+fi
+rw_mode
 PIDFILE=/tmp/pxc-proxysql-monitor.pid
 
 proxysql_connection_check(){
