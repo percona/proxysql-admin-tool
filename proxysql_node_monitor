@@ -1,0 +1,68 @@
+#!/bin/bash
+# This script will assist to setup Percona XtraDB cluster ProxySQL monitoring script.
+#####################################################################################
+
+HOSTGROUP_ID="${1:-0}"
+ERR_FILE="${2:-/dev/null}"
+
+if [ -f /etc/proxysql-admin.cnf ]; then
+  source /etc/proxysql-admin.cnf
+else
+  echo "Assert! proxysql-admin configuration file :/etc/proxysql-admin.cnf does not exists, Terminating!" >> $ERR_FILE
+  exit 1
+fi
+
+check_cmd(){
+  MPID=$1
+  ERROR_MSG=$2
+  if [ ${MPID} -ne 0 ]; then 
+    echo "Assert! $ERROR_MSG. Terminating!" >> $ERR_FILE
+    exit 1
+  fi
+}
+
+# Update Percona XtraDB Cluster nodes in ProxySQL database
+update_cluster(){
+  current_hosts=(`mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port -Bse"SELECT hostname,port FROM mysql_servers where hostgroup_id=$HOSTGROUP_ID" 2>/dev/null | sed 's|\t|:|g' | tr '\n' ' '`)
+  wsrep_address=(`mysql  $MYSQL_DSN -Bse "SHOW STATUS LIKE 'wsrep_incoming_addresses'" 2>/dev/null | awk '{print $2}' | sed 's|,| |g'`)
+  if [ ${#wsrep_address[@]} -eq 0 ]; then
+    echo "Alert! wsrep_incoming_addresses is empty. Terminating!" >> $ERR_FILE
+    exit 1
+  fi
+  for i in "${wsrep_address[@]}"; do
+    if [[ ! " ${current_hosts[@]} " =~ " ${i} " ]]; then
+      echo "Cluster membership changed!" >> $ERR_FILE
+      echo "Re-configuring cluster nodes.. " >> $ERR_FILE 
+      echo "DELETE FROM mysql_servers WHERE hostgroup_id=10;" | mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port 2>/dev/null
+      for i in "${wsrep_address[@]}"; do	
+        ws_ip=`echo $i | cut -d':' -f1`
+        ws_port=`echo $i | cut -d':' -f2`
+        echo "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight) VALUES ('$ws_ip',10,$ws_port,1000);" | mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port 2>/dev/null
+        check_cmd $? "Cannot add Percona XtraDB Cluster node $ws_ip:$ws_port, Please check proxysql credentials"
+      done
+      echo "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;" | mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port 2>/dev/null
+      echo "Restored cluster membership!" >> $ERR_FILE
+      break
+    fi
+  done
+}
+
+cluster_login=`mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port -Bse"SELECT variable_value FROM global_variables WHERE variable_name in ('mysql-monitor_username','mysql-monitor_password')" 2>/dev/null`
+check_cmd $? "Could not cluster login info from ProxySQL. Please check cluster login credentials"
+
+cluster_username=`echo $cluster_login | awk '{print $1}'`
+cluster_password=`echo $cluster_login | awk '{print $2}'`
+cluster_host_info=`mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port -Bse"SELECT hostname,port FROM mysql_servers WHERE status='ONLINE' and hostgroup_id=$HOSTGROUP_ID limit 1" 2>/dev/null`
+check_cmd $? "Could not cluster node info from ProxySQL. Please check cluster login credentials"
+
+cluster_host=`echo $cluster_host_info | awk '{print $1}'`
+cluster_port=`echo $cluster_host_info | awk '{print $2}'`
+MYSQL_DSN="-u$cluster_username -p$cluster_password -h $cluster_host -P $cluster_port --protocol=tcp"
+
+if [[ -z $cluster_host_info ]]; then
+  echo "Percona XtraDB Cluster nodes are not configured with hostgroup $HOSTGROUP_ID. Please pass correct info" >> $ERR_FILE
+else
+  update_cluster
+fi
+
+exit 0
