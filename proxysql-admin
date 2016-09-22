@@ -170,7 +170,7 @@ elif [[ "$rw_mode" != "loadbal" ]];then
   usage
   exit 1
 fi
-rw_mode
+
 PIDFILE=/tmp/pxc-proxysql-monitor.pid
 
 proxysql_connection_check(){
@@ -286,7 +286,7 @@ enable_proxysql(){
   # Adding Percona XtraDB Cluster membership checking scheduler
   echo "DELETE FROM SCHEDULER WHERE ID=11;" | mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port 2>/dev/null
   check_cmd $?
-  echo "INSERT  INTO SCHEDULER (id,active,interval_ms,filename,arg1,arg5) VALUES (11,1,5000,'$PROXYSQL_NODE_MONITOR',10,'/var/lib/proxysql/proxysql_node_monitor.log');" | mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port 2>/dev/null
+  echo "INSERT  INTO SCHEDULER (id,active,interval_ms,filename,arg1,arg2) VALUES (11,1,5000,'$PROXYSQL_NODE_MONITOR',10,'/var/lib/proxysql/proxysql_node_monitor.log');" | mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port 2>/dev/null
   check_cmd $? "Failed to add the Percona XtraDB Cluster membership checking scheduler in ProxySQL"
 
   echo "LOAD SCHEDULER TO RUNTIME;SAVE SCHEDULER TO DISK;" | mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port 2>/dev/null
