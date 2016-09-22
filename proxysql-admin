@@ -226,10 +226,10 @@ enable_proxysql(){
 
   #creating proxysql-admin.cnf file with proxysql user credentials for checking cluster node membership.
   {
-  echo "export proxysql_usr=\"$proxysql_usr\"" 
-  echo "export proxysql_pass=\"$proxysql_pass\""
-  echo "export proxysql_hostname=\"$proxysql_hostname\""
-  echo "export proxysql_port=\"$proxysql_port\"" 
+  echo "export PROXYSQL_USERNAME=\"$proxysql_usr\"" 
+  echo "export PROXYSQL_PASSWORD=\"$proxysql_pass\""
+  echo "export PROXYSQL_HOSTNAME=\"$proxysql_hostname\""
+  echo "export PROXYSQL_PORT=\"$proxysql_port\"" 
   } > /etc/proxysql-admin.cnf
 
   chown proxysql.proxysql /etc/proxysql-admin.cnf
