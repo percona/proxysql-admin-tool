@@ -5,6 +5,7 @@
 HOSTGROUP_ID="${1:-0}"
 ERR_FILE="${2:-/dev/null}"
 CHECK_STATUS=0
+
 if [ -f /etc/proxysql-admin.cnf ]; then
   source /etc/proxysql-admin.cnf
 else
@@ -23,39 +24,48 @@ check_cmd(){
 
 # Update Percona XtraDB Cluster nodes in ProxySQL database
 update_cluster(){
-  current_hosts=(`mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port -Bse"SELECT hostname,port FROM mysql_servers where hostgroup_id=$HOSTGROUP_ID" 2>/dev/null | sed 's|\t|:|g' | tr '\n' ' '`)
+  current_hosts=(`mysql -u$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD -h$PROXYSQL_HOSTNAME -P$PROXYSQL_PORT --protocol=tcp -Bse"SELECT hostname,port FROM mysql_servers where hostgroup_id=$HOSTGROUP_ID" 2>/dev/null | sed 's|\t|:|g' | tr '\n' ' '`)
   wsrep_address=(`mysql  $MYSQL_DSN -Bse "SHOW STATUS LIKE 'wsrep_incoming_addresses'" 2>/dev/null | awk '{print $2}' | sed 's|,| |g'`)
   if [ ${#wsrep_address[@]} -eq 0 ]; then
     echo "Alert! wsrep_incoming_addresses is empty. Terminating!" >> $ERR_FILE
     exit 1
   fi
+
   for i in "${wsrep_address[@]}"; do
     if [[ ! " ${current_hosts[@]} " =~ " ${i} " ]]; then
-      echo "Cluster membership changed!" >> $ERR_FILE
-      echo "Re-configuring cluster nodes.. " >> $ERR_FILE 
-      echo "DELETE FROM mysql_servers WHERE hostgroup_id=10;" | mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port 2>/dev/null
-      for i in "${wsrep_address[@]}"; do	
-        ws_ip=`echo $i | cut -d':' -f1`
-        ws_port=`echo $i | cut -d':' -f2`
-        echo "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight) VALUES ('$ws_ip',10,$ws_port,1000);" | mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port 2>/dev/null
-        check_cmd $? "Cannot add Percona XtraDB Cluster node $ws_ip:$ws_port, Please check proxysql credentials"
-      done
-      echo "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;" | mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port 2>/dev/null
-      echo "Restored cluster membership!" >> $ERR_FILE
-      break
-      CHECK_STATUS=0
+      ws_ip=`echo $i | cut -d':' -f1`
+      ws_port=`echo $i | cut -d':' -f2`
+      echo "Cluster node (${i}) does not exists in ProxySQL database!" >> $ERR_FILE
+      echo "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight) VALUES ('$ws_ip',10,$ws_port,1000);" | mysql -u$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD -h$PROXYSQL_HOSTNAME -P$PROXYSQL_PORT --protocol=tcp 2>/dev/null
+      check_cmd $? "Cannot add Percona XtraDB Cluster node $ws_ip:$ws_port to ProxySQL database, Please check proxysql credentials"
+      echo "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;" | mysql -u$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD -h$PROXYSQL_HOSTNAME -P$PROXYSQL_PORT --protocol=tcp 2>/dev/null
+      echo "Added ${i} node into ProxySQL database." >> $ERR_FILE
     else
       CHECK_STATUS=1
     fi
   done
+
+  for i in "${current_hosts[@]}"; do
+    if [[ ! " ${wsrep_address[@]} " =~ " ${i} " ]]; then
+      ws_ip=`echo $i | cut -d':' -f1`
+      ws_port=`echo $i | cut -d':' -f2`
+      echo "Node ${i} does not exists in cluster membership!" >> $ERR_FILE
+      echo "DELETE FROM mysql_servers WHERE hostname='$ws_ip' and port=$ws_port;" | mysql -u$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD -h$PROXYSQL_HOSTNAME -P$PROXYSQL_PORT --protocol=tcp 2>/dev/null
+      check_cmd $? "Cannot remove Percona XtraDB Cluster node $ws_ip:$ws_port from ProxySQL database, Please check proxysql credentials"
+      echo "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;" | mysql -u$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD -h$PROXYSQL_HOSTNAME -P$PROXYSQL_PORT --protocol=tcp 2>/dev/null
+      echo "Removed ${i} node from ProxySQL database." >> $ERR_FILE
+    else
+      CHECK_STATUS=1 
+    fi
+  done
 }
 
-cluster_login=`mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port -Bse"SELECT variable_value FROM global_variables WHERE variable_name in ('mysql-monitor_username','mysql-monitor_password')" 2>/dev/null`
+cluster_login=`mysql -u$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD -h$PROXYSQL_HOSTNAME -P$PROXYSQL_PORT --protocol=tcp -Bse"SELECT variable_value FROM global_variables WHERE variable_name in ('mysql-monitor_username','mysql-monitor_password')" 2>/dev/null`
 check_cmd $? "Could not cluster login info from ProxySQL. Please check cluster login credentials"
 
 cluster_username=`echo $cluster_login | awk '{print $1}'`
 cluster_password=`echo $cluster_login | awk '{print $2}'`
-cluster_host_info=`mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port -Bse"SELECT hostname,port FROM mysql_servers WHERE status='ONLINE' and hostgroup_id=$HOSTGROUP_ID limit 1" 2>/dev/null`
+cluster_host_info=`mysql -u$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD -h$PROXYSQL_HOSTNAME -P$PROXYSQL_PORT --protocol=tcp -Bse"SELECT hostname,port FROM mysql_servers WHERE status='ONLINE' and hostgroup_id=$HOSTGROUP_ID limit 1" 2>/dev/null`
 check_cmd $? "Could not cluster node info from ProxySQL. Please check cluster login credentials"
 
 cluster_host=`echo $cluster_host_info | awk '{print $1}'`

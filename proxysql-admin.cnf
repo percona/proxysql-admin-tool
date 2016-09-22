@@ -1,0 +1,5 @@
+#proxysql-admin credentials
+export PROXYSQL_USERNAME="admin"
+export PROXYSQL_PASSWORD="admin"
+export PROXYSQL_HOSTNAME="localhost"
+export PROXYSQL_PORT="6032"

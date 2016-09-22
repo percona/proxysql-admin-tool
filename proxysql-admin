@@ -216,8 +216,6 @@ enable_proxysql(){
     PROXYSQL=$(which proxysql)
     PROXYSQL_GALERA_CHECK=$(which proxysql_galera_checker)
     PROXYSQL_NODE_MONITOR=$(which proxysql_node_monitor)
-    sed -i "0,/^[ \t]*PROXYSQL_USERNAME[ \t]*=.*$/s|^[ \t]*PROXYSQL_USERNAME[ \t]*=.*$|PROXYSQL_USERNAME=\"$proxysql_usr\"|" $PROXYSQL_GALERA_CHECK
-    sed -i "0,/^[ \t]*PROXYSQL_PASSWORD[ \t]*=.*$/s|^[ \t]*PROXYSQL_PASSWORD[ \t]*=.*$|PROXYSQL_PASSWORD=\"$proxysql_pass\"|" $PROXYSQL_GALERA_CHECK
   fi
   # Check for existing proxysql process
   if ! pidof proxysql >/dev/null ; then
@@ -227,10 +225,13 @@ enable_proxysql(){
   proxysql_connection_check
 
   #creating proxysql-admin.cnf file with proxysql user credentials for checking cluster node membership.
-  echo "export proxysql_usr=\"$proxysql_usr\"" > /etc/proxysql-admin.cnf
-  echo "export proxysql_pass=\"$proxysql_pass\"" >> /etc/proxysql-admin.cnf
-  echo "export proxysql_hostname=\"$proxysql_hostname\"" >> /etc/proxysql-admin.cnf
-  echo "export proxysql_port=\"$proxysql_port\"" >> /etc/proxysql-admin.cnf
+  {
+  echo "export proxysql_usr=\"$proxysql_usr\"" 
+  echo "export proxysql_pass=\"$proxysql_pass\""
+  echo "export proxysql_hostname=\"$proxysql_hostname\""
+  echo "export proxysql_port=\"$proxysql_port\"" 
+  } > /etc/proxysql-admin.cnf
+
   chown proxysql.proxysql /etc/proxysql-admin.cnf
   chmod 640 /etc/proxysql-admin.cnf
  
