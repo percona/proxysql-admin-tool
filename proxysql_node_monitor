@@ -53,11 +53,12 @@ update_cluster(){
       echo "DELETE FROM mysql_servers WHERE hostname='$ws_ip' and port=$ws_port;" | mysql -u$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD -h$PROXYSQL_HOSTNAME -P$PROXYSQL_PORT --protocol=tcp 2>/dev/null
       check_cmd $? "Cannot remove Percona XtraDB Cluster node $ws_ip:$ws_port from ProxySQL database, Please check proxysql credentials"
       echo "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;" | mysql -u$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD -h$PROXYSQL_HOSTNAME -P$PROXYSQL_PORT --protocol=tcp 2>/dev/null
-      echo "Removed ${i} node from ProxySQL database." >> $ERR_FILE
+      echo "Removed ${i} node from ProxySQL database." >> $ERR_FILE 
     else
       CHECK_STATUS=1 
     fi
   done
+  echo "UPDATE SCHEDULER SET arg3=${#wsrep_address[@]} WHERE id=10;LOAD SCHEDULER TO RUNTIME;SAVE SCHEDULER TO DISK;" | mysql -u$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD -h$PROXYSQL_HOSTNAME -P$PROXYSQL_PORT --protocol=tcp 2>/dev/null
 }
 
 cluster_login=`mysql -u$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD -h$PROXYSQL_HOSTNAME -P$PROXYSQL_PORT --protocol=tcp -Bse"SELECT variable_value FROM global_variables WHERE variable_name in ('mysql-monitor_username','mysql-monitor_password')" 2>/dev/null`
