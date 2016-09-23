@@ -26,12 +26,13 @@ usage () {
     echo " --disable                       Remove Percona XtraDB Cluster configurations from ProxySQL"
     echo " --galera-check-interval         Interval for monitoring proxysql_galera_checker script(in milliseconds)"
     echo " --mode                          ProxySQL read/write configuration mode, currently it only support 'loadbal' mode" 
+    echo " --adduser                       Add Percona XtraDB Cluster application user to ProxySQL database"
 }
 
 # Check if we have a functional getopt(1)
 if ! getopt --test
   then
-  go_out="$(getopt --options= --longoptions=proxysql-user:,proxysql-password::,proxysql-host:,proxysql-port:,cluster-user:,cluster-password::,cluster-host:,cluster-port:,galera-check-interval:,mode:,enable,disable,start,stop,status,help \
+  go_out="$(getopt --options= --longoptions=proxysql-user:,proxysql-password::,proxysql-host:,proxysql-port:,cluster-user:,cluster-password::,cluster-host:,cluster-port:,galera-check-interval:,mode:,enable,disable,adduser,help \
   --name="$(basename "$0")" -- "$@")"
   test $? -eq 0 || exit 1
   eval set -- $go_out
@@ -104,6 +105,10 @@ do
     -e | --enable )
     shift
     enable=1
+    ;;
+    --adduser )
+    shift
+    adduser=1
     ;;
     -d | --disable )
     shift
@@ -190,7 +195,7 @@ pxc_connection_check(){
 check_cmd(){
   MPID=$1
   ERROR_MSG=$2
-  if [ ${MPID} -ne 0 ]; then echo "Assert! $ERROR_MSG. Terminating!"; exit 1; fi
+  if [ ${MPID} -ne 0 ]; then echo -e "\nAssert! $ERROR_MSG. Terminating!"; exit 1; fi
 }
 
 check_proxysql(){
@@ -291,29 +296,29 @@ enable_proxysql(){
 
   echo "LOAD SCHEDULER TO RUNTIME;SAVE SCHEDULER TO DISK;" | mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port 2>/dev/null
 
-  echo -e "\nConfiguring Percona XtraDB Cluster user to connect through ProxySQL"
-  echo -n "Enter Percona XtraDB Cluster user name: "
+  echo -e "\nConfiguring Percona XtraDB Cluster application user to connect through ProxySQL"
+  echo -n "Enter Percona XtraDB Cluster application user name: "
   read pxc_uname
   while [[ -z "$pxc_uname" ]]
   do
-    echo -n "No input entered, Enter Percona XtraDB Cluster user name: "
+    echo -n "No input entered, Enter Percona XtraDB Cluster application user name: "
     read pxc_uname
   done
-  read -s -p "Enter Percona XtraDB Cluster user password: " pxc_password
+  read -s -p "Enter Percona XtraDB Cluster application user password: " pxc_password
   while [[ -z "$pxc_password" ]]
   do
-    read -s -p "No input entered, Enter Percona XtraDB Cluster user password: " pxc_password
+    read -s -p "No input entered, Enter Percona XtraDB Cluster application user password: " pxc_password
   done
   check_user=`mysql  $DSN -Bse"SELECT user,host FROM mysql.user where user='$pxc_uname' and host='%';" 2>/dev/null`
 
   if [[ -z "$check_user" ]]; then
     mysql  $DSN -e "GRANT USAGE  ON *.* TO $pxc_uname@'%' IDENTIFIED BY '$pxc_password';" 2>/dev/null
-    check_cmd $? "Cannot add Percona XtraDB Cluster user : $pxc_uname (GRANT)"
+    check_cmd $? "Cannot add Percona XtraDB Cluster application user : $pxc_uname (GRANT)"
     echo "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$pxc_uname','$pxc_password',1,10);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;" | mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port 2>/dev/null
-    check_cmd $? "Cannot add Percona XtraDB Cluster user : $pxc_uname (mysql_users update)"
-    echo -e "\n\nUser $pxc_uname@'%' has been added with USAGE privilege, please make sure to grant appropriate privileges\n"
+    check_cmd $? "Cannot add Percona XtraDB Cluster application user : $pxc_uname (mysql_users update)"
+    echo -e "\n\nPercona XtraDB Cluster application user $pxc_uname@'%' has been added with USAGE privilege, please make sure to grant appropriate privileges\n"
   else
-    echo -e "\n\nUser ${pxc_uname}@'%' already present in Percona XtraDB Cluster"
+    echo -e "\n\nApplication user ${pxc_uname}@'%' already present in Percona XtraDB Cluster"
   fi
 }
 
@@ -326,9 +331,53 @@ disable_proxysql(){
   check_cmd $? "Cannot delete Percona XtraDB Cluster nodes from ProxySQL"
 }
 
+adduser(){
+  proxysql_connection_check
+  pxc_connection_check
+  echo -e "\nAdding Percona XtraDB Cluster application user to ProxySQL database"
+  echo -n "Enter Percona XtraDB Cluster application user name: "
+  read pxc_uname
+  while [[ -z "$pxc_uname" ]]
+  do
+    echo -n "No input entered, Enter Percona XtraDB Cluster application user name: "
+    read pxc_uname
+  done
+  read -s -p "Enter Percona XtraDB Cluster application user password: " pxc_password
+  while [[ -z "$pxc_password" ]]
+  do
+    read -s -p "No input entered, Enter Percona XtraDB Cluster application user password: " pxc_password
+  done
 
+  check_user=`mysql  -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port -Bse"SELECT username FROM mysql_users where username='$pxc_uname'" 2>/dev/null`
+  if [[ -z "$check_user" ]]; then
+    check_pxc_user=`mysql  $DSN -Bse"SELECT user,host FROM mysql.user where user='$pxc_uname'" 2>/dev/null`
+    if [[ -z "$check_pxc_user" ]]; then
+      echo -e "\n\n"
+      read -p "Application $pxc_uname does not exists in Percona XtraDB Cluster. Would you like to proceed [y/n] ? " check_param
+      case $check_param in
+        y|Y)
+          echo "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$pxc_uname','$pxc_password',1,10);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;" | mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port 2>/dev/null
+          check_cmd $? "Cannot add Percona XtraDB Cluster application user : $pxc_uname to ProxySQL database"
+        ;;
+        n|N)
+          exit 1
+        ;;
+        *)
+          echo "Please type [y/n]! Terminating.."
+          exit 1
+        ;;
+      esac
+    else
+      echo "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$pxc_uname','$pxc_password',1,10);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;" | mysql -u$proxysql_usr -p$proxysql_pass -h$proxysql_hostname -P$proxysql_port 2>/dev/null
+      check_cmd $? "Cannot add Percona XtraDB Cluster application user : $pxc_uname to ProxySQL database"
+    fi
+  else
+    echo -e "\nAlert! Application user $pxc_uname already exists in ProxySQL database. Terminating.."
+    exit 1
+  fi
+}
 
-if [ "$enable" == 1 -o "$disable" == 1 ]; then
+if [ "$enable" == 1 -o "$disable" == 1 -o "$adduser" == 1 ]; then
   if [ "$enable" == 1 ];then
     enable_proxysql
     echo "ProxySQL configuration completed!"
@@ -336,6 +385,10 @@ if [ "$enable" == 1 -o "$disable" == 1 ]; then
   if [ "$disable" == 1 ];then  
     disable_proxysql
     echo "ProxySQL configuration removed!"
+  fi
+  if [ "$adduser" == 1 ];then  
+    adduser
+    echo -e "\nAdded Percona XtraDB Cluster application user to ProxySQL database!"
   fi
 else
   echo "Usage: proxysql-admin <user credentials> {enable|disable}"
