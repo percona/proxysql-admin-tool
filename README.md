@@ -72,3 +72,9 @@ $
   Percona XtraDB Cluster ProxySQL monitoring daemon is not running
   $ 
 ```
+
+Extra options
+
+__i) --mode__
+
+It will setup read/write mode for cluster nodes in ProxySQL database based on the hostgroup. For now,  the only supported mode is _loadbal_  which will be the default for a load balanced set of evenly weighted read/write nodes.
