@@ -29,7 +29,7 @@ Pre-requisites
 
 This script will accept two different options to configure Percona XtraDB Cluster nodes
 
-  __1) --enable
+  __1) --enable__
 
   This option will configure Percona XtraDB Cluster nodes into the ProxySQL database, and add two cluster monitoring scripts into the ProxySQL scheduler table for checking the cluster status.
   _scheduler script info :
@@ -70,17 +70,17 @@ $
 
 ```
 
-Extra options
+___Extra options___
 
 __i) --mode__
 
 It will setup read/write mode for cluster nodes in ProxySQL database based on the hostgroup. For now,  the only supported mode is _loadbal_  which will be the default for a load balanced set of evenly weighted read/write nodes.
 
-_ii) --galera-check-interval_
+__ii) --galera-check-interval__
 
 Interval for monitoring proxysql_galera_checker script(in milliseconds)
 
-_iii) --adduser_
+__iii) --adduser__
 
 It will help to add Percona XtraDB Cluster application user to ProxySQL database
 
