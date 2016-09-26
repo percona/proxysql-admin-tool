@@ -41,8 +41,8 @@ update_cluster(){
 
   for i in "${wsrep_address[@]}"; do
     if [[ ! " ${current_hosts[@]} " =~ " ${i} " ]]; then
-      ws_ip=`echo $i | cut -d':' -f1`
-      ws_port=`echo $i | cut -d':' -f2`
+      ws_ip=$(echo $i | cut -d':' -f1)
+      ws_port=$(echo $i | cut -d':' -f2)
       echo "Cluster node (${i}) does not exists in ProxySQL database!" >> $ERR_FILE
       proxysql_exec "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight) VALUES ('$ws_ip',10,$ws_port,1000);"
       check_cmd $? "Cannot add Percona XtraDB Cluster node $ws_ip:$ws_port to ProxySQL database, Please check proxysql credentials"
@@ -55,8 +55,8 @@ update_cluster(){
 
   for i in "${current_hosts[@]}"; do
     if [[ ! " ${wsrep_address[@]} " =~ " ${i} " ]]; then
-      ws_ip=`echo $i | cut -d':' -f1`
-      ws_port=`echo $i | cut -d':' -f2`
+      ws_ip=$(echo $i | cut -d':' -f1)
+      ws_port=$(echo $i | cut -d':' -f2)
       echo "Node ${i} does not exists in cluster membership!" >> $ERR_FILE
       proxysql_exec "DELETE FROM mysql_servers WHERE hostname='$ws_ip' and port=$ws_port;"
       check_cmd $? "Cannot remove Percona XtraDB Cluster node $ws_ip:$ws_port from ProxySQL database, Please check proxysql credentials"
@@ -72,14 +72,14 @@ update_cluster(){
 CLUSTER_LOGIN=`mysql $PROXYSQL_DSN -Bse"SELECT variable_value FROM global_variables WHERE variable_name in ('mysql-monitor_username','mysql-monitor_password')" 2>/dev/null`
 check_cmd $? "Could not cluster login info from ProxySQL. Please check cluster login credentials"
 
-CLUSTER_USERNAME=`echo $CLUSTER_LOGIN | awk '{print $1}'`
-CLUSTER_PASSWORD=`echo $CLUSTER_LOGIN | awk '{print $2}'`
+CLUSTER_USERNAME=$(echo $CLUSTER_LOGIN | awk '{print $1}')
+CLUSTER_PASSWORD=$(echo $CLUSTER_LOGIN | awk '{print $2}')
 CLUSTER_HOST_INFO=`mysql $PROXYSQL_DSN -Bse"SELECT hostname,port FROM mysql_servers WHERE status='ONLINE' and hostgroup_id=$HOSTGROUP_ID limit 1" 2>/dev/null`
 check_cmd $? "Could not cluster node info from ProxySQL. Please check cluster login credentials"
 PROXYSQL_DSN="-u$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD -h$PROXYSQL_HOSTNAME -P$PROXYSQL_PORT --protocol=tcp"
 
-CLUSTER_HOSTNAME=`echo $CLUSTER_HOST_INFO | awk '{print $1}'`
-CLUSTER_PORT=`echo $CLUSTER_HOST_INFO | awk '{print $2}'`
+CLUSTER_HOSTNAME=$(echo $CLUSTER_HOST_INFO | awk '{print $1}')
+CLUSTER_PORT=$(echo $CLUSTER_HOST_INFO | awk '{print $2}')
 MYSQL_DSN="-u$CLUSTER_USERNAME -p$CLUSTER_PASSWORD -h $CLUSTER_HOSTNAME -P $CLUSTER_PORT --protocol=tcp"
 
 if [[ -z $CLUSTER_HOST_INFO ]]; then

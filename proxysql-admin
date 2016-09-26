@@ -54,7 +54,7 @@ do
     --proxysql-password )
     case "$2" in
       "")
-      read -s -p "Enter ProxySQL password:" INPUT_PASS
+      read -s -p -r  "Enter ProxySQL password:" INPUT_PASS
       if [ -z "$INPUT_PASS" ]; then
         PROXYSQL_PASSWORD=""
 	printf "\nContinuing without ProxySQL password...\n";
@@ -84,7 +84,7 @@ do
     --cluster-password )
     case "$2" in
       "")
-      read -s -p "Enter Cluster password:" INPUT_PASS
+      read -s -p -r  "Enter Cluster password:" INPUT_PASS
       if [ -z "$INPUT_PASS" ]; then
         CLUSTER_PASSWORD=""
 	printf "\nContinuing without Cluster password...\n";
@@ -284,20 +284,20 @@ enable_proxysql(){
   echo -e "\nConfiguring ProxySQL monitoring user.."
   if [[ -z $MONITOR_USERNAME ]]; then
     echo -n "Enter ProxySQL monitoring username: "
-    read MONITOR_USERNAME
+    read -r MONITOR_USERNAME
       while [[ -z "$MONITOR_USERNAME" ]]
       do
         echo -n "No input entered, Enter ProxySQL monitoring username: "
-      read MONITOR_USERNAME
+      read -r MONITOR_USERNAME
     done
   else
     echo -e "ProxySQL monitoring username as per command line is '$MONITOR_USERNAME'"
   fi
   if [[ -z $MONITOR_PASSWORD ]]; then
-    read -s -p "Enter ProxySQL monitoring password: " MONITOR_PASSWORD
+    read -s -p -r  "Enter ProxySQL monitoring password: " MONITOR_PASSWORD
     while [[ -z "$MONITOR_PASSWORD" ]]
     do
-      read -s -p "No input entered, Enter ProxySQL monitoring password: " MONITOR_PASSWORD
+      read -s -p -r  "No input entered, Enter ProxySQL monitoring password: " MONITOR_PASSWORD
     done
   fi
 
@@ -314,7 +314,7 @@ enable_proxysql(){
     read -p "Monitoring user is already present in Percona XtraDB Cluster. Would you like to proceed with existing username and password [y/n] ? " check_param
     case $check_param in
       y|Y)
-        read -s -p "Please enter the password you have assigned to $MONITOR_USERNAME: " MONITOR_PASSWORD
+        read -s -p -r  "Please enter the password you have assigned to $MONITOR_USERNAME: " MONITOR_PASSWORD
         proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
         check_cmd $?  "Cannot set the mysql-monitor variables in ProxySQL"
         proxysql_exec "LOAD MYSQL VARIABLES TO RUNTIME;SAVE MYSQL VARIABLES TO DISK;"
@@ -337,8 +337,8 @@ enable_proxysql(){
   proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id=10"
   wsrep_address=(`mysql  $DSN -Bse "show status like 'wsrep_incoming_addresses'" 2>/dev/null | awk '{print $2}' | sed 's|,| |g'`)
   for i in "${wsrep_address[@]}"; do	
-    ws_ip=`echo $i | cut -d':' -f1`
-    ws_port=`echo $i | cut -d':' -f2`
+    ws_ip=$(echo $i | cut -d':' -f1)
+    ws_port=$(echo $i | cut -d':' -f2)
     proxysql_exec "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight) VALUES ('$ws_ip',10,$ws_port,1000);"
     check_cmd $? "Failed to add the Percona XtraDB Cluster server node $ws_ip:$ws_port"
   done
@@ -364,19 +364,19 @@ enable_proxysql(){
 
   if [[ -z $PXC_APP_USERNAME ]]; then
     echo -n "Enter Percona XtraDB Cluster application user name: "
-    read PXC_APP_USERNAME
+    read -r PXC_APP_USERNAME
     while [[ -z "$PXC_APP_USERNAME" ]]; do
       echo -n "No input entered, Enter Percona XtraDB Cluster application user name: "
-      read PXC_APP_USERNAME
+      read -r PXC_APP_USERNAME
     done
   else
     echo -e "Percona XtraDB Cluster application user name as per command line is '$PXC_APP_USERNAME'"
   fi
 
   if [[ -z $PXC_APP_PASSWORD ]]; then
-    read -s -p "Enter Percona XtraDB Cluster application user password: " PXC_APP_PASSWORD
+    read -s -p -r  "Enter Percona XtraDB Cluster application user password: " PXC_APP_PASSWORD
     while [[ -z "$PXC_APP_PASSWORD" ]]; do
-      read -s -p "No input entered, Enter Percona XtraDB Cluster application user password: " PXC_APP_PASSWORD
+      read -s -p -r  "No input entered, Enter Percona XtraDB Cluster application user password: " PXC_APP_PASSWORD
     done
   fi
 
@@ -410,16 +410,16 @@ adduser(){
   pxc_connection_check
   echo -e "\nAdding Percona XtraDB Cluster application user to ProxySQL database"
   echo -n "Enter Percona XtraDB Cluster application user name: "
-  read PXC_APP_USERNAME
+  read -r PXC_APP_USERNAME
   while [[ -z "$PXC_APP_USERNAME" ]]
   do
     echo -n "No input entered, Enter Percona XtraDB Cluster application user name: "
-    read PXC_APP_USERNAME
+    read -r PXC_APP_USERNAME
   done
-  read -s -p "Enter Percona XtraDB Cluster application user password: " PXC_APP_PASSWORD
+  read -s -p -r  "Enter Percona XtraDB Cluster application user password: " PXC_APP_PASSWORD
   while [[ -z "$PXC_APP_PASSWORD" ]]
   do
-    read -s -p "No input entered, Enter Percona XtraDB Cluster application user password: " PXC_APP_PASSWORD
+    read -s -p -r  "No input entered, Enter Percona XtraDB Cluster application user password: " PXC_APP_PASSWORD
   done
 
   check_user=`mysql  $PROXYSQL_DSN -Bse"SELECT username FROM mysql_users where username='$PXC_APP_USERNAME'" 2>/dev/null`
