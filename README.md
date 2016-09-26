@@ -8,14 +8,19 @@ proxysql-admin usage info
 ```bash
 Usage: [ options ]
 Options:
+ --config-file                   Override login credentials from command line and read login credentials from config file.
  --proxysql-user=user_name       User to use when connecting to the ProxySQL service
  --proxysql-password[=password]  Password to use when connecting to the ProxySQL service
  --proxysql-port=port_num        Port to use when connecting to the ProxySQL service
  --proxysql-host=host_name       Hostname to use when connecting to the ProxySQL service
- --cluster-user=user_name        User to use when connecting to the Percona XTraDB Cluster node
- --cluster-password[=password]   Password to use when connecting to the Percona XTraDB Cluster node
- --cluster-port=port_num         Port to use when connecting to the Percona XTraDB Cluster node
- --cluster-host=host_name        Hostname to use when connecting to the Percona XTraDB Cluster node
+ --cluster-user=user_name        User to use when connecting to the Percona XtraDB Cluster node
+ --cluster-password[=password]   Password to use when connecting to the Percona XtraDB Cluster node
+ --cluster-port=port_num         Port to use when connecting to the Percona XtraDB Cluster node
+ --cluster-host=host_name        Hostname to use when connecting to the Percona XtraDB Cluster node
+ --monitor-user=user_name        User to use for monitoring Percona XtraDB Cluster nodes through ProxySQL
+ --monitor-password[=password]   Password to for monitoring Percona XtraDB Cluster nodes through ProxySQL
+ --pxc-app-user=user_name        Application user to use when connecting to the Percona XtraDB Cluster node
+ --pxc-app-password[=password]   Application password to use when connecting to the Percona XtraDB Cluster node
  --enable                        Auto-configure Percona XtraDB Cluster nodes into ProxySQL
  --disable                       Remove Percona XtraDB Cluster configurations from ProxySQL
  --galera-check-interval         Interval for monitoring proxysql_galera_checker script(in milliseconds)
