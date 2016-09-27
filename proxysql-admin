@@ -89,7 +89,7 @@ do
         CLUSTER_PASSWORD=""
 	printf "\nContinuing without Cluster password...\n";
       else
-        CLUSTER_PASSWORD="-p$INPUT_PASS"
+        CLUSTER_PASSWORD="$INPUT_PASS"
       fi
       printf "\n"
       ;;
@@ -187,11 +187,16 @@ if [ -z "$CLUSTER_USERNAME" ];then
 fi
 
 if [[ -z "$CLUSTER_HOSTNAME" ]]; then
-  CLUSTER_HOSTNAME="-hlocalhost"
+  CLUSTER_HOSTNAME="localhost"
 fi
 
 if [[ -z "$CLUSTER_PORT" ]]; then
-  CLUSTER_PORT="-P3306"
+  CLUSTER_PORT="3306"
+fi
+if [[ -z "$CLUSTER_PASSWORD" ]]; then
+  CLUSTER_PASSWORD=""
+else
+  CLUSTER_PASSWORD="-p$CLUSTER_PASSWORD"
 fi
 
 if [[ -z "$galera_check_interval" ]]; then
@@ -218,7 +223,7 @@ proxysql_connection_check(){
 }
 
 pxc_connection_check(){
-  DSN=" -u$CLUSTER_USERNAME -p$CLUSTER_PASSWORD -h$CLUSTER_HOSTNAME -P$CLUSTER_PORT --protocol=tcp"
+  DSN=" -u$CLUSTER_USERNAME $CLUSTER_PASSWORD -h$CLUSTER_HOSTNAME -P$CLUSTER_PORT --protocol=tcp"
   if ! mysql $DSN -e"select @@port" >/dev/null 2>/dev/null; then 
     echo "Please enter valid PXC connection parameters! Terminating.."
     exit 1
