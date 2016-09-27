@@ -269,17 +269,14 @@ enable_proxysql(){
   fi
   proxysql_connection_check
 
-  #creating proxysql-admin.cnf file with proxysql user credentials for checking cluster node membership.
-  {
-  echo "export PROXYSQL_USERNAME=\"$PROXYSQL_USERNAME\"" 
-  echo "export PROXYSQL_PASSWORD=\"$PROXYSQL_PASSWORD\""
-  echo "export PROXYSQL_HOSTNAME=\"$PROXYSQL_HOSTNAME\""
-  echo "export PROXYSQL_PORT=\"$PROXYSQL_PORT\"" 
-  } > /etc/proxysql-admin.cnf
+  #modifying proxysql-admin.cnf file with command line proxysql user credentials if you dont use --config-file option.
+  if [ -z "${config_file}" ]; then 
+    sed -i "s|[ \t]*PROXYSQL_USERNAME[ \t]*=.*$| PROXYSQL_USERNAME=\"${PROXYSQL_USERNAME}\"|" /etc/proxysql-admin.cnf
+    sed -i "s|[ \t]*PROXYSQL_PASSWORD[ \t]*=.*$| PROXYSQL_PASSWORD=\"${PROXYSQL_PASSWORD}\"|" /etc/proxysql-admin.cnf
+    sed -i "s|[ \t]*PROXYSQL_HOSTNAME[ \t]*=.*$| PROXYSQL_HOSTNAME=\"${PROXYSQL_HOSTNAME}\"|" /etc/proxysql-admin.cnf
+    sed -i "s|[ \t]*PROXYSQL_PORT[ \t]*=.*$| PROXYSQL_PORT=\"${PROXYSQL_PORT}\"|" /etc/proxysql-admin.cnf
+  fi
 
-  chown proxysql.proxysql /etc/proxysql-admin.cnf
-  chmod 640 /etc/proxysql-admin.cnf
- 
   pxc_connection_check
   echo -e "\nConfiguring ProxySQL monitoring user.."
   if [[ -z $MONITOR_USERNAME ]]; then
