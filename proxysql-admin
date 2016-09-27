@@ -305,13 +305,13 @@ enable_proxysql(){
     proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
     check_cmd $?  "Cannot set the mysql-monitor variables in ProxySQL"
     proxysql_exec "LOAD MYSQL VARIABLES TO RUNTIME;SAVE MYSQL VARIABLES TO DISK;"
-    echo -e "\n\nUser $MONITOR_USERNAME@'%' has been added with USAGE privilege\n"
+    echo -e "\n\nUser '$MONITOR_USERNAME'@'%' has been added with USAGE privilege\n"
   else
     echo -e "\n"
     read -p "Monitoring user is already present in Percona XtraDB Cluster. Would you like to proceed with existing username and password [y/n] ? " check_param
     case $check_param in
       y|Y)
-        read -r -s -p  "Please enter the password you have assigned to $MONITOR_USERNAME: " MONITOR_PASSWORD
+        read -r -s -p  "Please enter the password you have assigned to monitoring user '$MONITOR_USERNAME': " MONITOR_PASSWORD
         proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
         check_cmd $?  "Cannot set the mysql-monitor variables in ProxySQL"
         proxysql_exec "LOAD MYSQL VARIABLES TO RUNTIME;SAVE MYSQL VARIABLES TO DISK;"
@@ -320,7 +320,7 @@ enable_proxysql(){
         proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
         check_cmd $?  "Cannot set the mysql-monitor variables in ProxySQL"
         proxysql_exec "LOAD MYSQL VARIABLES TO RUNTIME;SAVE MYSQL VARIABLES TO DISK;"
-        echo -e "\n\nUser $MONITOR_USERNAME@'%' has been updated in ProxySQL database. Please make sure the credentials are same in Percona XtraDB Cluster\n"
+        echo -e "\n\nUser '$MONITOR_USERNAME'@'%' has been updated in ProxySQL database. Please make sure the credentials are same in Percona XtraDB Cluster\n"
       ;;
       *)
         echo "Please type [y/n]! Terminating.."
@@ -381,12 +381,12 @@ enable_proxysql(){
 
   if [[ -z "$check_user" ]]; then
     mysql  $DSN -e "GRANT USAGE  ON *.* TO $PXC_APP_USERNAME@'%' IDENTIFIED BY '$PXC_APP_PASSWORD';" 2>/dev/null
-    check_cmd $? "Cannot add Percona XtraDB Cluster application user : $PXC_APP_USERNAME (GRANT)"
+    check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$PXC_APP_USERNAME' (GRANT)"
     proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$PXC_APP_USERNAME','$PXC_APP_PASSWORD',1,10);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
-    check_cmd $? "Cannot add Percona XtraDB Cluster application user : $PXC_APP_USERNAME (mysql_users update)"
-    echo -e "\n\nPercona XtraDB Cluster application user $PXC_APP_USERNAME@'%' has been added with USAGE privilege, please make sure to grant appropriate privileges\n"
+    check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$PXC_APP_USERNAME' (mysql_users update)"
+    echo -e "\n\nPercona XtraDB Cluster application user '$PXC_APP_USERNAME'@'%' has been added with USAGE privilege, please make sure to grant appropriate privileges\n"
   else
-    echo -e "\n\nApplication user ${PXC_APP_USERNAME}@'%' already present in Percona XtraDB Cluster"
+    echo -e "\n\nApplication user '${PXC_APP_USERNAME}'@'%' already present in Percona XtraDB Cluster"
   fi
 }
 
@@ -424,11 +424,11 @@ adduser(){
     check_pxc_user=`mysql  $DSN -Bse"SELECT user,host FROM mysql.user where user='$PXC_APP_USERNAME'" 2>/dev/null`
     if [[ -z "$check_pxc_user" ]]; then
       echo -e "\n\n"
-      read -p "Application $PXC_APP_USERNAME does not exists in Percona XtraDB Cluster. Would you like to proceed [y/n] ? " check_param
+      read -p "Application user '$PXC_APP_USERNAME' does not exists in Percona XtraDB Cluster. Would you like to proceed [y/n] ? " check_param
       case $check_param in
         y|Y)
           proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$PXC_APP_USERNAME','$PXC_APP_PASSWORD',1,10);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
-          check_cmd $? "Cannot add Percona XtraDB Cluster application user : $PXC_APP_USERNAME to ProxySQL database"
+          check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$PXC_APP_USERNAME' to ProxySQL database"
         ;;
         n|N)
           exit 1
@@ -440,10 +440,10 @@ adduser(){
       esac
     else
       proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$PXC_APP_USERNAME','$PXC_APP_PASSWORD',1,10);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
-      check_cmd $? "Cannot add Percona XtraDB Cluster application user : $PXC_APP_USERNAME to ProxySQL database"
+      check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$PXC_APP_USERNAME' to ProxySQL database"
     fi
   else
-    echo -e "\nAlert! Application user $PXC_APP_USERNAME already exists in ProxySQL database. Terminating.."
+    echo -e "\nAlert! Application user '$PXC_APP_USERNAME' already exists in ProxySQL database. Terminating.."
     exit 1
   fi
 }
