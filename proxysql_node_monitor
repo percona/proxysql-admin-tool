@@ -12,6 +12,7 @@ else
   echo "Assert! proxysql-admin configuration file :/etc/proxysql-admin.cnf does not exists, Terminating!" >> $ERR_FILE
   exit 1
 fi
+PROXYSQL_DSN="-u$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD -h$PROXYSQL_HOSTNAME -P$PROXYSQL_PORT --protocol=tcp"
 
 check_cmd(){
   MPID=$1
@@ -69,14 +70,14 @@ update_cluster(){
   proxysql_exec "UPDATE SCHEDULER SET arg3=${#wsrep_address[@]} WHERE id=10;LOAD SCHEDULER TO RUNTIME;SAVE SCHEDULER TO DISK;"
 }
 
-CLUSTER_LOGIN=`mysql $PROXYSQL_DSN -Bse"SELECT variable_value FROM global_variables WHERE variable_name in ('mysql-monitor_username','mysql-monitor_password')" 2>/dev/null`
-check_cmd $? "Could not cluster login info from ProxySQL. Please check cluster login credentials"
+CLUSTER_USERNAME=$(mysql $PROXYSQL_DSN -Bse"SELECT variable_value FROM global_variables WHERE variable_name='mysql-monitor_username'" 2>/dev/null)
+check_cmd $? "Could not retrieve cluster login info from ProxySQL. Please check cluster login credentials"
 
-CLUSTER_USERNAME=$(echo $CLUSTER_LOGIN | awk '{print $1}')
-CLUSTER_PASSWORD=$(echo $CLUSTER_LOGIN | awk '{print $2}')
+CLUSTER_PASSWORD=$(mysql $PROXYSQL_DSN -Bse"SELECT variable_value FROM global_variables WHERE variable_name='mysql-monitor_password'" 2>/dev/null) 
+check_cmd $? "Could not retrieve cluster login info from ProxySQL. Please check cluster login credentials"
+
 CLUSTER_HOST_INFO=`mysql $PROXYSQL_DSN -Bse"SELECT hostname,port FROM mysql_servers WHERE status='ONLINE' and hostgroup_id=$HOSTGROUP_ID limit 1" 2>/dev/null`
-check_cmd $? "Could not cluster node info from ProxySQL. Please check cluster login credentials"
-PROXYSQL_DSN="-u$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD -h$PROXYSQL_HOSTNAME -P$PROXYSQL_PORT --protocol=tcp"
+check_cmd $? "Could not retrieve cluster node info from ProxySQL. Please check cluster login credentials"
 
 CLUSTER_HOSTNAME=$(echo $CLUSTER_HOST_INFO | awk '{print $1}')
 CLUSTER_PORT=$(echo $CLUSTER_HOST_INFO | awk '{print $2}')
