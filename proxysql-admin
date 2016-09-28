@@ -127,10 +127,14 @@ do
       config_file="$2"
       shift 2
       if [ -z "${config_file}" ]; then
-        echo "You have not given config file location. Continuing without config file.."
+        echo "ERROR: You have not given config file location. Terminating."
+        exit 1
       fi
       if [ -e "${config_file}" ]; then
         source "${config_file}"
+      else
+        echo "ERROR: ${config_file} does not exist. Terminating."
+        exit 1
       fi
       ;;
     -e | --enable )
@@ -146,11 +150,11 @@ do
     disable=1
     ;;
     --galera-check-interval )
-    galera_check_interval="$2"
+    GALERA_CHECK_INTERVAL="$2"
     shift 2
     ;;
     --mode )
-    rw_mode="$2"
+    RW_MODE="$2"
     shift 2
     ;;
     --help )
@@ -199,13 +203,13 @@ else
   CLUSTER_PASSWORD="-p$CLUSTER_PASSWORD"
 fi
 
-if [[ -z "$galera_check_interval" ]]; then
-  galera_check_interval=3000
+if [[ -z "$GALERA_CHECK_INTERVAL" ]]; then
+  GALERA_CHECK_INTERVAL=3000
 fi
 
-if [[ -z "$rw_mode" ]]; then
-  rw_mode="loadbal"
-elif [[ "$rw_mode" != "loadbal" ]];then
+if [[ -z "$RW_MODE" ]]; then
+  RW_MODE="loadbal"
+elif [[ "$RW_MODE" != "loadbal" ]];then
   echo "Alert !For now, the only supported mode is 'loadbal'  which will be the default for a load balanced set of evenly weighted read/write nodes."
   echo "Please run with default mode."
   usage
@@ -232,7 +236,7 @@ pxc_connection_check(){
 check_cmd(){
   MPID=$1
   ERROR_MSG=$2
-  if [ ${MPID} -ne 0 ]; then echo -e "\nAssert! $ERROR_MSG. Terminating!"; exit 1; fi
+  if [ ${MPID} -ne 0 ]; then echo -e "\nERROR: $ERROR_MSG. Terminating!"; exit 1; fi
 }
 
 check_proxysql(){
@@ -351,7 +355,7 @@ enable_proxysql(){
   # Adding proxysql galera check scheduler
   proxysql_exec "DELETE FROM SCHEDULER WHERE ID=10;"
   check_cmd $?
-  proxysql_exec "INSERT  INTO SCHEDULER (id,active,interval_ms,filename,arg1,arg2,arg3,arg4,arg5) VALUES (10,1,$galera_check_interval,'$PROXYSQL_GALERA_CHECK',10,10,${#wsrep_address[@]},1,'/var/lib/proxysql/proxysql_galera_check.log');"
+  proxysql_exec "INSERT  INTO SCHEDULER (id,active,interval_ms,filename,arg1,arg2,arg3,arg4,arg5) VALUES (10,1,$GALERA_CHECK_INTERVAL,'$PROXYSQL_GALERA_CHECK',10,10,${#wsrep_address[@]},1,'/var/lib/proxysql/proxysql_galera_check.log');"
   check_cmd $? "Failed to add the Percona XtraDB Cluster monitoring scheduler in ProxySQL"
 
   # Adding Percona XtraDB Cluster membership checking scheduler
@@ -429,7 +433,7 @@ adduser(){
     check_pxc_user=`mysql  $DSN -Bse"SELECT user,host FROM mysql.user where user='$PXC_APP_USERNAME'" 2>/dev/null`
     if [[ -z "$check_pxc_user" ]]; then
       echo -e "\n\n"
-      read -p "Application user '$PXC_APP_USERNAME' does not exists in Percona XtraDB Cluster. Would you like to proceed [y/n] ? " check_param
+      read -p "Application user '$PXC_APP_USERNAME' does not exist in Percona XtraDB Cluster. Would you like to proceed [y/n] ? " check_param
       case $check_param in
         y|Y)
           proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$PXC_APP_USERNAME','$PXC_APP_PASSWORD',1,10);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
@@ -448,7 +452,7 @@ adduser(){
       check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$PXC_APP_USERNAME' to ProxySQL database"
     fi
   else
-    echo -e "\nAlert! Application user '$PXC_APP_USERNAME' already exists in ProxySQL database. Terminating.."
+    echo -e "\nERROR: Application user '$PXC_APP_USERNAME' already exist in ProxySQL database. Terminating.."
     exit 1
   fi
 }
