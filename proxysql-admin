@@ -305,7 +305,7 @@ enable_proxysql(){
 
   check_user=`mysql  $DSN -Bse"SELECT user,host FROM mysql.user where user='$MONITOR_USERNAME' and host='%';" 2>/dev/null`
   if [[ -z "$check_user" ]]; then
-    mysql  $DSN -e "GRANT USAGE ON *.* TO $MONITOR_USERNAME@'%' IDENTIFIED BY '$MONITOR_PASSWORD';" 2>/dev/null
+    mysql  $DSN -e "CREATE USER $MONITOR_USERNAME@'%' IDENTIFIED BY '$MONITOR_PASSWORD';" 2>/dev/null
     check_cmd $?  "Cannot create the ProxySQL monitoring user"
     proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
     check_cmd $?  "Cannot set the mysql-monitor variables in ProxySQL"
@@ -385,7 +385,7 @@ enable_proxysql(){
   check_user=`mysql  $DSN -Bse"SELECT user,host FROM mysql.user where user='$PXC_APP_USERNAME' and host='%';" 2>/dev/null`
 
   if [[ -z "$check_user" ]]; then
-    mysql  $DSN -e "GRANT USAGE  ON *.* TO $PXC_APP_USERNAME@'%' IDENTIFIED BY '$PXC_APP_PASSWORD';" 2>/dev/null
+    mysql  $DSN -e "CREATE USER $PXC_APP_USERNAME@'%' IDENTIFIED BY '$PXC_APP_PASSWORD';" 2>/dev/null
     check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$PXC_APP_USERNAME' (GRANT)"
     proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$PXC_APP_USERNAME','$PXC_APP_PASSWORD',1,10);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
     check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$PXC_APP_USERNAME' (mysql_users update)"
