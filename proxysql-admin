@@ -197,11 +197,6 @@ fi
 if [[ -z "$CLUSTER_PORT" ]]; then
   CLUSTER_PORT="3306"
 fi
-if [[ -z "$CLUSTER_PASSWORD" ]]; then
-  CLUSTER_PASSWORD=""
-else
-  CLUSTER_PASSWORD="-p$CLUSTER_PASSWORD"
-fi
 
 if [[ -z "$GALERA_CHECK_INTERVAL" ]]; then
   GALERA_CHECK_INTERVAL=3000
@@ -218,17 +213,27 @@ fi
 
 PIDFILE=/tmp/pxc-proxysql-monitor.pid
 
+proxysql_exec() {
+  query=$1
+  printf "[client]\nuser=${PROXYSQL_USERNAME}\npassword=${PROXYSQL_PASSWORD}\nhost=${PROXYSQL_HOSTNAME}\nport=${PROXYSQL_PORT}\n" | \
+      mysql --defaults-file=/dev/stdin --protocol=tcp -e "${query}" 2>/dev/null
+}
+
+mysql_exec() {
+  query=$1
+  printf "[client]\nuser=${CLUSTER_USERNAME}\npassword=${CLUSTER_PASSWORD}\nhost=${CLUSTER_HOSTNAME}\nport=${CLUSTER_PORT}\n" | \
+      mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "${query}" 2>/dev/null
+}
+
 proxysql_connection_check(){
-  PROXYSQL_DSN="-u$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD -h$PROXYSQL_HOSTNAME -P$PROXYSQL_PORT --protocol=tcp"
-  if ! mysql $PROXYSQL_DSN -e"show tables" >/dev/null 2>/dev/null; then 
+  if ! proxysql_exec "show tables" >/dev/null; then 
     echo "Please enter valid ProxySQL connection parameters! Terminating.."
     exit 1
   fi
 }
 
 pxc_connection_check(){
-  DSN=" -u$CLUSTER_USERNAME $CLUSTER_PASSWORD -h$CLUSTER_HOSTNAME -P$CLUSTER_PORT --protocol=tcp"
-  if ! mysql $DSN -e"select @@port" >/dev/null 2>/dev/null; then 
+  if ! mysql_exec "select @@port" >/dev/null; then 
     echo "Please enter valid PXC connection parameters! Terminating.."
     exit 1
   fi
@@ -244,14 +249,6 @@ check_proxysql(){
     echo "ProxySQL is not running, please check the error log at /var/lib/proxysql/proxysql.log"
     exit 1
   fi
-}
-
-proxysql_exec() {
-  query=$1
-  result=$(
-    printf "[client]\nuser=${PROXYSQL_USERNAME}\npassword=${PROXYSQL_PASSWORD}\nhost=${PROXYSQL_HOSTNAME}\nport=${PROXYSQL_PORT}\n" | \
-      mysql --defaults-file=/dev/stdin --protocol=tcp -e "${query}" 2>/dev/null
-  )
 }
 
 # Auto configure Percona XtraDB Cluster nodes into ProxySQL
@@ -307,9 +304,9 @@ enable_proxysql(){
     done
   fi
 
-  check_user=`mysql  $DSN -Bse"SELECT user,host FROM mysql.user where user='$MONITOR_USERNAME' and host='%';" 2>/dev/null`
+  check_user=`mysql_exec "SELECT user,host FROM mysql.user where user='$MONITOR_USERNAME' and host='%';"`
   if [[ -z "$check_user" ]]; then
-    mysql  $DSN -e "CREATE USER $MONITOR_USERNAME@'%' IDENTIFIED BY '$MONITOR_PASSWORD';" 2>/dev/null
+    mysql_exec "CREATE USER $MONITOR_USERNAME@'%' IDENTIFIED BY '$MONITOR_PASSWORD';"
     check_cmd $?  "Cannot create the ProxySQL monitoring user"
     proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
     check_cmd $?  "Cannot set the mysql-monitor variables in ProxySQL"
@@ -341,7 +338,7 @@ enable_proxysql(){
   # Adding Percona XtraDB Cluster nodes to ProxySQL
   echo -e "\nAdding the Percona XtraDB Cluster server nodes to ProxySQL"
   proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id=10"
-  wsrep_address=(`mysql  $DSN -Bse "show status like 'wsrep_incoming_addresses'" 2>/dev/null | awk '{print $2}' | sed 's|,| |g'`)
+  wsrep_address=(`mysql_exec "show status like 'wsrep_incoming_addresses'" | awk '{print $2}' | sed 's|,| |g'`)
   for i in "${wsrep_address[@]}"; do	
     ws_ip=$(echo $i | cut -d':' -f1)
     ws_port=$(echo $i | cut -d':' -f2)
@@ -386,10 +383,10 @@ enable_proxysql(){
     done
   fi
 
-  check_user=`mysql  $DSN -Bse"SELECT user,host FROM mysql.user where user='$PXC_APP_USERNAME' and host='%';" 2>/dev/null`
+  check_user=`mysql_exec "SELECT user,host FROM mysql.user where user='$PXC_APP_USERNAME' and host='%';"`
 
   if [[ -z "$check_user" ]]; then
-    mysql  $DSN -e "CREATE USER $PXC_APP_USERNAME@'%' IDENTIFIED BY '$PXC_APP_PASSWORD';" 2>/dev/null
+    mysql_exec "CREATE USER $PXC_APP_USERNAME@'%' IDENTIFIED BY '$PXC_APP_PASSWORD';"
     check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$PXC_APP_USERNAME' (GRANT)"
     proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$PXC_APP_USERNAME','$PXC_APP_PASSWORD',1,10);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
     check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$PXC_APP_USERNAME' (mysql_users update)"
@@ -428,9 +425,9 @@ adduser(){
     read -r -s -p  "No input entered, Enter Percona XtraDB Cluster application user password: " PXC_APP_PASSWORD
   done
 
-  check_user=`mysql  $PROXYSQL_DSN -Bse"SELECT username FROM mysql_users where username='$PXC_APP_USERNAME'" 2>/dev/null`
+  check_user=`proxysql_exec "SELECT username FROM mysql_users where username='$PXC_APP_USERNAME'"`
   if [[ -z "$check_user" ]]; then
-    check_pxc_user=`mysql  $DSN -Bse"SELECT user,host FROM mysql.user where user='$PXC_APP_USERNAME'" 2>/dev/null`
+    check_pxc_user=`mysql_exec "SELECT user,host FROM mysql.user where user='$PXC_APP_USERNAME'"`
     if [[ -z "$check_pxc_user" ]]; then
       echo -e "\n\n"
       read -p "Application user '$PXC_APP_USERNAME' does not exist in Percona XtraDB Cluster. Would you like to proceed [y/n] ? " check_param
