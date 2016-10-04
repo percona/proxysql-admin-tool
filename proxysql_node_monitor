@@ -1,9 +1,9 @@
 #!/bin/bash
 # This script will assist to setup Percona XtraDB cluster ProxySQL monitoring script.
 #####################################################################################
-
 HOSTGROUP_ID="${1:-0}"
 ERR_FILE="${2:-/dev/null}"
+SCHEDULER_ID="${3:-0}"
 CHECK_STATUS=0
 
 if [ -f /etc/proxysql-admin.cnf ]; then
@@ -48,8 +48,8 @@ update_cluster(){
       ws_ip=$(echo $i | cut -d':' -f1)
       ws_port=$(echo $i | cut -d':' -f2)
       echo "Cluster node (${i}) does not exists in ProxySQL database!" >> $ERR_FILE
-      proxysql_exec "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight) VALUES ('$ws_ip',10,$ws_port,1000);"
-      check_cmd $? "Cannot add Percona XtraDB Cluster node $ws_ip:$ws_port to ProxySQL database, Please check proxysql credentials"
+      proxysql_exec "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight) VALUES ('$ws_ip',$HOSTGROUP_ID,$ws_port,1000);"
+      check_cmd $? "Cannot add Percona XtraDB Cluster node $ws_ip:$ws_port (hostgroup $HOSTGROUP_ID) to ProxySQL database, Please check proxysql credentials"
       proxysql_exec "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;"
       echo "Added ${i} node into ProxySQL database." >> $ERR_FILE
     else
@@ -62,15 +62,15 @@ update_cluster(){
       ws_ip=$(echo $i | cut -d':' -f1)
       ws_port=$(echo $i | cut -d':' -f2)
       echo "Node ${i} does not exists in cluster membership!" >> $ERR_FILE
-      proxysql_exec "DELETE FROM mysql_servers WHERE hostname='$ws_ip' and port=$ws_port;"
-      check_cmd $? "Cannot remove Percona XtraDB Cluster node $ws_ip:$ws_port from ProxySQL database, Please check proxysql credentials"
+      proxysql_exec "UPDATE mysql_servers set status = 'OFFLINE_HARD' WHERE hostgroup_id = $HOSTGROUP_ID and hostname='$ws_ip' and port=$ws_port;"
+      check_cmd $? "Cannot update Percona XtraDB Cluster node $ws_ip:$ws_port (hostgroup $HOSTGROUP_ID) to ProxySQL database, Please check proxysql credentials"
       proxysql_exec "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;"
-      echo "Removed ${i} node from ProxySQL database." >> $ERR_FILE 
+      echo "${i} node set to OFFLINE_HARD status to ProxySQL database." >> $ERR_FILE 
     else
       CHECK_STATUS=1 
     fi
   done
-  proxysql_exec "UPDATE SCHEDULER SET arg3=${#wsrep_address[@]} WHERE id=10;LOAD SCHEDULER TO RUNTIME;SAVE SCHEDULER TO DISK;"
+  proxysql_exec "UPDATE SCHEDULER SET arg4=${#wsrep_address[@]} WHERE id=$SCHEDULER_ID;LOAD SCHEDULER TO RUNTIME;SAVE SCHEDULER TO DISK;"
 }
 
 CLUSTER_USERNAME=$(proxysql_exec "SELECT variable_value FROM global_variables WHERE variable_name='mysql-monitor_username'")
@@ -95,4 +95,3 @@ if [ $CHECK_STATUS -eq 1 ]; then
   echo "Percona XtraDB Cluster membership looks good" >> $ERR_FILE
 fi
 exit 0
-
