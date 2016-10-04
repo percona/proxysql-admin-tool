@@ -70,6 +70,23 @@ update_cluster(){
       CHECK_STATUS=1 
     fi
   done
+
+  for i in "${wsrep_address[@]}"; do
+    if [[ ! " ${current_hosts[@]} " == " ${i} " ]]; then
+      ws_ip=$(echo $i | cut -d':' -f1)
+      ws_port=$(echo $i | cut -d':' -f2)
+      ws_status=$(echo `proxysql_exec "SELECT status from mysql_servers WHERE hostgroup_id = $HOSTGROUP_ID and hostname='$ws_ip' and port=$ws_port"`)
+      echo "Cluster node (${i}) current status '$ws_status' in ProxySQL database!" >> $ERR_FILE 
+      if [ "$ws_status" == "OFFLINE_HARD" ]; then
+	      proxysql_exec "UPDATE mysql_servers set status = 'OFFLINE_SOFT' WHERE hostgroup_id = $HOSTGROUP_ID and hostname='$ws_ip' and port=$ws_port;"
+        check_cmd $? "Cannot update Percona XtraDB Cluster node $ws_ip:$ws_port (hostgroup $HOSTGROUP_ID) to ProxySQL database, Please check proxysql credentials" 
+        proxysql_exec "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;"
+        echo "${i} node set to OFFLINE_SOFT status to ProxySQL database." >> $ERR_FILE
+      fi
+    else
+      CHECK_STATUS=1
+    fi
+  done
   proxysql_exec "UPDATE SCHEDULER SET arg4=${#wsrep_address[@]} WHERE id=$SCHEDULER_ID;LOAD SCHEDULER TO RUNTIME;SAVE SCHEDULER TO DISK;"
 }
 
@@ -95,3 +112,4 @@ if [ $CHECK_STATUS -eq 1 ]; then
   echo "Percona XtraDB Cluster membership looks good" >> $ERR_FILE
 fi
 exit 0
+
