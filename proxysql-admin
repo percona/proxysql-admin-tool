@@ -202,6 +202,10 @@ if [[ -z "$GALERA_CHECK_INTERVAL" ]]; then
   GALERA_CHECK_INTERVAL=3000
 fi
 
+if [[ -z "$HOSTGROUP_ID" ]]; then
+  HOSTGROUP_ID=10
+fi
+
 if [[ -z "$RW_MODE" ]]; then
   RW_MODE="loadbal"
 elif [[ "$RW_MODE" != "loadbal" ]];then
@@ -337,12 +341,12 @@ enable_proxysql(){
 
   # Adding Percona XtraDB Cluster nodes to ProxySQL
   echo -e "\nAdding the Percona XtraDB Cluster server nodes to ProxySQL"
-  proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id=10"
+  proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id=$HOSTGROUP_ID"
   wsrep_address=(`mysql_exec "show status like 'wsrep_incoming_addresses'" | awk '{print $2}' | sed 's|,| |g'`)
   for i in "${wsrep_address[@]}"; do	
     ws_ip=$(echo $i | cut -d':' -f1)
     ws_port=$(echo $i | cut -d':' -f2)
-    proxysql_exec "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight) VALUES ('$ws_ip',10,$ws_port,1000);"
+    proxysql_exec "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight) VALUES ('$ws_ip',$HOSTGROUP_ID,$ws_port,1000);"
     check_cmd $? "Failed to add the Percona XtraDB Cluster server node $ws_ip:$ws_port"
   done
   proxysql_exec "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;"
@@ -352,13 +356,13 @@ enable_proxysql(){
   # Adding proxysql galera check scheduler
   proxysql_exec "DELETE FROM SCHEDULER WHERE ID=10;"
   check_cmd $?
-  proxysql_exec "INSERT  INTO SCHEDULER (id,active,interval_ms,filename,arg1,arg2,arg3,arg4,arg5) VALUES (10,1,$GALERA_CHECK_INTERVAL,'$PROXYSQL_GALERA_CHECK',10,10,${#wsrep_address[@]},1,'/var/lib/proxysql/proxysql_galera_check.log');"
+  proxysql_exec "INSERT  INTO SCHEDULER (id,active,interval_ms,filename,arg1,arg2,arg3,arg4,arg5) VALUES (10,1,$GALERA_CHECK_INTERVAL,'$PROXYSQL_GALERA_CHECK',$HOSTGROUP_ID,$HOSTGROUP_ID,${#wsrep_address[@]},1,'/var/lib/proxysql/proxysql_galera_check.log');"
   check_cmd $? "Failed to add the Percona XtraDB Cluster monitoring scheduler in ProxySQL"
 
   # Adding Percona XtraDB Cluster membership checking scheduler
   proxysql_exec "DELETE FROM SCHEDULER WHERE ID=11;"
   check_cmd $?
-  proxysql_exec "INSERT  INTO SCHEDULER (id,active,interval_ms,filename,arg1,arg2) VALUES (11,1,5000,'$PROXYSQL_NODE_MONITOR',10,'/var/lib/proxysql/proxysql_node_monitor.log');"
+  proxysql_exec "INSERT  INTO SCHEDULER (id,active,interval_ms,filename,arg1,arg2) VALUES (11,1,5000,'$PROXYSQL_NODE_MONITOR',$HOSTGROUP_ID,'/var/lib/proxysql/proxysql_node_monitor.log');"
   check_cmd $? "Failed to add the Percona XtraDB Cluster membership checking scheduler in ProxySQL"
 
   proxysql_exec "LOAD SCHEDULER TO RUNTIME;SAVE SCHEDULER TO DISK;"
@@ -388,7 +392,7 @@ enable_proxysql(){
   if [[ -z "$check_user" ]]; then
     mysql_exec "CREATE USER $PXC_APP_USERNAME@'%' IDENTIFIED BY '$PXC_APP_PASSWORD';"
     check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$PXC_APP_USERNAME' (GRANT)"
-    proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$PXC_APP_USERNAME','$PXC_APP_PASSWORD',1,10);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
+    proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$PXC_APP_USERNAME','$PXC_APP_PASSWORD',1,$HOSTGROUP_ID);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
     check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$PXC_APP_USERNAME' (mysql_users update)"
     echo -e "\n\nPercona XtraDB Cluster application user '$PXC_APP_USERNAME'@'%' has been added with USAGE privilege, please make sure to grant appropriate privileges\n"
   else
@@ -399,9 +403,9 @@ enable_proxysql(){
 # Removing PXC configuration from proxysql
 disable_proxysql(){
   proxysql_connection_check
-  proxysql_exec "DELETE FROM mysql_users WHERE default_hostgroup=10;"
+  proxysql_exec "DELETE FROM mysql_users WHERE default_hostgroup=$HOSTGROUP_ID;"
   check_cmd $? "Cannot delete Percona XtraDB Cluster users from ProxySQL"
-  proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id=10;"
+  proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id=$HOSTGROUP_ID;"
   check_cmd $? "Cannot delete Percona XtraDB Cluster nodes from ProxySQL"
   proxysql_exec "DELETE FROM SCHEDULER WHERE ID IN (10,11);"
   check_cmd $? "Cannot delete Galera checker and node monitoring scheduler from ProxySQL"
@@ -433,7 +437,7 @@ adduser(){
       read -p "Application user '$PXC_APP_USERNAME' does not exist in Percona XtraDB Cluster. Would you like to proceed [y/n] ? " check_param
       case $check_param in
         y|Y)
-          proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$PXC_APP_USERNAME','$PXC_APP_PASSWORD',1,10);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
+          proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$PXC_APP_USERNAME','$PXC_APP_PASSWORD',1,$HOSTGROUP_ID);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
           check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$PXC_APP_USERNAME' to ProxySQL database"
         ;;
         n|N)
@@ -445,7 +449,7 @@ adduser(){
         ;;
       esac
     else
-      proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$PXC_APP_USERNAME','$PXC_APP_PASSWORD',1,10);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
+      proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$PXC_APP_USERNAME','$PXC_APP_PASSWORD',1,$HOSTGROUP_ID);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
       check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$PXC_APP_USERNAME' to ProxySQL database"
     fi
   else

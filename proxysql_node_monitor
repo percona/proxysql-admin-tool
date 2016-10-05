@@ -2,16 +2,16 @@
 # This script will assist to setup Percona XtraDB cluster ProxySQL monitoring script.
 #####################################################################################
 
-HOSTGROUP_ID="${1:-0}"
-ERR_FILE="${2:-/dev/null}"
-CHECK_STATUS=0
-
 if [ -f /etc/proxysql-admin.cnf ]; then
   source /etc/proxysql-admin.cnf
 else
   echo "Assert! proxysql-admin configuration file :/etc/proxysql-admin.cnf does not exists, Terminating!" >> $ERR_FILE
   exit 1
 fi
+
+HOSTGROUP_ID="${1:-0}"
+ERR_FILE="${2:-/dev/null}"
+CHECK_STATUS=0
 
 check_cmd(){
   MPID=$1
