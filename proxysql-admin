@@ -32,7 +32,7 @@ usage () {
     echo " --enable                        	Auto-configure Percona XtraDB Cluster nodes into ProxySQL"
     echo " --disable                       	Remove Percona XtraDB Cluster configurations from ProxySQL"
     echo " --galera-check-interval         	Interval for monitoring proxysql_galera_checker script(in milliseconds)"
-    echo " --mode                          	ProxySQL read/write configuration mode, currently it only support 'loadbal' mode" 
+    echo " --mode                          	ProxySQL read/write configuration mode, currently it supports 'loadbal and 'singlewrite' modes" 
     echo " --adduser                       	Add Percona XtraDB Cluster application user to ProxySQL database"
 }
 
@@ -166,6 +166,11 @@ do
     --mode )
     RW_MODE="$2"
     shift 2
+    if [ $RW_MODE != "loadbal" -a $RW_MODE != "singlewrite" ]; then
+      echo "ERROR: Invalid --mode passed:"
+      echo "  Please choose any of these modes loadbal|singlewrite"
+      exit 1
+    fi
     ;;
     --write-node )
     WRITE_NODE="$2"
@@ -302,7 +307,14 @@ user_input_check(){
       check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$USERNAME' (mysql_users update)"
       echo -e "\n\nPercona XtraDB Cluster application user '$USERNAME'@'%' has been added with USAGE privilege, please make sure to grant appropriate privileges\n"
     else
-      echo -e "\n\nApplication user '${USERNAME}'@'%' already present in Percona XtraDB Cluster"
+      check_user=`proxysql_exec "SELECT username FROM mysql_users where username='$USERNAME'"`
+      if [[ -z "$check_user" ]]; then
+        echo -e "\nApplication user '${USERNAME}'@'%' already present in Percona XtraDB Cluster.\n"
+        proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$USERNAME','$PASSWORD',1,$HOSTGROUP_ID);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
+        check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$USERNAME' (mysql_users update)"
+      else
+	echo -e "\nApplication user '${USERNAME}'@'%' already present in Percona XtraDB Cluster and ProxySQL database.\n"
+      fi
     fi
   fi
 }
