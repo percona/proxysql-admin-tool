@@ -9,8 +9,9 @@ else
   exit 1
 fi
 
-HOSTGROUP_ID="${1:-0}"
-ERR_FILE="${2:-/dev/null}"
+WRITE_HOSTGROUP_ID="${1:-0}"
+READ_HOSTGROUP_ID="${2:-0}"
+ERR_FILE="${3:-/dev/null}"
 SCHEDULER_ID="10"
 CHECK_STATUS=0
 
@@ -37,7 +38,7 @@ mysql_exec() {
 
 # Update Percona XtraDB Cluster nodes in ProxySQL database
 update_cluster(){
-  current_hosts=(`proxysql_exec "SELECT hostname,port FROM mysql_servers where hostgroup_id=$HOSTGROUP_ID" | sed 's|\t|:|g' | tr '\n' ' '`)
+  current_hosts=(`proxysql_exec "SELECT hostname,port FROM mysql_servers where hostgroup_id in ( $WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID )" | sed 's|\t|:|g' | tr '\n' ' '`)
   wsrep_address=(`mysql_exec "SHOW STATUS LIKE 'wsrep_incoming_addresses'" | awk '{print $2}' | sed 's|,| |g'`)
   if [ ${#wsrep_address[@]} -eq 0 ]; then
     echo "Alert! wsrep_incoming_addresses is empty. Terminating!" >> $ERR_FILE
@@ -49,8 +50,8 @@ update_cluster(){
       ws_ip=$(echo $i | cut -d':' -f1)
       ws_port=$(echo $i | cut -d':' -f2)
       echo "Cluster node (${i}) does not exists in ProxySQL database!" >> $ERR_FILE
-      proxysql_exec "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight) VALUES ('$ws_ip',$HOSTGROUP_ID,$ws_port,1000);"
-      check_cmd $? "Cannot add Percona XtraDB Cluster node $ws_ip:$ws_port (hostgroup $HOSTGROUP_ID) to ProxySQL database, Please check proxysql credentials"
+      proxysql_exec "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment) VALUES ('$ws_ip',$READ_HOSTGROUP_ID,$ws_port,1000,'READ');"
+      check_cmd $? "Cannot add Percona XtraDB Cluster node $ws_ip:$ws_port (hostgroup $READ_HOSTGROUP_ID) to ProxySQL database, Please check proxysql credentials"
       proxysql_exec "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;"
       echo "Added ${i} node into ProxySQL database." >> $ERR_FILE
     else
@@ -64,7 +65,7 @@ update_cluster(){
       ws_port=$(echo $i | cut -d':' -f2)
       echo "Node ${i} does not exists in cluster membership!" >> $ERR_FILE
       proxysql_exec "UPDATE mysql_servers set status = 'OFFLINE_HARD' WHERE hostgroup_id = $HOSTGROUP_ID and hostname='$ws_ip' and port=$ws_port;"
-      check_cmd $? "Cannot update Percona XtraDB Cluster node $ws_ip:$ws_port (hostgroup $HOSTGROUP_ID) to ProxySQL database, Please check proxysql credentials"
+      check_cmd $? "Cannot update Percona XtraDB Cluster node $ws_ip:$ws_port to ProxySQL database, Please check proxysql credentials"
       proxysql_exec "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;"
       echo "${i} node set to OFFLINE_HARD status to ProxySQL database." >> $ERR_FILE 
     else
@@ -76,11 +77,11 @@ update_cluster(){
     if [[ ! " ${current_hosts[@]} " == " ${i} " ]]; then
       ws_ip=$(echo $i | cut -d':' -f1)
       ws_port=$(echo $i | cut -d':' -f2)
-      ws_status=$(echo `proxysql_exec "SELECT status from mysql_servers WHERE hostgroup_id = $HOSTGROUP_ID and hostname='$ws_ip' and port=$ws_port"`)
+      ws_status=$(echo `proxysql_exec "SELECT status from mysql_servers WHERE hostname='$ws_ip' and port=$ws_port"`)
       echo "Cluster node (${i}) current status '$ws_status' in ProxySQL database!" >> $ERR_FILE 
       if [ "$ws_status" == "OFFLINE_HARD" ]; then
-	      proxysql_exec "UPDATE mysql_servers set status = 'OFFLINE_SOFT' WHERE hostgroup_id = $HOSTGROUP_ID and hostname='$ws_ip' and port=$ws_port;"
-        check_cmd $? "Cannot update Percona XtraDB Cluster node $ws_ip:$ws_port (hostgroup $HOSTGROUP_ID) to ProxySQL database, Please check proxysql credentials" 
+	      proxysql_exec "UPDATE mysql_servers set status = 'OFFLINE_SOFT' WHERE hostname='$ws_ip' and port=$ws_port;"
+        check_cmd $? "Cannot update Percona XtraDB Cluster node $ws_ip:$ws_port to ProxySQL database, Please check proxysql credentials" 
         proxysql_exec "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;"
         echo "${i} node set to OFFLINE_SOFT status to ProxySQL database." >> $ERR_FILE
       fi
@@ -97,14 +98,14 @@ check_cmd $? "Could not retrieve cluster login info from ProxySQL. Please check 
 CLUSTER_PASSWORD=$(proxysql_exec "SELECT variable_value FROM global_variables WHERE variable_name='mysql-monitor_password'") 
 check_cmd $? "Could not retrieve cluster login info from ProxySQL. Please check cluster login credentials"
 
-CLUSTER_HOST_INFO=`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE status='ONLINE' and hostgroup_id=$HOSTGROUP_ID limit 1"`
+CLUSTER_HOST_INFO=`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE status='ONLINE' and hostgroup_id in ($WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID) limit 1"`
 check_cmd $? "Could not retrieve cluster node info from ProxySQL. Please check cluster login credentials"
 
 CLUSTER_HOSTNAME=$(echo $CLUSTER_HOST_INFO | awk '{print $1}')
 CLUSTER_PORT=$(echo $CLUSTER_HOST_INFO | awk '{print $2}')
 
 if [[ -z $CLUSTER_HOST_INFO ]]; then
-  echo "Percona XtraDB Cluster nodes are not configured with hostgroup $HOSTGROUP_ID. Please pass correct info" >> $ERR_FILE
+  echo "Percona XtraDB Cluster nodes are not configured in ProxySQL database. Please pass correct info" >> $ERR_FILE
 else
   update_cluster
 fi
