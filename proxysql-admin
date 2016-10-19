@@ -7,7 +7,7 @@
 # Make sure only root can run this script
 if [ $(id -u) -ne 0 ]; then
   echo "ERROR: This script must be run as root!" 1>&2
-  exit
+  exit 1
 fi
 
 # Dispay script usage details
@@ -39,7 +39,7 @@ usage () {
 # Check if we have a functional getopt(1)
 if ! getopt --test
   then
-  go_out="$(getopt --options= --longoptions=proxysql-user:,proxysql-password::,proxysql-host:,proxysql-port:,cluster-user:,cluster-password::,cluster-host:,cluster-port:,monitor-user:,monitor-password:,pxc-app-user:,pxc-app-password:,galera-check-interval:,mode:,config-file:,enable,disable,adduser,help \
+  go_out="$(getopt --options= --longoptions=proxysql-user:,proxysql-password::,proxysql-host:,proxysql-port:,cluster-user:,cluster-password::,cluster-host:,cluster-port:,monitor-user:,monitor-password:,pxc-app-user:,pxc-app-password:,galera-check-interval:,mode:,write-node:,config-file:,enable,disable,adduser,help \
   --name="$(basename "$0")" -- "$@")"
   test $? -eq 0 || exit 1
   eval set -- $go_out
@@ -231,6 +231,12 @@ fi
 
 if [[ -z "$RW_MODE" ]]; then
   RW_MODE="loadbal"
+else
+  if [ $RW_MODE != "loadbal" -a $RW_MODE != "singlewrite" ]; then
+    echo "ERROR: Invalid --mode passed:"
+    echo "  Please choose any of these modes loadbal|singlewrite"
+    exit 1
+  fi
 fi
 
 PIDFILE=/tmp/pxc-proxysql-monitor.pid
@@ -409,11 +415,25 @@ enable_proxysql(){
       read -r -p  "You have not given writer node info through command line/config-file. Please enter writer-node info (eg : 127.0.0.1:3306): " WRITE_NODE
       writer_ws_ip=$(echo $WRITE_NODE | cut -d':' -f1)
       writer_ws_port=$(echo $WRITE_NODE | cut -d':' -f2)
+      printf "[client]\nuser=${CLUSTER_USERNAME}\npassword=${CLUSTER_PASSWORD}\nhost=${writer_ws_ip}\nport=${writer_ws_port}\n" | mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "select @@port" >/dev/null 2>/dev/null
+      if [ $? -ne 0 ]; then 
+        echo -e "\nERROR: Could not establish connection to write node $writer_ws_ip:$writer_ws_port. Terminating!\n"; 
+        proxysql_exec "DELETE FROM mysql_users WHERE default_hostgroup in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID);"
+        check_cmd $? "Cannot delete Percona XtraDB Cluster users from ProxySQL"
+        exit 1
+      fi
     else
       writer_ws_ip=$(echo $WRITE_NODE | cut -d':' -f1)
       writer_ws_port=$(echo $WRITE_NODE | cut -d':' -f2)
+      printf "[client]\nuser=${CLUSTER_USERNAME}\npassword=${CLUSTER_PASSWORD}\nhost=${writer_ws_ip}\nport=${writer_ws_port}\n" | mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "select @@port" >/dev/null 2>/dev/null
+      if [ $? -ne 0 ]; then 
+        echo -e "\nERROR: Could not establish connection to write node $writer_ws_ip:$writer_ws_port. Terminating!\n"; 
+        proxysql_exec "DELETE FROM mysql_users WHERE default_hostgroup in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID);"
+        check_cmd $? "Cannot delete Percona XtraDB Cluster users from ProxySQL"
+        exit 1
+      fi
     fi
-    echo -e "\nAdding the Percona XtraDB Cluster server nodes to ProxySQL"
+
     proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id=$WRITE_HOSTGROUP_ID"
     wsrep_address=(`mysql_exec "show status like 'wsrep_incoming_addresses'" | awk '{print $2}' | sed 's|,| |g'`)
     for i in "${wsrep_address[@]}"; do	
