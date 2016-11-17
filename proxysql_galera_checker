@@ -63,13 +63,17 @@ MYSQL_PASSWORD=$(echo $MYSQL_CREDENTIALS | awk '{print $2}')
 
 proxysql_exec "SELECT hostgroup_id, hostname, port, status FROM mysql_servers WHERE hostgroup_id IN ($HOSTGROUP_WRITER_ID, $HOSTGROUP_READER_ID) AND status <> 'OFFLINE_HARD'" | while read hostgroup server port stat
 do
+  PXC_MAIN_MODE=$(mysql_exec "SHOW VARIABLES LIKE 'pxc_maint_mode'" 2>>${ERR_FILE} | tail -1 2>>${ERR_FILE})
   WSREP_STATUS=$(mysql_exec "SHOW STATUS LIKE 'wsrep_local_state'" 2>>${ERR_FILE} | tail -1 2>>${ERR_FILE})
   echo "`date` Check server $hostgroup:$server:$port , status $stat , wsrep_local_state $WSREP_STATUS" >> ${ERR_FILE}
-  if [ "${WSREP_STATUS}" = "4" -a "$stat" != "ONLINE" ] ; then
+  if [ "${WSREP_STATUS}" = "4" -a "$stat" != "ONLINE" -a "${PXC_MAIN_MODE}" == "DISABLED" ] ; then
     echo "`date` Changing server $hostgroup:$server:$port to status ONLINE" >> ${ERR_FILE}
     proxysql_exec "UPDATE mysql_servers SET status='ONLINE' WHERE hostgroup_id=$hostgroup AND hostname='$server' AND port='$port';" 2>> ${ERR_FILE}
   elif [ "${WSREP_STATUS}" != "4" -a "$stat" = "ONLINE" ] ; then
     echo "`date` Changing server $hostgroup:$server:$port to status OFFLINE_SOFT" >> ${ERR_FILE}
+    proxysql_exec "UPDATE mysql_servers SET status='OFFLINE_SOFT' WHERE hostgroup_id=$hostgroup AND hostname='$server' AND port='$port';" 2>> ${ERR_FILE}
+  elif [ "${PXC_MAIN_MODE}" != "DISABLED" -a "$stat" = "ONLINE" ];then
+    echo "`date` Changing server $hostgroup:$server:$port to status OFFLINE_SOFT due to $PXC_MAIN_MODE" >> ${ERR_FILE}
     proxysql_exec "UPDATE mysql_servers SET status='OFFLINE_SOFT' WHERE hostgroup_id=$hostgroup AND hostname='$server' AND port='$port';" 2>> ${ERR_FILE}
   fi
 done

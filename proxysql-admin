@@ -29,18 +29,19 @@ usage () {
     echo " --pxc-app-write-password[=password]	Application write password to use when connecting to the Percona XtraDB Cluster node"
     echo " --pxc-app-read-user=user_name  	Application read user to use when connecting to the Percona XtraDB Cluster node"
     echo " --pxc-app-read-password[=password]	Application read password to use when connecting to the Percona XtraDB Cluster node"
-    echo " --enable                        	Auto-configure Percona XtraDB Cluster nodes into ProxySQL"
-    echo " --disable                       	Remove Percona XtraDB Cluster configurations from ProxySQL"
+    echo " --enable, -e                        	Auto-configure Percona XtraDB Cluster nodes into ProxySQL"
+    echo " --disable, -d                       	Remove Percona XtraDB Cluster configurations from ProxySQL"
     echo " --galera-check-interval         	Interval for monitoring proxysql_galera_checker script(in milliseconds)"
     echo " --mode                          	ProxySQL read/write configuration mode, currently it supports 'loadbal and 'singlewrite' modes"
     echo " --write-node                   	Writer node to accept write statments. This option only support with --mode=singlewrite"  
     echo " --adduser                       	Add Percona XtraDB Cluster application user to ProxySQL database"
+    echo " --version, -v                       	Print version info"
 }
 
 # Check if we have a functional getopt(1)
 if ! getopt --test
   then
-  go_out="$(getopt --options= --longoptions=proxysql-user:,proxysql-password::,proxysql-host:,proxysql-port:,cluster-user:,cluster-password::,cluster-host:,cluster-port:,monitor-user:,monitor-password:,pxc-app-user:,pxc-app-password:,galera-check-interval:,mode:,write-node:,config-file:,enable,disable,adduser,help \
+  go_out="$(getopt --options=edv --longoptions=proxysql-user:,proxysql-password::,proxysql-host:,proxysql-port:,cluster-user:,cluster-password::,cluster-host:,cluster-port:,monitor-user:,monitor-password:,pxc-app-user:,pxc-app-password:,galera-check-interval:,mode:,write-node:,config-file:,enable,disable,adduser,version,help \
   --name="$(basename "$0")" -- "$@")"
   test $? -eq 0 || exit 1
   eval set -- $go_out
@@ -176,6 +177,10 @@ do
     --write-node )
     WRITE_NODE="$2"
     shift 2
+    ;;
+    -v | --version )
+      echo "proxysql-admin version v1.3.0b"
+      exit 0
     ;;
     --help )
     usage
