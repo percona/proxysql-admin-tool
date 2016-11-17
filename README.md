@@ -23,12 +23,13 @@ Options:
  --pxc-app-write-password[=password]	Application write password to use when connecting to the Percona XtraDB Cluster node
  --pxc-app-read-user=user_name  	Application read user to use when connecting to the Percona XtraDB Cluster node
  --pxc-app-read-password[=password]	Application read password to use when connecting to the Percona XtraDB Cluster node
- --enable                        	Auto-configure Percona XtraDB Cluster nodes into ProxySQL
- --disable                       	Remove Percona XtraDB Cluster configurations from ProxySQL
+ --enable, -e                        	Auto-configure Percona XtraDB Cluster nodes into ProxySQL
+ --disable, -d                       	Remove Percona XtraDB Cluster configurations from ProxySQL
  --galera-check-interval         	Interval for monitoring proxysql_galera_checker script(in milliseconds)
  --mode                          	ProxySQL read/write configuration mode, currently it supports 'loadbal and 'singlewrite' modes
  --write-node                   	Writer node to accept write statments. This option only support with --mode=singlewrite
  --adduser                       	Add Percona XtraDB Cluster application user to ProxySQL database
+ --version, -v                      Print version info
 
 ```
 Pre-requisites 
