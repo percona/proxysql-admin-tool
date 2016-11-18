@@ -47,6 +47,11 @@ if ! getopt --test
   eval set -- $go_out
 fi
 
+if [[ $go_out == " --" ]];then
+  usage
+  exit 1
+fi
+
 for arg
 do
   case "$arg" in
