@@ -7,6 +7,7 @@ Release date : Nov 17, 2016
 ### Usability improvement
 
 * Added document updates for single write mode
+* Packaging: Added version number
 
 ### New features
 
