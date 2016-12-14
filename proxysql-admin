@@ -232,14 +232,6 @@ if [[ -z "$GALERA_CHECK_INTERVAL" ]]; then
   GALERA_CHECK_INTERVAL=3000
 fi
 
-if [[ -z "$WRITE_HOSTGROUP_ID" ]]; then
-  WRITE_HOSTGROUP_ID=10
-fi
-
-if [[ -z "$READ_HOSTGROUP_ID" ]]; then
-  READ_HOSTGROUP_ID=11
-fi
-
 if [[ -z "$RW_MODE" ]]; then
   RW_MODE="loadbal"
 else
@@ -248,6 +240,14 @@ else
     echo "  Please choose any of these modes loadbal|singlewrite"
     exit 1
   fi
+fi
+
+if [ $RW_MODE == "loadbal" ]; then
+  WRITE_HOSTGROUP_ID=10
+  READ_HOSTGROUP_ID=10
+elif [ $RW_MODE == "singlewrite" ]; then
+  WRITE_HOSTGROUP_ID=10
+  READ_HOSTGROUP_ID=11
 fi
 
 PIDFILE=/tmp/pxc-proxysql-monitor.pid
