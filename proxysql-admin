@@ -10,6 +10,10 @@ if [ $(id -u) -ne 0 ]; then
   exit 1
 fi
 
+#bash prompt internal configuration
+BD=$(tput bold)
+NBD=$(tput sgr0)
+
 # Dispay script usage details
 usage () {
   echo "Usage: [ options ]"
@@ -245,9 +249,11 @@ fi
 if [ $RW_MODE == "loadbal" ]; then
   WRITE_HOSTGROUP_ID=10
   READ_HOSTGROUP_ID=10
+  sudo sed -i "0,/^[ \t]*export RW_MODE[ \t]*=.*$/s|^[ \t]*export RW_MODE[ \t]*=.*$|export RW_MODE=\"loadbal\"|" /etc/proxysql-admin.cnf
 elif [ $RW_MODE == "singlewrite" ]; then
   WRITE_HOSTGROUP_ID=10
   READ_HOSTGROUP_ID=11
+  sudo sed -i "0,/^[ \t]*export RW_MODE[ \t]*=.*$/s|^[ \t]*export RW_MODE[ \t]*=.*$|export RW_MODE=\"singlewrite\"|" /etc/proxysql-admin.cnf
 fi
 
 PIDFILE=/tmp/pxc-proxysql-monitor.pid
@@ -304,7 +310,7 @@ user_input_check(){
       read -r ${USER_CATEGORY}_USERNAME
     done
   else
-    echo -e "${USER_DESCRIPTION}name as per command line is `eval "echo \\$${USER_CATEGORY}_USERNAME"`"
+    echo -e "${USER_DESCRIPTION}name as per command line/config-file is ${BD}`eval "echo \\$${USER_CATEGORY}_USERNAME"`${NBD}"
   fi
   if [[ -z $PASSWORD ]]; then
     read -r -s -p  "Enter ${USER_DESCRIPTION} password: " ${USER_CATEGORY}_PASSWORD
@@ -322,15 +328,15 @@ user_input_check(){
       check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$USERNAME' (GRANT)"
       proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$USERNAME','$PASSWORD',1,$HOSTGROUP_ID);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
       check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$USERNAME' (mysql_users update)"
-      echo -e "\n\nPercona XtraDB Cluster application user '$USERNAME'@'%' has been added with USAGE privilege, please make sure to grant appropriate privileges\n"
+      echo -e "\n\nPercona XtraDB Cluster application user '${BD}$USERNAME'@'%${NBD}' has been added with USAGE privilege, please make sure to grant appropriate privileges\n"
     else
       check_user=`proxysql_exec "SELECT username FROM mysql_users where username='$USERNAME'"`
       if [[ -z "$check_user" ]]; then
-        echo -e "\nApplication user '${USERNAME}'@'%' already present in Percona XtraDB Cluster.\n"
+        echo -e "\nApplication user '${BD}${USERNAME}'@'%${NBD}' already present in Percona XtraDB Cluster.\n"
         proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$USERNAME','$PASSWORD',1,$HOSTGROUP_ID);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
         check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$USERNAME' (mysql_users update)"
       else
-	echo -e "\nApplication user '${USERNAME}'@'%' already present in Percona XtraDB Cluster and ProxySQL database.\n"
+	echo -e "\nApplication user '${BD}${USERNAME}'@'%${NBD}' already present in Percona XtraDB Cluster and ProxySQL database.\n"
       fi
     fi
   fi
@@ -379,7 +385,7 @@ enable_proxysql(){
     proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
     check_cmd $?  "Cannot set the mysql-monitor variables in ProxySQL"
     proxysql_exec "LOAD MYSQL VARIABLES TO RUNTIME;SAVE MYSQL VARIABLES TO DISK;"
-    echo -e "\n\nUser '$MONITOR_USERNAME'@'%' has been added with USAGE privilege\n"
+    echo -e "\n\nUser '${BD}$MONITOR_USERNAME'@'%${NBD}' has been added with USAGE privilege\n"
   else
     echo -e "\n"
     read -p "Monitoring user is already present in Percona XtraDB Cluster. Would you like to proceed with existing username and password [y/n] ? " check_param
@@ -394,7 +400,7 @@ enable_proxysql(){
         proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
         check_cmd $?  "Cannot set the mysql-monitor variables in ProxySQL"
         proxysql_exec "LOAD MYSQL VARIABLES TO RUNTIME;SAVE MYSQL VARIABLES TO DISK;"
-        echo -e "\n\nUser '$MONITOR_USERNAME'@'%' has been updated in ProxySQL database. Please make sure the credentials are same in Percona XtraDB Cluster\n"
+        echo -e "\n\nUser '${BD}$MONITOR_USERNAME'@'%${NBD}' has been updated in ProxySQL database. Please make sure the credentials are same in Percona XtraDB Cluster\n"
       ;;
       *)
         echo "Please type [y/n]! Terminating.."
@@ -537,6 +543,7 @@ adduser(){
 
 if [ "$enable" == 1 -o "$disable" == 1 -o "$adduser" == 1 ]; then
   if [ "$enable" == 1 ];then
+    echo -e "ProxySQL read/write configuration mode is ${BD}$RW_MODE${NBD}\n"
     enable_proxysql
     echo "ProxySQL configuration completed!"
   fi
@@ -552,4 +559,5 @@ else
   echo "Usage: proxysql-admin <user credentials> {enable|disable}"
   usage
 fi
+
 

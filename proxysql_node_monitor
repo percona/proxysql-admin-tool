@@ -14,6 +14,11 @@ READ_HOSTGROUP_ID="${2:-0}"
 ERR_FILE="${3:-/dev/null}"
 SCHEDULER_ID="10"
 CHECK_STATUS=0
+if [ $RW_MODE == "loadbal" ]; then
+  MODE_COMMENT="READWRITE"
+else
+  MODE_COMMENT="READ"
+fi
 
 check_cmd(){
   MPID=$1
@@ -49,7 +54,7 @@ update_cluster(){
       ws_ip=$(echo $i | cut -d':' -f1)
       ws_port=$(echo $i | cut -d':' -f2)
       echo "Cluster node (${i}) does not exists in ProxySQL database!" >> $ERR_FILE
-      proxysql_exec "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment) VALUES ('$ws_ip',$READ_HOSTGROUP_ID,$ws_port,1000,'READ');"
+      proxysql_exec "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment) VALUES ('$ws_ip',$READ_HOSTGROUP_ID,$ws_port,1000,'$MODE_COMMENT');"
       check_cmd $? "Cannot add Percona XtraDB Cluster node $ws_ip:$ws_port (hostgroup $READ_HOSTGROUP_ID) to ProxySQL database, Please check proxysql credentials"
       proxysql_exec "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;"
       echo "Added ${i} node into ProxySQL database." >> $ERR_FILE
