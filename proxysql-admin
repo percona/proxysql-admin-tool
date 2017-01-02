@@ -36,7 +36,7 @@ usage () {
     echo " --enable, -e                        	Auto-configure Percona XtraDB Cluster nodes into ProxySQL"
     echo " --disable, -d                       	Remove Percona XtraDB Cluster configurations from ProxySQL"
     echo " --galera-check-interval         	Interval for monitoring proxysql_galera_checker script(in milliseconds)"
-    echo " --mode                          	ProxySQL read/write configuration mode, currently it supports 'loadbal and 'singlewrite' modes"
+    echo " --mode                          	ProxySQL read/write configuration mode, currently it supports 'loadbal' and 'singlewrite'(default) modes"
     echo " --write-node                   	Writer node to accept write statments. This option only support with --mode=singlewrite"  
     echo " --adduser                       	Add Percona XtraDB Cluster application user to ProxySQL database"
     echo " --version, -v                       	Print version info"
@@ -237,7 +237,7 @@ if [[ -z "$GALERA_CHECK_INTERVAL" ]]; then
 fi
 
 if [[ -z "$RW_MODE" ]]; then
-  RW_MODE="loadbal"
+  RW_MODE="singlewrite"
 else
   if [ $RW_MODE != "loadbal" -a $RW_MODE != "singlewrite" ]; then
     echo "ERROR: Invalid --mode passed:"
