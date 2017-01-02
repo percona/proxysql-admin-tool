@@ -26,10 +26,10 @@ Options:
  --enable, -e                        	Auto-configure Percona XtraDB Cluster nodes into ProxySQL
  --disable, -d                       	Remove Percona XtraDB Cluster configurations from ProxySQL
  --galera-check-interval         	Interval for monitoring proxysql_galera_checker script(in milliseconds)
- --mode                          	ProxySQL read/write configuration mode, currently it supports 'loadbal and 'singlewrite' modes
+ --mode                          	ProxySQL read/write configuration mode, currently it supports 'loadbal' and 'singlewrite'(default) modes
  --write-node                   	Writer node to accept write statments. This option only support with --mode=singlewrite
  --adduser                       	Add Percona XtraDB Cluster application user to ProxySQL database
- --version, -v                      Print version info
+ --version, -v                      	Print version info
 
 ```
 Pre-requisites 
