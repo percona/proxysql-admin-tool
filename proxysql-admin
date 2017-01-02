@@ -271,18 +271,23 @@ mysql_exec() {
 }
 
 proxysql_connection_check(){
-  if ! proxysql_exec "show tables" >/dev/null; then 
-    echo "Please enter valid ProxySQL connection parameters! Terminating.."
+  CONNECTION_MSG=$( { printf "[client]\nuser=${PROXYSQL_USERNAME}\npassword=${PROXYSQL_PASSWORD}\nhost=${PROXYSQL_HOSTNAME}\nport=${PROXYSQL_PORT}\n" | mysql --defaults-file=/dev/stdin --protocol=tcp -e "show tables" >/dev/null; }  2>&1 )
+  if [[ ! -z $CONNECTION_MSG ]]; then
+    echo "$CONNECTION_MSG"
+    echo "Please check ProxySQL connection parameters! Terminating.."
     exit 1
   fi
 }
 
 pxc_connection_check(){
-  if ! mysql_exec "select @@port" >/dev/null; then 
-    echo "Please enter valid PXC connection parameters! Terminating.."
+  CONNECTION_MSG=$( { printf "[client]\nuser=${CLUSTER_USERNAME}\npassword=${CLUSTER_PASSWORD}\nhost=${CLUSTER_HOSTNAME}\nport=${CLUSTER_PORT}\n" | mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "select @@port" >/dev/null; }  2>&1 )
+  if [[ ! -z $CONNECTION_MSG ]]; then
+    echo "$CONNECTION_MSG"
+    echo "Please check PXC connection parameters! Terminating.."
     exit 1
   fi
 }
+
 check_cmd(){
   MPID=$1
   ERROR_MSG=$2
