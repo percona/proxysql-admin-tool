@@ -17,6 +17,11 @@ NBD=$(tput sgr0)
 # Internal variables
 export HOME="/srv"
 
+# Reading default variables from default configuration file location.
+if [ -e "/etc/proxysql-admin.cnf" ]; then
+  source /etc/proxysql-admin.cnf
+fi
+
 # Dispay script usage details
 usage () {
   echo "Usage: [ options ]"
@@ -150,7 +155,7 @@ do
         echo "ERROR: ${config_file} does not exist. Terminating."
         exit 1
       fi
-      ;;
+    ;;
     -e | --enable )
     shift
     enable=1
@@ -168,9 +173,9 @@ do
     shift 2
     ;;
     --mode )
-    RW_MODE="$2"
+    MODE="$2"
     shift 2
-    if [ $RW_MODE != "loadbal" -a $RW_MODE != "singlewrite" ]; then
+    if [ $MODE != "loadbal" -a $MODE != "singlewrite" ]; then
       echo "ERROR: Invalid --mode passed:"
       echo "  Please choose any of these modes loadbal|singlewrite"
       exit 1
@@ -229,24 +234,24 @@ if [[ -z "$GALERA_CHECK_INTERVAL" ]]; then
   GALERA_CHECK_INTERVAL=3000
 fi
 
-if [[ -z "$RW_MODE" ]]; then
-  RW_MODE="singlewrite"
+if [[ -z "$MODE" ]]; then
+  MODE="singlewrite"
 else
-  if [ $RW_MODE != "loadbal" -a $RW_MODE != "singlewrite" ]; then
+  if [ $MODE != "loadbal" -a $MODE != "singlewrite" ]; then
     echo "ERROR: Invalid --mode passed:"
     echo "  Please choose any of these modes loadbal|singlewrite"
     exit 1
   fi
 fi
 
-if [ $RW_MODE == "loadbal" ]; then
+if [ $MODE == "loadbal" ]; then
   WRITE_HOSTGROUP_ID=10
   READ_HOSTGROUP_ID=10
-  sudo sed -i "0,/^[ \t]*export RW_MODE[ \t]*=.*$/s|^[ \t]*export RW_MODE[ \t]*=.*$|export RW_MODE=\"loadbal\"|" /etc/proxysql-admin.cnf
-elif [ $RW_MODE == "singlewrite" ]; then
+  sudo sed -i "0,/^[ \t]*export MODE[ \t]*=.*$/s|^[ \t]*export MODE[ \t]*=.*$|export MODE=\"loadbal\"|" /etc/proxysql-admin.cnf
+elif [ $MODE == "singlewrite" ]; then
   WRITE_HOSTGROUP_ID=10
   READ_HOSTGROUP_ID=11
-  sudo sed -i "0,/^[ \t]*export RW_MODE[ \t]*=.*$/s|^[ \t]*export RW_MODE[ \t]*=.*$|export RW_MODE=\"singlewrite\"|" /etc/proxysql-admin.cnf
+  sudo sed -i "0,/^[ \t]*export MODE[ \t]*=.*$/s|^[ \t]*export MODE[ \t]*=.*$|export MODE=\"singlewrite\"|" /etc/proxysql-admin.cnf
 fi
 
 PIDFILE=/tmp/pxc-proxysql-monitor.pid
@@ -268,7 +273,7 @@ proxysql_connection_check(){
   if [[ ! -z $CONNECTION_MSG ]]; then
     echo "$CONNECTION_MSG"
     echo "Please check ProxySQL connection parameters! Terminating.."
-    #exit 1
+    exit 1
   fi
 }
 
@@ -277,7 +282,7 @@ pxc_connection_check(){
   if [[ ! -z $CONNECTION_MSG ]]; then
     echo "$CONNECTION_MSG"
     echo "Please check PXC connection parameters! Terminating.."
-    #exit 1
+    exit 1
   fi
 }
 
@@ -419,7 +424,7 @@ enable_proxysql(){
 
   # Adding Percona XtraDB Cluster nodes to ProxySQL
   echo -e "\nAdding the Percona XtraDB Cluster server nodes to ProxySQL"
-  if [ $RW_MODE == "loadbal" ]; then
+  if [ $MODE == "loadbal" ]; then
     proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id=$WRITE_HOSTGROUP_ID"
     wsrep_address=(`mysql_exec "show status like 'wsrep_incoming_addresses'" | awk '{print $2}' | sed 's|,| |g'`)
     for i in "${wsrep_address[@]}"; do	
@@ -430,7 +435,7 @@ enable_proxysql(){
     done
     proxysql_exec "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;"
 
-  elif [ $RW_MODE == "singlewrite" ]; then
+  elif [ $MODE == "singlewrite" ]; then
     proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID)"
     proxysql_exec "DELETE FROM mysql_query_rules WHERE destination_hostgroup in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID)"
     if [ -z $WRITE_NODE ]; then
@@ -553,7 +558,7 @@ adduser(){
 
 if [ "$enable" == 1 -o "$disable" == 1 -o "$adduser" == 1 ]; then
   if [ "$enable" == 1 ];then
-    echo -e "ProxySQL read/write configuration mode is ${BD}$RW_MODE${NBD}\n"
+    echo -e "ProxySQL read/write configuration mode is ${BD}$MODE${NBD}\n"
     enable_proxysql
     echo "ProxySQL configuration completed!"
   fi
