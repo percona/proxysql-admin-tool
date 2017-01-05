@@ -50,42 +50,42 @@ This script will accept two different options to configure Percona XtraDB Cluste
   PS : Please make sure to use super user credentials from PXC to setup to create default users.
 
 ```bash  
-$ proxysql-admin --config-file=/etc/proxysql-admin.cnf --enable
+$ sudo  proxysql-admin --config-file=/etc/proxysql-admin.cnf --enable 
+ProxySQL read/write configuration mode is singlewrite
+
 
 Configuring ProxySQL monitoring user..
-ProxySQL monitor username as per command line is monitor
+ProxySQL monitor username as per command line/config-file is monitor
 
 
-User 'monitor'@'%' has been added with USAGE privilege
+User 'monitor'@'127.%' has been added with USAGE privilege
 
 
-Configuring Percona XtraDB Cluster application users (READ and WRITE) to connect through ProxySQL
-Percona XtraDB Cluster application write username as per command line is pxc_write
+Configuring Percona XtraDB Cluster application user to connect through ProxySQL
+Percona XtraDB Cluster application username as per command line/config-file is proxysql_user
 
 
-Percona XtraDB Cluster application user 'pxc_write'@'%' has been added with USAGE privilege, please make sure to grant appropriate privileges
-
-Percona XtraDB Cluster application read username as per command line is pxc_read
-
-
-Percona XtraDB Cluster application user 'pxc_read'@'%' has been added with USAGE privilege, please make sure to grant appropriate privileges
+Percona XtraDB Cluster application user 'proxysql_user'@'127.%' has been added with USAGE privilege, please make sure to grant appropriate privileges
 
 
 Adding the Percona XtraDB Cluster server nodes to ProxySQL
+You have not given writer node info through command line/config-file. Please enter writer-node info (eg : 127.0.0.1:3306): 127.0.0.1:25000
 ProxySQL configuration completed!
 $ 
 
-MySQL [(none)]> select hostgroup_id,hostname,port,status,comment from mysql_servers;
-+--------------+-----------+-------+--------+-----------+
-| hostgroup_id | hostname  | port  | status | comment   |
-+--------------+-----------+-------+--------+-----------+
-| 10           | 127.0.0.1 | 27000 | ONLINE | READWRITE |
-| 10           | 127.0.0.1 | 27100 | ONLINE | READWRITE |
-| 10           | 127.0.0.1 | 27200 | ONLINE | READWRITE |
-+--------------+-----------+-------+--------+-----------+
-3 rows in set (0.00 sec)
+mysql> select hostgroup_id,hostname,port,status,comment from mysql_servers;
++--------------+-----------+-------+--------+---------+
+| hostgroup_id | hostname  | port  | status | comment |
++--------------+-----------+-------+--------+---------+
+| 11           | 127.0.0.1 | 25400 | ONLINE | READ    |
+| 10           | 127.0.0.1 | 25000 | ONLINE | WRITE   |
+| 11           | 127.0.0.1 | 25100 | ONLINE | READ    |
+| 11           | 127.0.0.1 | 25200 | ONLINE | READ    |
+| 11           | 127.0.0.1 | 25300 | ONLINE | READ    |
++--------------+-----------+-------+--------+---------+
+5 rows in set (0.00 sec)
 
-MySQL [(none)]> 
+mysql> 
 ```
   __2) --disable__ 
   
@@ -101,22 +101,55 @@ ___Extra options___
 
 __i) --mode__
 
-It will setup read/write mode for cluster nodes in ProxySQL database based on the hostgroup. For now,  the only supported modes are _loadbal_  and _singlewrite_.  _loadbal_ will be the default for a load balanced set of evenly weighted read/write nodes. _singlewrite_ mode will accept writes only on single node (based on the info you have given in --write-node) remaining nodes will accept read statements.
+It will setup read/write mode for cluster nodes in ProxySQL database based on the hostgroup. For now,  the only supported modes are _loadbal_  and _singlewrite_.  _singlewrite_ will be the default mode and it will accept writes only on single node (based on the info you have given in --write-node) remaining nodes will accept read statements. _loadbal_ mode is a load balanced set of evenly weighted read/write nodes.
 
 _singlewrite_ mode setup:
-```bash 
-proxysql-admin --config-file=/etc/proxysql-admin.cnf --mode=singlewrite --write-node=127.0.0.1:27100 --enable
-MySQL [(none)]> select hostgroup_id,hostname,port,status,comment from mysql_servers;
+```bash
+$ sudo grep  "MODE"  /etc/proxysql-admin.cnf
+export MODE="singlewrite"
+$ 
+$ sudo proxysql-admin --config-file=/etc/proxysql-admin.cnf  --write-node=127.0.0.1:25000 --enable
+ProxySQL read/write configuration mode is singlewrite
+[..]
+ProxySQL configuration completed!
+$
+
+mysql> select hostgroup_id,hostname,port,status,comment from mysql_servers;
 +--------------+-----------+-------+--------+---------+
 | hostgroup_id | hostname  | port  | status | comment |
 +--------------+-----------+-------+--------+---------+
-| 11           | 127.0.0.1 | 27000 | ONLINE | READ    |
-| 10           | 127.0.0.1 | 27100 | ONLINE | WRITE   |
-| 11           | 127.0.0.1 | 27200 | ONLINE | READ    |
+| 11           | 127.0.0.1 | 25400 | ONLINE | READ    |
+| 10           | 127.0.0.1 | 25000 | ONLINE | WRITE   |
+| 11           | 127.0.0.1 | 25100 | ONLINE | READ    |
+| 11           | 127.0.0.1 | 25200 | ONLINE | READ    |
+| 11           | 127.0.0.1 | 25300 | ONLINE | READ    |
 +--------------+-----------+-------+--------+---------+
-3 rows in set (0.00 sec)
+5 rows in set (0.00 sec)
 
-MySQL [(none)]> 
+mysql> 
+```
+
+_loadbal_ mode setup:
+```bash
+$ sudo  proxysql-admin --config-file=/etc/proxysql-admin.cnf --mode=loadbal --enable 
+ProxySQL read/write configuration mode is loadbal
+[..]
+ProxySQL configuration completed!
+$ 
+
+mysql> select hostgroup_id,hostname,port,status,comment from mysql_servers;
++--------------+-----------+-------+--------+-----------+
+| hostgroup_id | hostname  | port  | status | comment   |
++--------------+-----------+-------+--------+-----------+
+| 10           | 127.0.0.1 | 25400 | ONLINE | READWRITE |
+| 10           | 127.0.0.1 | 25000 | ONLINE | READWRITE |
+| 10           | 127.0.0.1 | 25100 | ONLINE | READWRITE |
+| 10           | 127.0.0.1 | 25200 | ONLINE | READWRITE |
+| 10           | 127.0.0.1 | 25300 | ONLINE | READWRITE |
++--------------+-----------+-------+--------+-----------+
+5 rows in set (0.01 sec)
+
+mysql> 
 ```
 
 __ii) --galera-check-interval__
