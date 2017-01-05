@@ -9,28 +9,25 @@ proxysql-admin usage info
 Usage: [ options ]
 Options:
  --config-file                   	Override login credentials from command line and read login credentials from config file.
- --proxysql-user=user_name       	User to use when connecting to the ProxySQL service
+ --proxysql-username=user_name       	User to use when connecting to the ProxySQL service
  --proxysql-password[=password]  	Password to use when connecting to the ProxySQL service
  --proxysql-port=port_num        	Port to use when connecting to the ProxySQL service
  --proxysql-host=host_name       	Hostname to use when connecting to the ProxySQL service
- --cluster-user=user_name        	User to use when connecting to the Percona XtraDB Cluster node
+ --cluster-username=user_name        	User to use when connecting to the Percona XtraDB Cluster node
  --cluster-password[=password]   	Password to use when connecting to the Percona XtraDB Cluster node
  --cluster-port=port_num         	Port to use when connecting to the Percona XtraDB Cluster node
  --cluster-host=host_name        	Hostname to use when connecting to the Percona XtraDB Cluster node
- --monitor-user=user_name        	User to use for monitoring Percona XtraDB Cluster nodes through ProxySQL
+ --monitor-username=user_name        	User to use for monitoring Percona XtraDB Cluster nodes through ProxySQL
  --monitor-password[=password]   	Password to for monitoring Percona XtraDB Cluster nodes through ProxySQL
- --pxc-app-write-user=user_name  	Application write user to use when connecting to the Percona XtraDB Cluster node
- --pxc-app-write-password[=password]	Application write password to use when connecting to the Percona XtraDB Cluster node
- --pxc-app-read-user=user_name  	Application read user to use when connecting to the Percona XtraDB Cluster node
- --pxc-app-read-password[=password]	Application read password to use when connecting to the Percona XtraDB Cluster node
+ --pxc-app-username=user_name  		Application user to use when connecting to the Percona XtraDB Cluster node
+ --pxc-app-password[=password]		Application password to use when connecting to the Percona XtraDB Cluster node
  --enable, -e                        	Auto-configure Percona XtraDB Cluster nodes into ProxySQL
  --disable, -d                       	Remove Percona XtraDB Cluster configurations from ProxySQL
  --galera-check-interval         	Interval for monitoring proxysql_galera_checker script(in milliseconds)
- --mode                          	ProxySQL read/write configuration mode, currently it supports 'loadbal' and 'singlewrite'(default) modes
+ --mode                         	ProxySQL read/write configuration mode, currently it supports 'loadbal' and 'singlewrite'(default) modes
  --write-node                   	Writer node to accept write statments. This option only support with --mode=singlewrite
  --adduser                       	Add Percona XtraDB Cluster application user to ProxySQL database
- --version, -v                      	Print version info
-
+ --version, -v                       	Print version info
 ```
 Pre-requisites 
 --------------
@@ -48,7 +45,7 @@ This script will accept two different options to configure Percona XtraDB Cluste
   * proxysql_node_monitor : will check cluster node membership, and re-configure ProxySQL if cluster membership changes occur
   * proxysql_galera_checker : will check desynced nodes, and temporarily deactivate them
 
-  It will also add three new users into Percona XtraDB Cluster with USAGE privilege. One is for monitoring cluster nodes through ProxySQL, and remaining two users(read and write users) for connecting to PXC node via ProxySQL console.
+  It will also add two new users into Percona XtraDB Cluster with USAGE privilege. One is for monitoring cluster nodes through ProxySQL, and another is for connecting to PXC node via ProxySQL console.
 
   PS : Please make sure to use super user credentials from PXC to setup to create default users.
 
