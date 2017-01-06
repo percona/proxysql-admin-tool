@@ -191,7 +191,7 @@ do
     shift 2
     ;;
     -v | --version )
-      echo "proxysql-admin version v1.3.1"
+      echo "proxysql-admin version v1.3.2a"
       exit 0
     ;;
     --help )
