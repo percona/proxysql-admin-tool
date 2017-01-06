@@ -15,7 +15,12 @@ BD=$(tput bold)
 NBD=$(tput sgr0)
 
 # Internal variables
-export HOME="/srv"
+if [ -e "/dummypathnonexisting/.mylogin.cnf" ]; then
+  echo "ERROR! /dummypathnonexisting/.mylogin.cnf found. This should not happen. Terminating";
+  exit 1
+else
+  export HOME="/dummypathnonexisting"
+fi
 
 # Reading default variables from default configuration file location.
 if [ -e "/etc/proxysql-admin.cnf" ]; then
