@@ -58,16 +58,16 @@ if ! getopt --test
   eval set -- $go_out
 fi
 
-if ! echo "$go_out" | grep 'config-file'; then
+if [[ $go_out == " --" ]];then
+  usage
+  exit 1
+fi
+
+if ! echo "$go_out" | grep -q 'config-file'; then
   # Reading default variables from default configuration file location.
   if [ -e "/etc/proxysql-admin.cnf" ]; then
     source /etc/proxysql-admin.cnf
   fi
-fi
-
-if [[ $go_out == " --" ]];then
-  usage
-  exit 1
 fi
 
 for arg
