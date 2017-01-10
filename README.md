@@ -187,17 +187,23 @@ This option is used to setup dummy proxysql configuration.
 
 ```bash
 $ sudo  ./proxysql-admin  --enable --test-run
-WARNING! You have selected dummy test mode. You have to pass Cluster/ProxySQL root credentials through command line
-Would you like to proceed with '--i-am-only-testing' [y/n] ? y
+
+WARNING! You have selected dummy test mode. You will be accessing Cluster/ProxySQL in unsecured manner
+
+Would you like to proceed with '--test-run' [y/n] ? y
+
 Setting up proxysql test configuration!
-Enter ProxySQL user name: admin
-Enter ProxySQL user password: 
-Enter ProxySQL hostname: localhost
-Enter ProxySQL port: 6032
-Enter Cluster username (super user): root 
+
+Do you want to use default ProxySQL credentials (admin:admin:6032:127.0.0.1) [y/n] ? y
+Do you want to use default Cluster credentials (root::3306:127.0.0.1) [y/n] ? n
+
+
+Enter Cluster username (super user): root
 Enter Cluster user password: 
+Enter Cluster port: 25100
 Enter Cluster hostname: localhost
-Enter Cluster port: 25000
+
+
 ProxySQL read/write configuration mode is singlewrite
 
 
@@ -209,14 +215,14 @@ User 'monitor'@'127.%' has been added with USAGE privilege
 
 
 Configuring Cluster application user to connect through ProxySQL
-Enter Cluster application username : test_user                        
+Enter Cluster application username : pxc_test_user
 Enter Cluster application user password: 
 
-Cluster application user 'test_user'@'127.%' has been added with ALL privilege, this user is only created for testing purpose
+Cluster application user 'pxc_test_user'@'127.%' has been added with ALL privileges, this user is only created for testing purpose
 
 
 Adding the Cluster server nodes to ProxySQL
-You have not given writer node info through command line/config-file. Please enter writer-node info (eg : 127.0.0.1:3306): 127.0.0.1:25000
+You have not given writer node info through command line/config-file. Please enter writer-node info (eg : 127.0.0.1:3306): 127.0.0.1:25100
 
 ProxySQL configuration completed!
 
@@ -224,7 +230,7 @@ ProxySQL has been successfully configured to use with Cluster
 
 You can use following login credentials to connect your application through ProxySQL
 
-mysql --user=test_user --password=test  --host=localhost --port=6033 --protocol=tcp 
+mysql --user=pxc_test_user --password=#435testSsdd  --host=127.0.0.1 --port=6033 --protocol=tcp 
 
 $ 
 ```
