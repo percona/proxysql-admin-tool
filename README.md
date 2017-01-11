@@ -13,21 +13,21 @@ Options:
   --proxysql-username=user_name      Username for connecting to the ProxySQL service
   --proxysql-password[=password]     Password for connecting to the ProxySQL service
   --proxysql-port=port_num           Port Nr. for connecting to the ProxySQL service
-  --proxysql-host=host_name          Hostname for connecting to the ProxySQL service
-  --cluster-username=user_name       Username for connecting to the Cluster node
-  --cluster-password[=password]      Password for connecting to the Cluster node
-  --cluster-port=port_num            Port Nr. for connecting to the Cluster node
-  --cluster-host=host_name           Hostname for connecting to the Cluster node
-  --cluster-app-username=user_name   Application username for connecting to the Cluster node
-  --cluster-app-password[=password]  Application password for connecting to the Cluster node
-  --monitor-username=user_name       Username for monitoring Cluster nodes through ProxySQL
-  --monitor-password[=password]      Password for monitoring Cluster nodes through ProxySQL
-  --enable, -e                       Auto-configure Cluster nodes into ProxySQL
-  --disable, -d                      Remove any Cluster configurations from ProxySQL
+  --proxysql-hostname=host_name      Hostname for connecting to the ProxySQL service
+  --cluster-username=user_name       Username for connecting to the Percona XtraDB Cluster node
+  --cluster-password[=password]      Password for connecting to the Percona XtraDB Cluster node
+  --cluster-port=port_num            Port Nr. for connecting to the Percona XtraDB Cluster node
+  --cluster-hostname=host_name       Hostname for connecting to the Percona XtraDB Cluster node
+  --cluster-app-username=user_name   Application username for connecting to the Percona XtraDB Cluster node
+  --cluster-app-password[=password]  Application password for connecting to the Percona XtraDB Cluster node
+  --monitor-username=user_name       Username for monitoring Percona XtraDB Cluster nodes through ProxySQL
+  --monitor-password[=password]      Password for monitoring Percona XtraDB Cluster nodes through ProxySQL
+  --enable, -e                       Auto-configure Percona XtraDB Cluster nodes into ProxySQL
+  --disable, -d                      Remove any Percona XtraDB Cluster configurations from ProxySQL
   --node-check-interval              Interval for monitoring node checker script (in milliseconds)
   --mode                             ProxySQL read/write configuration mode, currently supporting: 'loadbal' and 'singlewrite' (the default) modes
   --write-node                       Writer node to accept write statments. This option is supported only when using --mode=singlewrite
-  --adduser                          Adds the Cluster application user to the ProxySQL database
+  --adduser                          Adds the Percona XtraDB Cluster application user to the ProxySQL database
   --version, -v                      Print version info
 ```
 Pre-requisites 
