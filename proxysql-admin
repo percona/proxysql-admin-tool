@@ -80,13 +80,13 @@ do
       config_file="$2"
       shift 2
       if [ -z "${config_file}" ]; then
-        echo "ERROR: You have not given config file location. Terminating."
+        echo "ERROR: The configuration file location (--config-file) was not provided. Terminating."
         exit 1
       fi
       if [ -e "${config_file}" ]; then
         source "${config_file}"
       else
-        echo "ERROR: ${config_file} does not exist. Terminating."
+        echo "ERROR: The configuration file ${config_file} specified by --config-file does not exist. Terminating."
         exit 1
       fi
     ;;
@@ -187,7 +187,7 @@ do
     shift 2
     if [ $MODE != "loadbal" -a $MODE != "singlewrite" ]; then
       echo "ERROR: Invalid --mode passed:"
-      echo "  Please choose any of these modes loadbal|singlewrite"
+      echo "  Please choose any of these modes: loadbal, singlewrite"
       exit 1
     fi
     ;;
@@ -200,7 +200,7 @@ do
     DUMMY_TEST="YES"
     ;;
     -v | --version )
-      echo "proxysql-admin version v1.3.2a"
+      echo "proxysql-admin version v1.3.3"
       exit 0
     ;;
     --help )
@@ -211,25 +211,26 @@ do
 done
 
 if [ ! -z "$DUMMY_TEST" ]; then
-  echo -e "\nWARNING! You have selected dummy test mode. You will be accessing Percona XtraDB Cluster/ProxySQL in unsecured manner\n"
+  echo -e "\nYou have selected the dry test run mode. WARNING: This will create a test user (with all privileges) in the Percona XtraDB Cluster & ProxySQL installations.\n"
+  echo -e "You may want to delete this user after you complete your testing!\n"
   read -p "Would you like to proceed with '--test-run' [y/n] ? " check_param
   case $check_param in
     y|Y)
       echo -e "\nSetting up proxysql test configuration!\n"
     ;;
     n|N)
-      echo -e "\nYou have selected No. Terminating..\n"
+      echo -e "\nYou have selected No. Terminating.\n"
       exit 1
     ;;
     *)
-      echo "Please type [y/n]! Terminating.."
+      echo "Please type [y/n]! Terminating."
       exit 1
     ;;
   esac
 fi
 
 if [[ ! -e `which mysql 2> /dev/null` ]] ;then
-  echo "mysql client is not found, please install the mysql client package" 
+  echo "The mysql client was not found, please install the mysql client package using your OS packaging manager!"
   exit 1
 fi
 
@@ -263,7 +264,7 @@ if [ -z "$DUMMY_TEST" ]; then
     CLUSTER_PORT="localhost"
   fi
 else
-  read -p "Do you want to use default ProxySQL credentials (admin:admin:6032:127.0.0.1) [y/n] ? " check_param
+  read -p "Do you want to use the default ProxySQL credentials (admin:admin:6032:127.0.0.1) [y/n] ? " check_param
   case $check_param in
     y|Y)
       PROXYSQL_USERNAME="admin"
@@ -273,22 +274,22 @@ else
     ;;
     n|N)
       echo -e "\n"
-      echo -n "Enter ProxySQL user name: "
+      echo -n "Enter the ProxySQL user name: "
       read -r PROXYSQL_USERNAME
-      read -r -s -p  "Enter ProxySQL user password: " PROXYSQL_PASSWORD;echo ""
-      echo -n "Enter ProxySQL port: "
+      read -r -s -p  "Enter the ProxySQL user password: " PROXYSQL_PASSWORD;echo ""
+      echo -n "Enter the ProxySQL port: "
       read -r PROXYSQL_PORT
-      echo -n "Enter ProxySQL hostname: "
+      echo -n "Enter the ProxySQL hostname: "
       read -r PROXYSQL_HOSTNAME
       echo -e "\n"
     ;;
     *)
-      echo "Please type [y/n]! Terminating.."
+      echo "Please type [y/n]! Terminating."
       exit 1
     ;;
   esac
 
-  read -p "Do you want to use default Percona XtraDB Cluster credentials (root::3306:127.0.0.1) [y/n] ? " check_param
+  read -p "Do you want to use the default Percona XtraDB Cluster credentials (root::3306:127.0.0.1) [y/n] ? " check_param
   case $check_param in
     y|Y)
       CLUSTER_USERNAME="root"
@@ -298,17 +299,17 @@ else
     ;;
     n|N)
       echo -e "\n"
-      echo -n "Enter Percona XtraDB Cluster username (super user): "
+      echo -n "Enter the Percona XtraDB Cluster username (super user): "
       read -r CLUSTER_USERNAME
-      read -r -s -p  "Enter Percona XtraDB Cluster user password: " CLUSTER_PASSWORD; echo ""
-      echo -n "Enter Percona XtraDB Cluster port: "
+      read -r -s -p  "Enter the Percona XtraDB Cluster user password: " CLUSTER_PASSWORD; echo ""
+      echo -n "Enter the Percona XtraDB Cluster port: "
       read -r CLUSTER_PORT
-      echo -n "Enter Percona XtraDB Cluster hostname: "
+      echo -n "Enter the Percona XtraDB Cluster hostname: "
       read -r CLUSTER_HOSTNAME
       echo -e "\n"
     ;;
     *)
-      echo "Please type [y/n]! Terminating.."
+      echo "Please type [y/n]! Terminating."
       exit 1
     ;;
   esac
@@ -323,7 +324,7 @@ if [[ -z "$MODE" ]]; then
 else
   if [ $MODE != "loadbal" -a $MODE != "singlewrite" ]; then
     echo "ERROR: Invalid --mode passed:"
-    echo "  Please choose any of these modes loadbal|singlewrite"
+    echo "  Please choose any of these modes: loadbal, singlewrite"
     exit 1
   fi
 fi
@@ -356,8 +357,8 @@ proxysql_connection_check(){
   CONNECTION_MSG=$( { printf "[client]\nuser=${PROXYSQL_USERNAME}\npassword=${PROXYSQL_PASSWORD}\nhost=${PROXYSQL_HOSTNAME}\nport=${PROXYSQL_PORT}\n" | mysql --defaults-file=/dev/stdin --protocol=tcp -e "show tables" >/dev/null; }  2>&1 )
   if [[ ! -z $CONNECTION_MSG ]]; then
     echo "$CONNECTION_MSG"
-    echo "Please check ProxySQL connection parameters! Terminating.."
-    #exit 1
+    echo "Please check the ProxySQL connection parameters! Terminating."
+    exit 1
   fi
 }
 
@@ -365,8 +366,8 @@ cluster_connection_check(){
   CONNECTION_MSG=$( { printf "[client]\nuser=${CLUSTER_USERNAME}\npassword=${CLUSTER_PASSWORD}\nhost=${CLUSTER_HOSTNAME}\nport=${CLUSTER_PORT}\n" | mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "select @@port" >/dev/null; }  2>&1 )
   if [[ ! -z $CONNECTION_MSG ]]; then
     echo "$CONNECTION_MSG"
-    echo "Please check Percona XtraDB Cluster connection parameters! Terminating.."
-    #exit 1
+    echo "Please check the Percona XtraDB Cluster connection parameters! Terminating."
+    exit 1
   fi
 }
 
@@ -412,27 +413,27 @@ user_input_check(){
     check_user=`mysql_exec "SELECT user,host FROM mysql.user where user='$USERNAME' and host='$USER_HOST_RANGE';"`
     if [[ -z "$check_user" ]]; then
       mysql_exec "CREATE USER $USERNAME@'$USER_HOST_RANGE' IDENTIFIED BY '$PASSWORD';"
-      check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$USERNAME'"
+      check_cmd $? "Cannot add Percona XtraDB Cluster application user: '$USERNAME'"
       if [ ! -z "$DUMMY_TEST" ]; then
         mysql_exec "GRANT ALL ON *.* to $USERNAME@'$USER_HOST_RANGE'"
-        check_cmd $? "$CLUSTER_USERNAME@'$CLUSTER_HOSTNAME' does not have GRANT privilege to assign permission"
+        check_cmd $? "$CLUSTER_USERNAME@'$CLUSTER_HOSTNAME' does not have the GRANT privilege required to assign the requested permissions"
       fi
 
       proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$USERNAME','$PASSWORD',1,$HOSTGROUP_ID);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
-      check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$USERNAME' (mysql_users update)"
+      check_cmd $? "Cannot add Percona XtraDB Cluster application user: '$USERNAME' (mysql_users update)"
       if [ -z "$DUMMY_TEST" ]; then
-        echo -e "\n\nPercona XtraDB Cluster application user '${BD}$USERNAME'@'$USER_HOST_RANGE${NBD}' has been added with USAGE privilege, please make sure to grant appropriate privileges\n"
+        echo -e "\n\nPercona XtraDB Cluster application user '${BD}$USERNAME'@'$USER_HOST_RANGE${NBD}' has been added with the USAGE privilege, please make sure to the grant appropriate privileges\n"
       else
-        echo -e "\n\nPercona XtraDB Cluster application user '${BD}$USERNAME'@'$USER_HOST_RANGE${NBD}' has been added with ${BD}ALL${NBD} privileges, ${BD}this user is only created for testing purpose${NBD}\n"
+        echo -e "\n\nPercona XtraDB Cluster application user '${BD}$USERNAME'@'$USER_HOST_RANGE${NBD}' has been added with ${BD}ALL${NBD} privileges, ${BD}this user is created for testing purposes${NBD}\n"
       fi
     else
       check_user=`proxysql_exec "SELECT username FROM mysql_users where username='$USERNAME'"`
       if [[ -z "$check_user" ]]; then
         echo -e "\nApplication user '${BD}${USERNAME}'@'$USER_HOST_RANGE${NBD}' already present in Percona XtraDB Cluster.\n"
         proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$USERNAME','$PASSWORD',1,$HOSTGROUP_ID);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
-        check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$USERNAME' (mysql_users update)"
+        check_cmd $? "Cannot add Percona XtraDB Cluster application user: '$USERNAME' (mysql_users update)"
       else
-        echo -e "\nApplication user '${BD}${USERNAME}'@'$USER_HOST_RANGE${NBD}' already present in Percona XtraDB Cluster and ProxySQL database.\n"
+        echo -e "\nThe application user '${BD}${USERNAME}'@'$USER_HOST_RANGE${NBD}' is already present in Percona XtraDB Cluster and ProxySQL database.\n"
       fi
     fi
   fi
@@ -445,10 +446,10 @@ enable_proxysql(){
     echo "The proxysql binary was not found, please install the ProxySQL package"  
     exit 1
   elif [[ ! -e $(which proxysql_galera_checker 2> /dev/null) ]] ;then
-    echo "The proxysql_galera_checker binary was not found, please check ProxySQL package installation"  
+    echo "The proxysql_galera_checker binary was not found, please check the ProxySQL package installation"  
     exit 1
   elif [[ ! -e $(which proxysql_node_monitor 2> /dev/null) ]]; then
-    echo "The proxysql_node_monitor binary was not found, please check ProxySQL package installation"  
+    echo "The proxysql_node_monitor binary was not found, please check the ProxySQL package installation"  
     exit 1
   else
     PROXYSQL=$(which proxysql)
@@ -457,7 +458,7 @@ enable_proxysql(){
   fi
   # Check for existing proxysql process
   if ! pidof proxysql >/dev/null ; then
-    echo "ProxySQL is not running; please start proxysql service"
+    echo "ProxySQL is not running; please start the proxysql service"
     exit 1
   fi
   proxysql_connection_check
@@ -491,7 +492,7 @@ enable_proxysql(){
     echo -e "\n\nUser '${BD}$MONITOR_USERNAME'@'$USER_HOST_RANGE${NBD}' has been added with USAGE privilege\n"
   else
     echo -e "\n"
-    read -p "Monitoring user is already present in Percona XtraDB Cluster. Would you like to proceed with existing username and password [y/n] ? " check_param
+    read -p "The monitoring user is already present in Percona XtraDB Cluster. Would you like to proceed with the existing username and password [y/n] ? " check_param
     case $check_param in
       y|Y)
         read -r -s -p  "Please enter the password you have assigned to monitoring user '$MONITOR_USERNAME': " MONITOR_PASSWORD
@@ -503,16 +504,16 @@ enable_proxysql(){
         proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
         check_cmd $?  "Cannot set the mysql-monitor variables in ProxySQL"
         proxysql_exec "LOAD MYSQL VARIABLES TO RUNTIME;SAVE MYSQL VARIABLES TO DISK;"
-        echo -e "\n\nUser '${BD}$MONITOR_USERNAME'@'$USER_HOST_RANGE${NBD}' has been updated in ProxySQL database. Please make sure the credentials are same in Percona XtraDB Cluster\n"
+        echo -e "\n\nUser '${BD}$MONITOR_USERNAME'@'$USER_HOST_RANGE${NBD}' has been updated in ProxySQL database. Please make sure the credentials are the same in Percona XtraDB Cluster\n"
       ;;
       *)
-        echo "Please type [y/n]! Terminating.."
+        echo "Please type [y/n]! Terminating."
         exit 1
       ;;
     esac
   fi
 
-  echo -e "\nConfiguring Percona XtraDB Cluster application user to connect through ProxySQL"
+  echo -e "\nConfiguring the Percona XtraDB Cluster application user to connect through ProxySQL"
   user_input_check CLUSTER_APP "Percona XtraDB Cluster application user" $WRITE_HOSTGROUP_ID
 
   # Adding Percona XtraDB Cluster nodes to ProxySQL
@@ -532,14 +533,14 @@ enable_proxysql(){
     proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID)"
     proxysql_exec "DELETE FROM mysql_query_rules WHERE destination_hostgroup in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID)"
     if [ -z $WRITE_NODE ]; then
-      read -r -p  "You have not given writer node info through command line/config-file. Please enter writer-node info (eg : 127.0.0.1:3306): " WRITE_NODE
+      read -r -p  "You have not given the writer node info through the command line or in the config-file. Please enter the writer-node info (eg : 127.0.0.1:3306): " WRITE_NODE
       writer_ws_ip=$(echo $WRITE_NODE | cut -d':' -f1)
       writer_ws_port=$(echo $WRITE_NODE | cut -d':' -f2)
       printf "[client]\nuser=${CLUSTER_USERNAME}\npassword=${CLUSTER_PASSWORD}\nhost=${writer_ws_ip}\nport=${writer_ws_port}\n" | mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "select @@port" >/dev/null 2>/dev/null
       if [ $? -ne 0 ]; then 
-        echo -e "\nERROR: Could not establish connection to write node $writer_ws_ip:$writer_ws_port. Terminating!\n"; 
+        echo -e "\nERROR: Could not establish connection to the write node $writer_ws_ip:$writer_ws_port. Terminating!\n"; 
         proxysql_exec "DELETE FROM mysql_users WHERE default_hostgroup in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID);"
-        check_cmd $? "Cannot delete Percona XtraDB Cluster users from ProxySQL"
+        check_cmd $? "Cannot delete the Percona XtraDB Cluster user from ProxySQL"
         exit 1
       fi
     else
@@ -549,7 +550,7 @@ enable_proxysql(){
       if [ $? -ne 0 ]; then 
         echo -e "\nERROR: Could not establish connection to write node $writer_ws_ip:$writer_ws_port. Terminating!\n"; 
         proxysql_exec "DELETE FROM mysql_users WHERE default_hostgroup in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID);"
-        check_cmd $? "Cannot delete Percona XtraDB Cluster users from ProxySQL"
+        check_cmd $? "Cannot delete Percona XtraDB Cluster user from ProxySQL"
         exit 1
       fi
     fi
@@ -592,13 +593,13 @@ enable_proxysql(){
 disable_proxysql(){
   proxysql_connection_check
   proxysql_exec "DELETE FROM mysql_users WHERE default_hostgroup in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID);"
-  check_cmd $? "Cannot delete Percona XtraDB Cluster users from ProxySQL"
+  check_cmd $? "Cannot delete the Percona XtraDB Cluster user from ProxySQL"
   proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID);"
-  check_cmd $? "Cannot delete Percona XtraDB Cluster nodes from ProxySQL"
+  check_cmd $? "Cannot delete the Percona XtraDB Cluster nodes from ProxySQL"
   proxysql_exec "DELETE FROM SCHEDULER WHERE ID IN (10,11);"
-  check_cmd $? "Cannot delete Galera checker and node monitoring scheduler from ProxySQL"
+  check_cmd $? "Cannot delete the Galera checker and node monitoring scheduler from ProxySQL"
   proxysql_exec "DELETE FROM mysql_query_rules WHERE destination_hostgroup in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID)"
-  check_cmd $? "Cannot delete query rules from ProxySQL"
+  check_cmd $? "Cannot delete the query rules from ProxySQL"
   proxysql_exec "LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS TO DISK;LOAD SCHEDULER TO RUNTIME;SAVE SCHEDULER TO DISK;LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;LOAD MYSQL QUERY RULES TO RUNTIME;SAVE MYSQL QUERY RULES TO DISK;"
 
 }
@@ -606,18 +607,18 @@ disable_proxysql(){
 adduser(){
   proxysql_connection_check
   cluster_connection_check
-  echo -e "\nAdding Percona XtraDB Cluster application user to ProxySQL database"
-  echo -n "Enter Percona XtraDB Cluster application user name: "
+  echo -e "\nAdding Percona XtraDB Cluster application user to the ProxySQL database"
+  echo -n "Enter the Percona XtraDB Cluster application user name: "
   read -r CLUSTER_APP_WRITE_USERNAME
   while [[ -z "$CLUSTER_APP_WRITE_USERNAME" ]]
   do
-    echo -n "No input entered, Enter Percona XtraDB Cluster application user name: "
+    echo -n "No input entered. Enter the Percona XtraDB Cluster application user name: "
     read -r CLUSTER_APP_WRITE_USERNAME
   done
-  read -r -s -p  "Enter Percona XtraDB Cluster application user password: " CLUSTER_APP_WRITE_PASSWORD
+  read -r -s -p  "Enter the Percona XtraDB Cluster application user password: " CLUSTER_APP_WRITE_PASSWORD
   while [[ -z "$CLUSTER_APP_WRITE_PASSWORD" ]]
   do
-    read -r -s -p  "No input entered, Enter Percona XtraDB Cluster application user password: " CLUSTER_APP_WRITE_PASSWORD
+    read -r -s -p  "No input entered. Enter the Percona XtraDB Cluster application user password: " CLUSTER_APP_WRITE_PASSWORD
   done
 
   check_user=`proxysql_exec "SELECT username FROM mysql_users where username='$CLUSTER_APP_WRITE_USERNAME'"`
@@ -625,26 +626,26 @@ adduser(){
     check_cluster_user=`mysql_exec "SELECT user,host FROM mysql.user where user='$CLUSTER_APP_WRITE_USERNAME'"`
     if [[ -z "$check_cluster_user" ]]; then
       echo -e "\n\n"
-      read -p "Application user '$CLUSTER_APP_WRITE_USERNAME' does not exist in Percona XtraDB Cluster. Would you like to proceed [y/n] ? " check_param
+      read -p "The application user '$CLUSTER_APP_WRITE_USERNAME' does not exist in Percona XtraDB Cluster. Would you like to proceed [y/n] ? " check_param
       case $check_param in
         y|Y)
           proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$CLUSTER_APP_WRITE_USERNAME','$CLUSTER_APP_WRITE_PASSWORD',1,$WRITE_HOSTGROUP_ID);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
-          check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$CLUSTER_APP_WRITE_USERNAME' to ProxySQL database"
+          check_cmd $? "Cannot add the Percona XtraDB Cluster application user: '$CLUSTER_APP_WRITE_USERNAME' to ProxySQL database"
         ;;
         n|N)
           exit 1
         ;;
         *)
-          echo "Please type [y/n]! Terminating.."
+          echo "Please type [y/n]! Terminating."
           exit 1
         ;;
       esac
     else
       proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$CLUSTER_APP_WRITE_USERNAME','$CLUSTER_APP_WRITE_PASSWORD',1,$WRITE_HOSTGROUP_ID);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
-      check_cmd $? "Cannot add Percona XtraDB Cluster application user : '$CLUSTER_APP_WRITE_USERNAME' to ProxySQL database"
+      check_cmd $? "Cannot add the Percona XtraDB Cluster application user: '$CLUSTER_APP_WRITE_USERNAME' to ProxySQL database"
     fi
   else
-    echo -e "\nERROR: Application user '$CLUSTER_APP_WRITE_USERNAME' already exist in ProxySQL database. Terminating.."
+    echo -e "\nERROR: The application user '$CLUSTER_APP_WRITE_USERNAME' already exist in ProxySQL database. Terminating."
     exit 1
   fi
 }
@@ -656,7 +657,7 @@ if [ "$enable" == 1 -o "$disable" == 1 -o "$adduser" == 1 ]; then
     echo -e "\nProxySQL configuration completed!\n"
     PROXYSQL_CLIENT_PORT=`proxysql_exec "SELECT * FROM runtime_global_variables WHERE variable_name='mysql-interfaces'" | awk '{print $2}' | grep -o -P '(?<=:).*(?=;)'`
     echo -e "ProxySQL has been successfully configured to use with Percona XtraDB Cluster\n"
-    echo -e "You can use following login credentials to connect your application through ProxySQL\n"
+    echo -e "You can use the following login credentials to connect your application through ProxySQL\n"
     if [ -z "$DUMMY_TEST" ]; then
       echo -e "${BD}mysql --user=$CLUSTER_APP_USERNAME --password=xxxxx  --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_CLIENT_PORT --protocol=tcp ${NBD}\n"
     else
@@ -669,7 +670,7 @@ if [ "$enable" == 1 -o "$disable" == 1 -o "$adduser" == 1 ]; then
   fi
   if [ "$adduser" == 1 ];then  
     adduser
-    echo -e "\nAdded Percona XtraDB Cluster application user to ProxySQL database!"
+    echo -e "\nAdded Percona XtraDB Cluster application user to the ProxySQL database!"
   fi
 else
   echo "Usage: proxysql-admin <user credentials> {enable|disable}"
