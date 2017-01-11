@@ -14,7 +14,7 @@ READ_HOSTGROUP_ID="${2:-0}"
 ERR_FILE="${3:-/dev/null}"
 SCHEDULER_ID="10"
 CHECK_STATUS=0
-if [ $RW_MODE == "loadbal" ]; then
+if [ "$RW_MODE" == "loadbal" ]; then
   MODE_COMMENT="READWRITE"
 else
   MODE_COMMENT="READ"
