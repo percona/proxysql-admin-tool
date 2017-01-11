@@ -1,8 +1,7 @@
 #!/bin/bash
-# This script will assist with configuring ProxySQL in combination with Percona XtraDB Cluster.
+# This script will assist with configuring ProxySQL (currently only Percona XtraDB cluster in combination with ProxySQL is supported)
 # Version 1.0
 ###############################################################################################
-
 
 # Make sure only root can run this script
 if [ $(id -u) -ne 0 ]; then
@@ -652,6 +651,7 @@ adduser(){
 
 if [ "$enable" == 1 -o "$disable" == 1 -o "$adduser" == 1 ]; then
   if [ "$enable" == 1 ];then
+    echo -e "\nThis script will assist with configuring ProxySQL (currently only Percona XtraDB cluster in combination with ProxySQL is supported)\n"
     echo -e "ProxySQL read/write configuration mode is ${BD}$MODE${NBD}\n"
     enable_proxysql
     echo -e "\nProxySQL configuration completed!\n"

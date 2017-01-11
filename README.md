@@ -52,6 +52,9 @@ This script will accept two different options to configure Cluster nodes
 
 ```bash  
 $ sudo proxysql-admin --config-file=/etc/proxysql-admin.cnf --enable
+
+This script will assist with configuring ProxySQL (currently only Percona XtraDB cluster in combination with ProxySQL is supported)
+
 ProxySQL read/write configuration mode is singlewrite
 
 
@@ -62,23 +65,23 @@ ProxySQL monitor username as per command line/config-file is monitor
 User 'monitor'@'127.%' has been added with USAGE privilege
 
 
-Configuring Cluster application user to connect through ProxySQL
-Cluster application username as per command line/config-file is proxysql_user
+Configuring the Percona XtraDB Cluster application user to connect through ProxySQL
+Percona XtraDB Cluster application username as per command line/config-file is proxysql_user
 
 
-Cluster application user 'proxysql_user'@'127.%' has been added with USAGE privilege, please make sure to grant appropriate privileges
+Percona XtraDB Cluster application user 'proxysql_user'@'127.%' has been added with the USAGE privilege, please make sure to the grant appropriate privileges
 
 
-Adding the Cluster server nodes to ProxySQL
-You have not given writer node info through command line/config-file. Please enter writer-node info (eg : 127.0.0.1:3306): 127.0.0.1:25000
+Adding the Percona XtraDB Cluster server nodes to ProxySQL
+You have not given the writer node info through the command line or in the config-file. Please enter the writer-node info (eg : 127.0.0.1:3306): 127.0.0.1:25000
 
 ProxySQL configuration completed!
 
-ProxySQL has been successfully configured to use with Cluster
+ProxySQL has been successfully configured to use with Percona XtraDB Cluster
 
-You can use following login credentials to connect your application through ProxySQL
+You can use the following login credentials to connect your application through ProxySQL
 
-mysql --user=proxysql_user --password=xxxxx  --host=localhost --port=6033 --protocol=tcp 
+mysql --user=proxysql_user --password=xxxxx  --host=127.0.0.1 --port=6033 --protocol=tcp 
 
 $ 
 
@@ -98,7 +101,7 @@ mysql>
 ```
   __2) --disable__ 
   
-  This option will remove Cluster nodes from ProxySQL and stop the ProxySQL monitoring daemon.
+  This option will remove Percona XtraDB Cluster nodes from ProxySQL and stop the ProxySQL monitoring daemon.
 ```bash
 $ proxysql-admin --config-file=/etc/proxysql-admin.cnf --disable
 ProxySQL configuration removed!
@@ -175,10 +178,10 @@ This option will aid with adding the Cluster application user to ProxySQL databa
 ```bash
 $ proxysql-admin --config-file=/etc/proxysql-admin.cnf --adduser
 
-Adding Cluster application user to ProxySQL database
-Enter Cluster application user name: root   
-Enter Cluster application user password: 
-Added Cluster application user to ProxySQL database!
+Adding Percona XtraDB Cluster application user to ProxySQL database
+Enter Percona XtraDB Cluster application user name: root   
+Enter Percona XtraDB Cluster application user password: 
+Added Percona XtraDB Cluster application user to ProxySQL database!
 $ 
 ```
 __iii) --test-run__
@@ -188,24 +191,25 @@ This option is used to setup dummy proxysql configuration.
 ```bash
 $ sudo  ./proxysql-admin  --enable --test-run
 
-WARNING! You have selected dummy test mode. You will be accessing Cluster/ProxySQL in unsecured manner
+This script will assist with configuring ProxySQL (currently only Percona XtraDB cluster in combination with ProxySQL is supported)
+
+You have selected the dry test run mode. WARNING: This will create a test user (with all privileges) in the Percona XtraDB Cluster & ProxySQL installations.
+
+You may want to delete this user after you complete your testing!
 
 Would you like to proceed with '--test-run' [y/n] ? y
 
 Setting up proxysql test configuration!
 
-Do you want to use default ProxySQL credentials (admin:admin:6032:127.0.0.1) [y/n] ? y
-Do you want to use default Cluster credentials (root::3306:127.0.0.1) [y/n] ? n
+Do you want to use the default ProxySQL credentials (admin:admin:6032:127.0.0.1) [y/n] ? y
+Do you want to use the default Percona XtraDB Cluster credentials (root::3306:127.0.0.1) [y/n] ? n
 
-
-Enter Cluster username (super user): root
-Enter Cluster user password: 
-Enter Cluster port: 25100
-Enter Cluster hostname: localhost
-
+Enter the Percona XtraDB Cluster username (super user): root
+Enter the Percona XtraDB Cluster user password: 
+Enter the Percona XtraDB Cluster port: 25000
+Enter the Percona XtraDB Cluster hostname: localhost
 
 ProxySQL read/write configuration mode is singlewrite
-
 
 Configuring ProxySQL monitoring user..
 Enter ProxySQL monitor username : monitor
@@ -213,24 +217,22 @@ Enter ProxySQL monitor user password:
 
 User 'monitor'@'127.%' has been added with USAGE privilege
 
+Configuring the Percona XtraDB Cluster application user to connect through ProxySQL
+Enter Percona XtraDB Cluster application username : pxc_user_test
+Enter Percona XtraDB Cluster application user password: 
 
-Configuring Cluster application user to connect through ProxySQL
-Enter Cluster application username : pxc_test_user
-Enter Cluster application user password: 
+Percona XtraDB Cluster application user 'pxc_user_test'@'127.%' has been added with ALL privileges, this user is created for testing purposes
 
-Cluster application user 'pxc_test_user'@'127.%' has been added with ALL privileges, this user is only created for testing purpose
-
-
-Adding the Cluster server nodes to ProxySQL
-You have not given writer node info through command line/config-file. Please enter writer-node info (eg : 127.0.0.1:3306): 127.0.0.1:25100
+Adding the Percona XtraDB Cluster server nodes to ProxySQL
+You have not given the writer node info through the command line or in the config-file. Please enter the writer-node info (eg : 127.0.0.1:3306): 127.0.0.1:25000
 
 ProxySQL configuration completed!
 
-ProxySQL has been successfully configured to use with Cluster
+ProxySQL has been successfully configured to use with Percona XtraDB Cluster
 
-You can use following login credentials to connect your application through ProxySQL
+You can use the following login credentials to connect your application through ProxySQL
 
-mysql --user=pxc_test_user --password=#435testSsdd  --host=127.0.0.1 --port=6033 --protocol=tcp 
+mysql --user=pxc_user_test --password=55@#@#DSW  --host=127.0.0.1 --port=6033 --protocol=tcp 
 
 $ 
 ```
