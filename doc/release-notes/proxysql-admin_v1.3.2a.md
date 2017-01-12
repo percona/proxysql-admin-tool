@@ -1,6 +1,6 @@
 # proxysql-admin v1.3.2a
 
-Release date : Jan 11, 2017
+Release date : Jan 12, 2017
 
 ### Usability improvement
 
@@ -31,7 +31,7 @@ Release date : Jan 11, 2017
 * Modified proxysql-admin script to create single user for handling read write transactions. proxysql will manage traffic automatically and split read and write operations with the help of mysql query rule and hostgroups.
 
   All SELECT operations (except 'SELECT .. FOR UPDATE') will go to read nodes and all other transactions will go to writer node.
-* Added __--test-run__ to setup dummy proxysql configuration
+* Added __--quick-demo__ to setup dummy proxysql configuration
 
 ### Bug fixes
 
