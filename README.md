@@ -8,7 +8,7 @@ proxysql-admin usage info
 ```bash
 Usage: [ options ]
 Options:
-  --config-file                      Read login credentials form a configuration file (overrides any login credentials specified on the command line)
+  --config-file                      Read login credentials from a configuration file (overrides any login credentials specified on the command line)
   --quick-demo                       Setup a quick demo with no authentication
   --proxysql-username=user_name      Username for connecting to the ProxySQL service
   --proxysql-password[=password]     Password for connecting to the ProxySQL service
@@ -24,9 +24,9 @@ Options:
   --monitor-password[=password]      Password for monitoring Percona XtraDB Cluster nodes through ProxySQL
   --enable, -e                       Auto-configure Percona XtraDB Cluster nodes into ProxySQL
   --disable, -d                      Remove any Percona XtraDB Cluster configurations from ProxySQL
-  --node-check-interval              Interval for monitoring node checker script (in milliseconds)
-  --mode                             ProxySQL read/write configuration mode, currently supporting: 'loadbal' and 'singlewrite' (the default) modes
-  --write-node                       Writer node to accept write statments. This option is supported only when using --mode=singlewrite
+  --node-check-interval=3000         Interval for monitoring node checker script (in milliseconds)
+  --mode=[loadbal|singlewrite]       ProxySQL read/write configuration mode, currently supporting: 'loadbal' and 'singlewrite' (the default) modes
+  --write-node=host_name:port        Writer node to accept write statments. This option is supported only when using --mode=singlewrite
   --adduser                          Adds the Percona XtraDB Cluster application user to the ProxySQL database
   --version, -v                      Print version info
 ```
@@ -167,7 +167,7 @@ mysql> select hostgroup_id,hostname,port,status,comment from mysql_servers;
 mysql> 
 ```
 
-__ii) --galera-check-interval__
+__ii) --node-check-interval__
 
 This option configures the interval for monitoring via the proxysql_galera_checker script (in milliseconds)
 
