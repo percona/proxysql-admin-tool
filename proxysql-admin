@@ -25,7 +25,7 @@ fi
 usage () {
   echo "Usage: [ options ]"
   echo "Options:"
-  echo "  --config-file                      Read login credentials form a configuration file (overrides any login credentials specified on the command line)"
+  echo "  --config-file                      Read login credentials from a configuration file (overrides any login credentials specified on the command line)"
   echo "  --quick-demo                       Setup a quick demo with no authentication"
   echo "  --proxysql-username=user_name      Username for connecting to the ProxySQL service"
   echo "  --proxysql-password[=password]     Password for connecting to the ProxySQL service"
@@ -41,9 +41,9 @@ usage () {
   echo "  --monitor-password[=password]      Password for monitoring Percona XtraDB Cluster nodes through ProxySQL"
   echo "  --enable, -e                       Auto-configure Percona XtraDB Cluster nodes into ProxySQL"
   echo "  --disable, -d                      Remove any Percona XtraDB Cluster configurations from ProxySQL"
-  echo "  --node-check-interval              Interval for monitoring node checker script (in milliseconds)"
-  echo "  --mode                             ProxySQL read/write configuration mode, currently supporting: 'loadbal' and 'singlewrite' (the default) modes"
-  echo "  --write-node                       Writer node to accept write statments. This option is supported only when using --mode=singlewrite"
+  echo "  --node-check-interval=3000         Interval for monitoring node checker script (in milliseconds)"
+  echo "  --mode=[loadbal|singlewrite]       ProxySQL read/write configuration mode, currently supporting: 'loadbal' and 'singlewrite' (the default) modes"
+  echo "  --write-node=host_name:port        Writer node to accept write statments. This option is supported only when using --mode=singlewrite"
   echo "  --adduser                          Adds the Percona XtraDB Cluster application user to the ProxySQL database"
   echo "  --version, -v                      Print version info"
 }
@@ -177,8 +177,8 @@ do
     shift
     disable=1
     ;;
-    --galera-check-interval )
-    GALERA_CHECK_INTERVAL="$2"
+    --node-check-interval )
+    NODE_CHECK_INTERVAL="$2"
     shift 2
     ;;
     --mode )
@@ -319,8 +319,8 @@ else
   CLUSTER_APP_PASSWORD=''
 fi
 
-if [[ -z "$GALERA_CHECK_INTERVAL" ]]; then
-  GALERA_CHECK_INTERVAL=3000
+if [[ -z "$NODE_CHECK_INTERVAL" ]]; then
+  NODE_CHECK_INTERVAL=3000
 fi
 
 if [[ -z "$MODE" ]]; then
@@ -592,7 +592,7 @@ enable_proxysql(){
   # Adding proxysql galera check scheduler
   proxysql_exec "DELETE FROM SCHEDULER WHERE ID=10;"
   check_cmd $?
-  proxysql_exec "INSERT  INTO SCHEDULER (id,active,interval_ms,filename,arg1,arg2,arg3,arg4,arg5) VALUES (10,1,$GALERA_CHECK_INTERVAL,'$PROXYSQL_GALERA_CHECK',$WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID,${#wsrep_address[@]},1,'/var/lib/proxysql/proxysql_galera_check.log');"
+  proxysql_exec "INSERT  INTO SCHEDULER (id,active,interval_ms,filename,arg1,arg2,arg3,arg4,arg5) VALUES (10,1,$NODE_CHECK_INTERVAL,'$PROXYSQL_GALERA_CHECK',$WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID,${#wsrep_address[@]},1,'/var/lib/proxysql/proxysql_galera_check.log');"
   check_cmd $? "Failed to add the Percona XtraDB Cluster monitoring scheduler in ProxySQL"
 
   # Adding Percona XtraDB Cluster membership checking scheduler
