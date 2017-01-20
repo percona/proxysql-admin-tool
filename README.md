@@ -44,11 +44,11 @@ This script will accept two different options to configure Cluster nodes
   This option will configure Cluster nodes into the ProxySQL database, and add two cluster monitoring scripts into the ProxySQL scheduler table for checking the cluster status.
   _scheduler script info :
   * proxysql_node_monitor : will check cluster node membership, and re-configure ProxySQL if cluster membership changes occur
-  * proxysql_galera_checker : will check desynced nodes, and temporarily deactivate them
+  * proxysql_galera_checker : will check desynced nodes, and temporarily deactivate them. 
 
-  It will also add two new users into Cluster with USAGE privilege. One is for monitoring cluster nodes through ProxySQL, and another is for connecting to Cluster node via the ProxySQL console.
-
-  Note: Please make sure to use super user credentials from Cluster to setup the default users.
+  It will also add two new users into the Percona XtraDB Cluster with the USAGE privilege; one is for monitoring cluster nodes through ProxySQL, and another is for connecting to Cluster node via the ProxySQL console. 
+  
+  Note: Please make sure to use super user credentials from Percona XtraDB Cluster to setup the default users.
 
 ```bash  
 $ sudo proxysql-admin --config-file=/etc/proxysql-admin.cnf --enable
@@ -109,7 +109,7 @@ ___Extra options___
 
 __i) --mode__
 
-This option allows you to setup read/write mode for cluster nodes in ProxySQL database based on the hostgroup. For now, the only supported modes are _loadbal_  and _singlewrite_.  _singlewrite_ is the default mode, and it will accept writes only one single node (based on the info you provide in --write-node). Remaining nodes will accept read statements. The mode _loadbal_ on the other hand is a load balanced set of evenly weighted read/write nodes.
+This option allows you to setup read/write mode for cluster nodes in ProxySQL database based on the hostgroup. For now, the only supported modes are _loadbal_ and _singlewrite_. _singlewrite_ is the default mode, and it will configure Percona Cluster to only accept writes on one single node only (and this node can be provided either interactively or instead by using the --write-node option to specify the hostname and the port number for the one single write node). All other remaining nodes will be read-only and accept only read statements. The mode _loadbal_ on the other hand is a load balanced set of evenly weighted read/write nodes.
 
 _singlewrite_ mode setup:
 ```bash
@@ -187,7 +187,7 @@ Enter Percona XtraDB Cluster application user password:
 Added Percona XtraDB Cluster application user to ProxySQL database!
 $ 
 ```
-__iii) --test-run__
+__iiii) --test-run__
 
 This option is used to setup dummy proxysql configuration.
 
