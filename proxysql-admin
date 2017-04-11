@@ -596,10 +596,10 @@ enable_proxysql(){
   check_cmd $? "Failed to add the Percona XtraDB Cluster monitoring scheduler in ProxySQL"
 
   # Adding Percona XtraDB Cluster membership checking scheduler
-  proxysql_exec "DELETE FROM SCHEDULER WHERE ID=11;"
-  check_cmd $?
-  proxysql_exec "INSERT  INTO SCHEDULER (id,active,interval_ms,filename,arg1,arg2,arg3) VALUES (11,1,5000,'$PROXYSQL_NODE_MONITOR',$WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID,'/var/lib/proxysql/proxysql_node_monitor.log');"
-  check_cmd $? "Failed to add the Percona XtraDB Cluster membership checking scheduler in ProxySQL"
+  #proxysql_exec "DELETE FROM SCHEDULER WHERE ID=11;"
+  #check_cmd $?
+  #proxysql_exec "INSERT  INTO SCHEDULER (id,active,interval_ms,filename,arg1,arg2,arg3) VALUES (11,1,5000,'$PROXYSQL_NODE_MONITOR',$WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID,'/var/lib/proxysql/proxysql_node_monitor.log');"
+  #check_cmd $? "Failed to add the Percona XtraDB Cluster membership checking scheduler in ProxySQL"
 
   proxysql_exec "LOAD SCHEDULER TO RUNTIME;SAVE SCHEDULER TO DISK;"
 }
@@ -611,8 +611,10 @@ disable_proxysql(){
   check_cmd $? "Cannot delete the Percona XtraDB Cluster user from ProxySQL"
   proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID);"
   check_cmd $? "Cannot delete the Percona XtraDB Cluster nodes from ProxySQL"
-  proxysql_exec "DELETE FROM SCHEDULER WHERE ID IN (10,11);"
-  check_cmd $? "Cannot delete the Galera checker and node monitoring scheduler from ProxySQL"
+  #proxysql_exec "DELETE FROM SCHEDULER WHERE ID IN (10,11);"
+  #check_cmd $? "Cannot delete the Galera checker and node monitoring scheduler from ProxySQL"
+  proxysql_exec "DELETE FROM SCHEDULER WHERE ID IN (10);"
+  check_cmd $? "Cannot delete the Galera checker from ProxySQL"
   proxysql_exec "DELETE FROM mysql_query_rules WHERE destination_hostgroup in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID)"
   check_cmd $? "Cannot delete the query rules from ProxySQL"
   proxysql_exec "LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS TO DISK;LOAD SCHEDULER TO RUNTIME;SAVE SCHEDULER TO DISK;LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;LOAD MYSQL QUERY RULES TO RUNTIME;SAVE MYSQL QUERY RULES TO DISK;"
