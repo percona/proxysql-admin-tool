@@ -3,6 +3,20 @@
 # Version 1.0
 ###############################################################################################
 
+# This program is copyright 2016-2017 Percona LLC and/or its affiliates.
+#
+# THIS PROGRAM IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR IMPLIED
+# WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+#
+# This program is free software; you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, version 2 or later
+#
+# You should have received a copy of the GNU General Public License version 2
+# along with this program; if not, write to the Free Software Foundation, Inc.,
+# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
+
 # Make sure only root can run this script
 if [ $(id -u) -ne 0 ]; then
   echo "ERROR: This script must be run as root!" 1>&2
