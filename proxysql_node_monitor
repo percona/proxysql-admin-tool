@@ -92,9 +92,9 @@ update_cluster(){
 	proxysql_exec "UPDATE mysql_servers set status = 'OFFLINE_SOFT', weight=1000 WHERE hostname='$ws_ip' and port=$ws_port;"
         check_cmd $? "Cannot update Percona XtraDB Cluster node $ws_ip:$ws_port to ProxySQL database, Please check proxysql credentials" 
         echo "`date` ${ws_hg_id}:${i} node set to OFFLINE_SOFT status to ProxySQL database." >> $ERR_FILE
+      else
+        CHECK_STATUS=1
       fi
-    else
-      CHECK_STATUS=1
     fi
   done
 }
@@ -109,6 +109,8 @@ mode_change_check(){
     ws_port=$(echo $current_hosts | cut -d':' -f2)
     proxysql_exec "UPDATE mysql_servers set hostgroup_id = $WRITE_HOSTGROUP_ID, comment='WRITE', weight=1000000 WHERE hostname='$ws_ip' and port=$ws_port"
     check_cmd $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check proxysql credentials"
+  else
+    CHECK_STATUS=1
   fi
 }
 
@@ -129,12 +131,13 @@ if [[ -z $CLUSTER_HOST_INFO ]]; then
 else
   update_cluster
   mode_change_check
-  echo "`date` ###### Loading mysql_servers config into runtime ######" >> $ERR_FILE
-  proxysql_exec "LOAD MYSQL SERVERS TO RUNTIME"
 fi
 
 if [ $CHECK_STATUS -eq 1 ]; then
   echo "`date` Percona XtraDB Cluster membership looks good." >> $ERR_FILE
+else
+  echo "`date` ###### Loading mysql_servers config into runtime ######" >> $ERR_FILE
+  proxysql_exec "LOAD MYSQL SERVERS TO RUNTIME"
 fi
 exit 0
 
