@@ -67,6 +67,9 @@ if ! echo "$go_out" | grep -q 'config-file'; then
     # Reading default variables from default configuration file location.
     if [ -e "/etc/proxysql-admin.cnf" ]; then
       source /etc/proxysql-admin.cnf
+      config_file="/etc/proxysql-admin.cnf"
+    else
+      echo "WARNING! Default configuration file (/etc/proxysql-admin.cnf) does not exist"
     fi
   fi
 fi
@@ -197,9 +200,10 @@ do
     --quick-demo )
     shift
     DUMMY_TEST="YES"
+    enable=1
     ;;
     -v | --version )
-      echo "proxysql-admin version 1.3.5"
+      echo "proxysql-admin version 1.3.6"
       exit 0
     ;;
     --help )
@@ -336,11 +340,15 @@ fi
 if [ $MODE == "loadbal" ]; then
   WRITE_HOSTGROUP_ID=10
   READ_HOSTGROUP_ID=10
-  sudo sed -i "0,/^[ \t]*export MODE[ \t]*=.*$/s|^[ \t]*export MODE[ \t]*=.*$|export MODE=\"loadbal\"|" /etc/proxysql-admin.cnf
+  if [ -e "${config_file}" ]; then
+    sudo sed -i "0,/^[ \t]*export MODE[ \t]*=.*$/s|^[ \t]*export MODE[ \t]*=.*$|export MODE=\"loadbal\"|" ${config_file}
+  fi
 elif [ $MODE == "singlewrite" ]; then
   WRITE_HOSTGROUP_ID=10
   READ_HOSTGROUP_ID=11
-  sudo sed -i "0,/^[ \t]*export MODE[ \t]*=.*$/s|^[ \t]*export MODE[ \t]*=.*$|export MODE=\"singlewrite\"|" /etc/proxysql-admin.cnf
+  if [ -e "${config_file}" ]; then
+    sudo sed -i "0,/^[ \t]*export MODE[ \t]*=.*$/s|^[ \t]*export MODE[ \t]*=.*$|export MODE=\"singlewrite\"|" ${config_file}
+  fi
 fi
 
 PIDFILE=/tmp/cluster-proxysql-monitor.pid
@@ -472,12 +480,12 @@ enable_proxysql(){
   proxysql_connection_check
 
   #modifying proxysql-admin.cnf file with command line proxysql user credentials if you dont use --config-file option.
-  if [ -z "${config_file}" ]; then 
-    sed -i "s|[ \t]*PROXYSQL_USERNAME[ \t]*=.*$| PROXYSQL_USERNAME=\"${PROXYSQL_USERNAME}\"|" /etc/proxysql-admin.cnf
-    sed -i "s|[ \t]*PROXYSQL_PASSWORD[ \t]*=.*$| PROXYSQL_PASSWORD=\"${PROXYSQL_PASSWORD}\"|" /etc/proxysql-admin.cnf
-    sed -i "s|[ \t]*PROXYSQL_HOSTNAME[ \t]*=.*$| PROXYSQL_HOSTNAME=\"${PROXYSQL_HOSTNAME}\"|" /etc/proxysql-admin.cnf
-    sed -i "s|[ \t]*PROXYSQL_PORT[ \t]*=.*$| PROXYSQL_PORT=\"${PROXYSQL_PORT}\"|" /etc/proxysql-admin.cnf
-  fi
+  #if [ -z "${config_file}" ]; then 
+  #  sed -i "s|[ \t]*PROXYSQL_USERNAME[ \t]*=.*$| PROXYSQL_USERNAME=\"${PROXYSQL_USERNAME}\"|" /etc/proxysql-admin.cnf
+  #  sed -i "s|[ \t]*PROXYSQL_PASSWORD[ \t]*=.*$| PROXYSQL_PASSWORD=\"${PROXYSQL_PASSWORD}\"|" /etc/proxysql-admin.cnf
+  #  sed -i "s|[ \t]*PROXYSQL_HOSTNAME[ \t]*=.*$| PROXYSQL_HOSTNAME=\"${PROXYSQL_HOSTNAME}\"|" /etc/proxysql-admin.cnf
+  #  sed -i "s|[ \t]*PROXYSQL_PORT[ \t]*=.*$| PROXYSQL_PORT=\"${PROXYSQL_PORT}\"|" /etc/proxysql-admin.cnf
+  #fi
 
   cluster_connection_check
 
