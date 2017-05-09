@@ -574,6 +574,10 @@ enable_proxysql(){
     fi
     proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id=$WRITE_HOSTGROUP_ID"
     wsrep_address=(`mysql_exec "show status like 'wsrep_incoming_addresses'" | awk '{print $2}' | sed 's|,| |g'`)
+    if [[ ${wsrep_address[@]} != *"$writer_ws_ip:$writer_ws_port"* ]]; then
+      echo -e "\nERROR: Writer node($writer_ws_ip:$writer_ws_port) does not exist in WSREP incoming address(${wsrep_address[@]}).. Terminating!"
+      exit 1
+    fi
     for i in "${wsrep_address[@]}"; do	
       ws_ip=$(echo $i | cut -d':' -f1)
       ws_port=$(echo $i | cut -d':' -f2)
