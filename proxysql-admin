@@ -81,7 +81,7 @@ if ! echo "$go_out" | grep -q 'config-file'; then
     # Reading default variables from default configuration file location.
     if [ -e "/etc/proxysql-admin.cnf" ]; then
       source /etc/proxysql-admin.cnf
-      config_file="/etc/proxysql-admin.cnf"
+      CONFIG_FILE="/etc/proxysql-admin.cnf"
     else
       echo "WARNING! Default configuration file (/etc/proxysql-admin.cnf) does not exist"
     fi
@@ -93,16 +93,16 @@ do
   case "$arg" in
     -- ) shift; break;;
     --config-file )
-      config_file="$2"
+      CONFIG_FILE="$2"
       shift 2
-      if [ -z "${config_file}" ]; then
+      if [ -z "${CONFIG_FILE}" ]; then
         echo "ERROR: The configuration file location (--config-file) was not provided. Terminating."
         exit 1
       fi
-      if [ -e "${config_file}" ]; then
-        source "${config_file}"
+      if [ -e "${CONFIG_FILE}" ]; then
+        source "${CONFIG_FILE}"
       else
-        echo "ERROR: The configuration file ${config_file} specified by --config-file does not exist. Terminating."
+        echo "ERROR: The configuration file ${CONFIG_FILE} specified by --config-file does not exist. Terminating."
         exit 1
       fi
     ;;
@@ -184,15 +184,15 @@ do
     ;;
     -e | --enable )
     shift
-    enable=1
+    ENABLE=1
     ;;
     --adduser )
     shift
-    adduser=1
+    ADDUSER=1
     ;;
     -d | --disable )
     shift
-    disable=1
+    DISABLE=1
     ;;
     --node-check-interval )
     NODE_CHECK_INTERVAL="$2"
@@ -213,11 +213,11 @@ do
     ;;
     --quick-demo )
     shift
-    DUMMY_TEST="YES"
-    enable=1
+    QUICK_DEMO="YES"
+    ENABLE=1
     ;;
     -v | --version )
-      echo "proxysql-admin version 1.3.6"
+      echo "proxysql-admin version 1.4.0"
       exit 0
     ;;
     --help )
@@ -227,7 +227,7 @@ do
   esac
 done
 
-if [ ! -z "$DUMMY_TEST" ]; then
+if [ ! -z "$QUICK_DEMO" ]; then
   echo -e "\nThis script will assist with configuring ProxySQL (currently only Percona XtraDB cluster in combination with ProxySQL is supported)"
   echo -e "\nYou have selected the dry test run mode. WARNING: This will create a test user (with all privileges) in the Percona XtraDB Cluster & ProxySQL installations.\n"
   echo -e "You may want to delete this user after you complete your testing!\n"
@@ -253,7 +253,7 @@ if [[ ! -e `which mysql 2> /dev/null` ]] ;then
 fi
 
 # Check the options gathered from the command line
-if [ -z "$DUMMY_TEST" ]; then
+if [ -z "$QUICK_DEMO" ]; then
   if [ -z "$PROXYSQL_USERNAME" ];then
     echo "The ProxySQL username is required!"
     usage
@@ -354,14 +354,14 @@ fi
 if [ $MODE == "loadbal" ]; then
   WRITE_HOSTGROUP_ID=10
   READ_HOSTGROUP_ID=10
-  if [ -e "${config_file}" ]; then
-    sudo sed -i "0,/^[ \t]*export MODE[ \t]*=.*$/s|^[ \t]*export MODE[ \t]*=.*$|export MODE=\"loadbal\"|" ${config_file}
+  if [ -e "${CONFIG_FILE}" ]; then
+    sudo sed -i "0,/^[ \t]*export MODE[ \t]*=.*$/s|^[ \t]*export MODE[ \t]*=.*$|export MODE=\"loadbal\"|" ${CONFIG_FILE}
   fi
 elif [ $MODE == "singlewrite" ]; then
   WRITE_HOSTGROUP_ID=10
   READ_HOSTGROUP_ID=11
-  if [ -e "${config_file}" ]; then
-    sudo sed -i "0,/^[ \t]*export MODE[ \t]*=.*$/s|^[ \t]*export MODE[ \t]*=.*$|export MODE=\"singlewrite\"|" ${config_file}
+  if [ -e "${CONFIG_FILE}" ]; then
+    sudo sed -i "0,/^[ \t]*export MODE[ \t]*=.*$/s|^[ \t]*export MODE[ \t]*=.*$|export MODE=\"singlewrite\"|" ${CONFIG_FILE}
   fi
 fi
 
@@ -425,12 +425,12 @@ user_input_check(){
       read -r ${USER_CATEGORY}_USERNAME
     done
   else
-    if [ -z "$DUMMY_TEST" ]; then
+    if [ -z "$QUICK_DEMO" ]; then
       echo -e "${USER_DESCRIPTION}name as per command line/config-file is ${BD}`eval "echo \\$${USER_CATEGORY}_USERNAME"`${NBD}"
     fi
   fi
   if [[ -z $PASSWORD ]]; then
-    if [ -z "$DUMMY_TEST" ]; then
+    if [ -z "$QUICK_DEMO" ]; then
       read -r -s -p  "Enter ${USER_DESCRIPTION} password: " ${USER_CATEGORY}_PASSWORD
       while [[ -z "${USER_CATEGORY}_PASSWORD" ]]
       do
@@ -445,14 +445,14 @@ user_input_check(){
     if [[ -z "$check_user" ]]; then
       mysql_exec "CREATE USER $USERNAME@'$USER_HOST_RANGE' IDENTIFIED BY '$PASSWORD';"
       check_cmd $? "Failed to add Percona XtraDB Cluster application user: '$USERNAME'. Please check '$CLUSTER_USERNAME'@'$CLUSTER_HOSTNAME' has proper permission to create montioring user"
-      if [ ! -z "$DUMMY_TEST" ]; then
+      if [ ! -z "$QUICK_DEMO" ]; then
         mysql_exec "GRANT ALL ON *.* to $USERNAME@'$USER_HOST_RANGE'"
         check_cmd $? "$CLUSTER_USERNAME@'$CLUSTER_HOSTNAME' does not have the GRANT privilege required to assign the requested permissions"
       fi
 
       proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$USERNAME','$PASSWORD',1,$HOSTGROUP_ID);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
       check_cmd $? "Failed to add Percona XtraDB Cluster application user: '$USERNAME' in ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
-      if [ -z "$DUMMY_TEST" ]; then
+      if [ -z "$QUICK_DEMO" ]; then
         echo -e "\nPercona XtraDB Cluster application user '${BD}$USERNAME'@'$USER_HOST_RANGE${NBD}' has been added with the USAGE privilege, please make sure to the grant appropriate privileges"
       else
         echo -e "\nPercona XtraDB Cluster application user '${BD}$USERNAME'@'$USER_HOST_RANGE${NBD}' has been added with ${BD}ALL${NBD} privileges, ${BD}this user is created for testing purposes${NBD}"
@@ -495,7 +495,7 @@ enable_proxysql(){
   proxysql_connection_check
 
   #modifying proxysql-admin.cnf file with command line proxysql user credentials if you dont use --config-file option.
-  #if [ -z "${config_file}" ]; then 
+  #if [ -z "${CONFIG_FILE}" ]; then 
   #  sed -i "s|[ \t]*PROXYSQL_USERNAME[ \t]*=.*$| PROXYSQL_USERNAME=\"${PROXYSQL_USERNAME}\"|" /etc/proxysql-admin.cnf
   #  sed -i "s|[ \t]*PROXYSQL_PASSWORD[ \t]*=.*$| PROXYSQL_PASSWORD=\"${PROXYSQL_PASSWORD}\"|" /etc/proxysql-admin.cnf
   #  sed -i "s|[ \t]*PROXYSQL_HOSTNAME[ \t]*=.*$| PROXYSQL_HOSTNAME=\"${PROXYSQL_HOSTNAME}\"|" /etc/proxysql-admin.cnf
@@ -526,7 +526,7 @@ enable_proxysql(){
     read -p "The monitoring user is already present in Percona XtraDB Cluster. Would you like to proceed with the existing username and password [y/n] ? " check_param
     case $check_param in
       y|Y)
-        if [ -z "$DUMMY_TEST" ]; then
+        if [ -z "$QUICK_DEMO" ]; then
           read -r -s -p  "Please enter the password you have assigned to monitoring user '$MONITOR_USERNAME': " MONITOR_PASSWORD
           proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
           check_cmd $?  "Failed to set the mysql-monitor variables in ProxySQL. Please check username, password and other options for connecting to ProxySQL database"
@@ -565,7 +565,7 @@ enable_proxysql(){
   elif [ $MODE == "singlewrite" ]; then
     proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID)"
     proxysql_exec "DELETE FROM mysql_query_rules WHERE destination_hostgroup in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID)"
-    if [ -z "$DUMMY_TEST" ]; then
+    if [ -z "$QUICK_DEMO" ]; then
       if [ -z $WRITE_NODE ]; then
         writer_ws_ip=(`mysql_exec "show variables like 'wsrep_provider_options'" | grep -o -P '(?<=base_host =).*(?=; base_port)' | xargs`)
         writer_ws_port=$CLUSTER_PORT
@@ -698,9 +698,9 @@ adduser(){
   fi
 }
 
-if [ "$enable" == 1 -o "$disable" == 1 -o "$adduser" == 1 ]; then
-  if [ "$enable" == 1 ];then
-    if [ -z "$DUMMY_TEST" ]; then
+if [ "$ENABLE" == 1 -o "$DISABLE" == 1 -o "$ADDUSER" == 1 ]; then
+  if [ "$ENABLE" == 1 ];then
+    if [ -z "$QUICK_DEMO" ]; then
       echo -e "\nThis script will assist with configuring ProxySQL (currently only Percona XtraDB cluster in combination with ProxySQL is supported)"
     fi
     echo -e "\nProxySQL read/write configuration mode is ${BD}$MODE${NBD}"
@@ -709,17 +709,17 @@ if [ "$enable" == 1 -o "$disable" == 1 -o "$adduser" == 1 ]; then
     PROXYSQL_CLIENT_PORT=`proxysql_exec "SELECT * FROM runtime_global_variables WHERE variable_name='mysql-interfaces'" | awk '{print $2}' | grep -o -P '(?<=:).*(?=;)'`
     echo -e "ProxySQL has been successfully configured to use with Percona XtraDB Cluster\n"
     echo -e "You can use the following login credentials to connect your application through ProxySQL\n"
-    if [ -z "$DUMMY_TEST" ]; then
+    if [ -z "$QUICK_DEMO" ]; then
       echo -e "${BD}mysql --user=$CLUSTER_APP_USERNAME -p  --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_CLIENT_PORT --protocol=tcp ${NBD}\n"
     else
       echo -e "${BD}mysql --user=$CLUSTER_APP_USERNAME  --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_CLIENT_PORT --protocol=tcp ${NBD}\n"
     fi 
   fi
-  if [ "$disable" == 1 ];then  
+  if [ "$DISABLE" == 1 ];then  
     disable_proxysql
     echo "ProxySQL configuration removed!"
   fi
-  if [ "$adduser" == 1 ];then  
+  if [ "$ADDUSER" == 1 ];then  
     adduser
     echo -e "\nAdded Percona XtraDB Cluster application user to the ProxySQL database!"
   fi
