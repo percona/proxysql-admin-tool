@@ -428,9 +428,7 @@ if [  ${HOSTGROUP_READER_ID} -ne -1 -a ${NUMBER_READERS_ONLINE} -eq 0 ]; then
   done
 fi
 
-if [ $CHECK_STATUS -eq 1 ];then
-  echo "`date` ###### Loading mysql_servers config into runtime ######" >> ${ERR_FILE}
-  proxysql_exec "LOAD MYSQL SERVERS TO RUNTIME;" 2>> ${ERR_FILE}
-fi
+echo "`date` ###### Loading mysql_servers config into runtime ######" >> ${ERR_FILE}
+proxysql_exec "LOAD MYSQL SERVERS TO RUNTIME;" 2>> ${ERR_FILE}
 
 exit 0
