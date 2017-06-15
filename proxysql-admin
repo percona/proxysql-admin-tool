@@ -717,11 +717,20 @@ syncusers() {
   cluster_connection_check
 
   # Get current MySQL users, filter out header row, any users starting with "pxc_" and mysql.sys
-  mysql_users=`mysql -u${CLUSTER_USERNAME} -p${CLUSTER_PASSWORD} -h ${CLUSTER_HOSTNAME} -P ${CLUSTER_PORT} -e "SELECT User,authentication_string FROM mysql.user" | sed 's/\t/,/g' | egrep -v "User,authentication_string|^pxc_|mysql.sys" | sort | uniq`
+  MYSQLVER=`mysql -u${CLUSTER_USERNAME} -p${CLUSTER_PASSWORD} -h ${CLUSTER_HOSTNAME} -P ${CLUSTER_PORT} -e "SELECT VERSION();" 2>/dev/null | tail -1 | cut -d'.' -f1,2`
+  
+  case $MYSQLVER in
+    5.6)
+      password_field="Password";;
+    5.7)
+      password_field="authentication_string";;
+  esac
+  
+  mysql_users=`mysql -u${CLUSTER_USERNAME} -p${CLUSTER_PASSWORD} -h ${CLUSTER_HOSTNAME} -P ${CLUSTER_PORT} -e "SELECT User,${password_field} FROM mysql.user" 2>/dev/null | sed 's/\t/,/g' | egrep -v "User,${password_field}|^pxc_|mysql.sys" | sort | uniq`
   check_cmd $? "Failed to load user list from Percona XtraDB Cluster. Please check username, password and other options for connecting to Percona XtraDB Cluster"
 
   # Get current ProxySQl users, filter out header row and and users starting with "pxc_"
-  proxysql_users=`mysql -u${PROXYSQL_USERNAME} -p${PROXYSQL_PASSWORD} -h ${PROXYSQL_HOSTNAME} -P ${PROXYSQL_PORT} -e "SELECT username,password FROM mysql_users" | sed 's/\t/,/g' | egrep -v "username,password|^pxc_" | sort | uniq`
+  proxysql_users=`mysql -u${PROXYSQL_USERNAME} -p${PROXYSQL_PASSWORD} -h ${PROXYSQL_HOSTNAME} -P ${PROXYSQL_PORT} -e "SELECT username,password FROM mysql_users" 2>/dev/null | sed 's/\t/,/g' | egrep -v "username,password|^pxc_" | sort | uniq`
   check_cmd $? "Failed to load user list from ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
 
   # TEST FOR USERS THAT EXIST IN MYSQL BUT NOT IN PROXYSQL HERE AND ADD
