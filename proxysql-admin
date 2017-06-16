@@ -214,7 +214,6 @@ do
       WRITE_NODES=`echo "$2" | sed 's/,/ /g'`
       WRITE_NODE=`echo "$WRITE_NODES" | cut -d' ' -f1`
 	  enable_priority=1
-	  echo "Enabled priority: ${WRITE_NODES}"
     else
       WRITE_NODE=$2
     fi
@@ -612,9 +611,10 @@ enable_proxysql(){
       echo '# Specify nodes in order from highest priority to lowest' >> $HOST_PRIORITY_FILE
 	  check_cmd $? "Failed to create the host priority file, verify the directory permissions: $HOST_PRIORITY_FILE"
       # Add the specified hosts to the file
-	  echo "Writers: $WRITE_NODES"
+	  echo -e "\nConfiguring $MODE mode with the following nodes designated as priority order:"
       for i in $WRITE_NODES;do
         echo $i >> $HOST_PRIORITY_FILE
+		echo " $i"
       done
     fi
 	
