@@ -215,7 +215,7 @@ do
       WRITE_NODE=`echo "$WRITE_NODES" | cut -d' ' -f1`
 	  enable_priority=1
     else
-      WRITE_NODE=$2
+      WRITE_NODE="$2"
     fi
     shift 2
     ;;
