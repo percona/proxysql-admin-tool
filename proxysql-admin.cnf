@@ -24,3 +24,6 @@ export READ_HOSTGROUP_ID="11"
 
 # ProxySQL read/write configuration mode.
 export MODE="singlewrite"
+
+# ProxySQL Cluster Node Priority File
+export HOST_PRIORITY_FILE="/var/lib/proxysql/host_priority.conf"
