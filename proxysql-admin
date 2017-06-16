@@ -609,7 +609,7 @@ enable_proxysql(){
     # Create the host priority file if multiple write nodes were specified
     if [ -n $enable_priority ];then
       # Create empty priority config file
-	  echo '# ProxySQL Host Priority File' > $HOST_PRIORITY_FILE
+      echo '# ProxySQL Host Priority File' > $HOST_PRIORITY_FILE
       echo '# Specify nodes in order from highest priority to lowest' >> $HOST_PRIORITY_FILE
       check_cmd $? "Failed to create the host priority file, verify the directory permissions: $HOST_PRIORITY_FILE"
       # Add the specified hosts to the file
