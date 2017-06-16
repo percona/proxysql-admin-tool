@@ -671,7 +671,8 @@ disable_proxysql(){
   proxysql_exec "DELETE FROM mysql_query_rules WHERE destination_hostgroup in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID)"
   check_cmd $? "Failed to delete the query rules from ProxySQL. Please check username, password and other options for connecting to ProxySQL database"
   proxysql_exec "LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS TO DISK;LOAD SCHEDULER TO RUNTIME;SAVE SCHEDULER TO DISK;LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;LOAD MYSQL QUERY RULES TO RUNTIME;SAVE MYSQL QUERY RULES TO DISK;"
-
+  # Delete the host priority file
+  rm -f $HOST_PRIORITY_FILE
 }
 
 adduser(){
