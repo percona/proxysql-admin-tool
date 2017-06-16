@@ -72,8 +72,8 @@ update_cluster(){
       ws_hg_id=$(echo $ws_hg_status | cut -d' ' -f1)
       ws_status=$(echo $ws_hg_status | cut -d' ' -f2)
       echo "`date` Node ${ws_hg_id}:${i} does not exists in cluster membership!" >> $ERR_FILE
-      proxysql_exec "UPDATE mysql_servers set status = 'OFFLINE_HARD', weight=1000 WHERE hostname='$ws_ip' and port=$ws_port;"
-      check_cmd $? "Cannot update Percona XtraDB Cluster node $ws_ip:$ws_port to ProxySQL database, Please check proxysql credentials"
+      #proxysql_exec "UPDATE mysql_servers set status = 'OFFLINE_HARD', weight=1000 WHERE hostname='$ws_ip' and port=$ws_port;"
+      #check_cmd $? "Cannot update Percona XtraDB Cluster node $ws_ip:$ws_port to ProxySQL database, Please check proxysql credentials"
       echo "`date` ${ws_hg_id}:${i} node set to OFFLINE_HARD status to ProxySQL database." >> $ERR_FILE 
     else
       CHECK_STATUS=1 
