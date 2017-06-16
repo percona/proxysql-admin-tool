@@ -104,6 +104,10 @@ mode_change_check(){
   # YARDI ###
   # Define the file containing the server priority order
   host_priority_file="/var/lib/proxysql/host_priority"
+  if [ -f $host_priority_file ];then
+    # Get the list of hosts from the host_priority file ignoring blanks and any lines that start with '#'
+    ordered_hosts=(`cat $host_priority_file | grep ^[^#]`)
+  fi
   # Perhaps this could be created by the proxysql-admin script during setup if its desired
   #   File sample:
   #   10.11.12.21:3306
@@ -119,7 +123,7 @@ mode_change_check(){
     # YARDI ###
     #
     # If that temp file exists use it otherwise choose random as is done now
-    if [ ! -f $host_priority_file ];then
+    if [ -z $ordered_hosts ];then
       # Order file wasn't found, behave as before
       current_hosts=(`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE  status='ONLINE' and comment='READ'  ORDER BY random() LIMIT 1" | sed 's|\t|:|g' | tr '\n' ' '`)
     else
@@ -127,14 +131,19 @@ mode_change_check(){
       current_hosts=(`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE  status='ONLINE' and comment='READ'" | sed 's|\t|:|g' | tr '\n' ' '`)
 
       # Find the highest priority host from the online reader hosts
-      ordered_hosts=(`cat $host_priority_file`)
       for i in "${ordered_hosts[@]}"; do
         if [[ " ${current_hosts[@]} " =~ " ${i} " ]]; then
           # This host in ordered_hosts was found in the list of current_hosts
           current_hosts=${i}
+		  found_host=1
           break
         fi
       done
+	  if [ -z $found_host ];then
+        # None of the priority hosts were found as active, picking the first on the list from what is available.
+		current_hosts=(`echo $current_hosts | cut -d' ' -f1`)
+        unset found_host
+      fi
     fi
     # END YARDI ###
 
@@ -144,7 +153,7 @@ mode_change_check(){
     check_cmd $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check proxysql credentials"
   else
     # YARDI ###
-    if [ ! -f $server_order_file ];then
+    if [ -z $ordered_hosts ];then
       # Order file wasn't found, behave as before 
       CHECK_STATUS=1
     else
@@ -152,32 +161,35 @@ mode_change_check(){
       # Get the list of all ONLINE nodes in ProxySQL
       current_hosts=(`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE  status='ONLINE'" | sed 's|\t|:|g' | tr '\n' ' '`)
 
-      # Get the ordered list from the host_priority_file
-      ordered_hosts=(`cat $host_priority_file`)
-
       # Find the highest priority host from the online hosts
       for i in "${ordered_hosts[@]}"; do
         if [[ " ${current_hosts[@]} " =~ " ${i} " ]]; then
           # This host in ordered_hosts was found in the list of current_hosts
           current_hosts=${i}
+          found_host=1
           break
         fi
       done
 
-      # Check to see if the host in 'current_host' is the writer
-      current_writer=(`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE status='ONLINE' and comment='WRITE'" | sed 's|\t|:|g' | tr '\n' ' '`)
-      if [ "$current_hosts" != "$current_writer" ];then
-        # Switch the writer around
-        # Move the current writer host to reader hostgroup
-        ws_ip=$(echo $current_writer | cut -d':' -f1)
-        ws_port=$(echo $current_writer | cut -d':' -f2)
-        proxysql_exec "UPDATE mysql_servers set hostgroup_id = $READ_HOSTGROUP_ID, comment='READ', weight=1000 WHERE hostname='$ws_ip' and port=$ws_port"
-        check_cmd $? "Cannot update Percona XtraDB Cluster reader node in ProxySQL database, Please check proxysql credentials"
-        # Move the priority host to the writer hostgroup
-        ws_ip=$(echo $current_hosts | cut -d':' -f1)
-        ws_port=$(echo $current_hosts | cut -d':' -f2)
-        proxysql_exec "UPDATE mysql_servers set hostgroup_id = $WRITE_HOSTGROUP_ID, comment='WRITE', weight=1000000 WHERE hostname='$ws_ip' and port=$ws_port"
-        check_cmd $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check proxysql credentials"
+      # Only initiate changing hosts if a more priority host was found
+      if [ -n $found_host ];then
+        # Check to see if the host in 'current_host' is the writer
+        current_writer=(`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE status='ONLINE' and comment='WRITE'" | sed 's|\t|:|g' | tr '\n' ' '`)
+        if [ "$current_hosts" != "$current_writer" ];then
+          # Switch the writer around
+          # Move the current writer host to reader hostgroup
+          ws_ip=$(echo $current_writer | cut -d':' -f1)
+          ws_port=$(echo $current_writer | cut -d':' -f2)
+          proxysql_exec "UPDATE mysql_servers set hostgroup_id = $READ_HOSTGROUP_ID, comment='READ', weight=1000 WHERE hostname='$ws_ip' and port=$ws_port"
+          check_cmd $? "Cannot update Percona XtraDB Cluster reader node in ProxySQL database, Please check proxysql credentials"
+          # Move the priority host to the writer hostgroup
+          ws_ip=$(echo $current_hosts | cut -d':' -f1)
+          ws_port=$(echo $current_hosts | cut -d':' -f2)
+          proxysql_exec "UPDATE mysql_servers set hostgroup_id = $WRITE_HOSTGROUP_ID, comment='WRITE', weight=1000000 WHERE hostname='$ws_ip' and port=$ws_port"
+          check_cmd $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check proxysql credentials"
+        else
+          CHECK_STATUS=1
+        fi
       else
         CHECK_STATUS=1
       fi
