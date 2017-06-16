@@ -559,6 +559,8 @@ enable_proxysql(){
 
   # Adding Percona XtraDB Cluster nodes to ProxySQL
   echo -e "\nAdding the Percona XtraDB Cluster server nodes to ProxySQL"
+  # Delete an existing host priority file if its there
+  rm -f $HOST_PRIORITY_FILE
   if [ $MODE == "loadbal" ]; then
     proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id=$WRITE_HOSTGROUP_ID"
     wsrep_address=(`mysql_exec "show status like 'wsrep_incoming_addresses'" | awk '{print $2}' | sed 's|,| |g'`)
