@@ -213,7 +213,7 @@ do
     if [ `grep -o ',' <<< $2 | wc -l` -gt 0 ];then
       WRITE_NODES=`echo "$2" | sed 's/,/ /g'`
       WRITE_NODE=`echo "$WRITE_NODES" | cut -d' ' -f1`
-	  enable_priority=1
+      enable_priority=1
     else
       WRITE_NODE="$2"
     fi
@@ -616,7 +616,7 @@ enable_proxysql(){
 	  echo -e "\nConfiguring $MODE mode with the following nodes designated as priority order:"
       for i in $WRITE_NODES;do
         echo $i >> $HOST_PRIORITY_FILE
-		echo " $i"
+        echo " $i"
       done
     fi
 	

@@ -129,13 +129,13 @@ mode_change_check(){
         if [[ " ${current_hosts[@]} " =~ " ${i} " ]]; then
           # This host in priority_hosts was found in the list of current_hosts
           current_hosts=${i}
-		  found_host=1
+          found_host=1
           break
         fi
       done
 	  if [ -z $found_host ];then
         # None of the priority hosts were found as active, picking the first on the list from what is available.
-		current_hosts=(`echo $current_hosts | cut -d' ' -f1`)
+        current_hosts=(`echo $current_hosts | cut -d' ' -f1`)
         unset found_host
       fi
     fi
