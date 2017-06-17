@@ -392,7 +392,7 @@ proxysql_connection_check(){
   if [[ ! -z $CONNECTION_MSG ]]; then
     echo "$CONNECTION_MSG"
     echo "Please check the ProxySQL connection parameters! Terminating."
-   # exit 1
+    exit 1
   fi
 }
 
@@ -401,7 +401,7 @@ cluster_connection_check(){
   if [[ ! -z $CONNECTION_MSG ]]; then
     echo "$CONNECTION_MSG"
     echo "Please check the Percona XtraDB Cluster connection parameters! Terminating."
-   # exit 1
+    exit 1
   fi
 }
 
