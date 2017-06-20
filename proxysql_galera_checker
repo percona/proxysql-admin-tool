@@ -418,8 +418,7 @@ if [  ${HOSTGROUP_READER_ID} -ne -1 -a ${NUMBER_READERS_ONLINE} -eq 0 ]; then
       do
         WSREP_STATUS=$(mysql_exec "SHOW STATUS LIKE 'wsrep_local_state'" 2>>${ERR_FILE} | tail -1 2>>${ERR_FILE})
         echo "`date` Check server $hostgroup:$server:$port for only available node in DONOR state, status $stat , wsrep_local_state $WSREP_STATUS" >> ${ERR_FILE}
-        if [ "${WSREP_STATUS}" = "2" -a "$stat" != "ONLINE" ]
-        then
+        if [ "${WSREP_STATUS}" = "2" -a "$stat" != "ONLINE" ];then
           change_server_status $HOSTGROUP_WRITER_ID "$server" $port "ONLINE" "WSREP status is DESYNC/DONOR, as this is the only node we will put this one online"
           cnt=$(( $cnt + 1 ))
         fi
