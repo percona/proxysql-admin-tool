@@ -59,13 +59,14 @@ usage () {
   echo "  --mode=[loadbal|singlewrite]       ProxySQL read/write configuration mode, currently supporting: 'loadbal' and 'singlewrite' (the default) modes"
   echo "  --write-node=host_name:port        Writer node to accept write statments. This option is supported only when using --mode=singlewrite"
   echo "  --adduser                          Adds the Percona XtraDB Cluster application user to the ProxySQL database"
+  echo "  --syncusers                        Sync user accounts currently configured in MySQL to ProxySQL (deletes ProxySQL users not in MySQL)"
   echo "  --version, -v                      Print version info"
 }
 
 # Check if we have a functional getopt(1)
 if ! getopt --test
   then
-  go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,enable,disable,adduser,version,help \
+  go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,enable,disable,adduser,syncusers,version,help \
   --name="$(basename "$0")" -- "$@")"
   test $? -eq 0 || exit 1
   eval set -- "$go_out"
@@ -192,6 +193,10 @@ do
     shift
     ADDUSER=1
     ;;
+    --syncusers )
+    shift
+    SYNCUSERS=1
+    ;;
     -d | --disable )
     shift
     DISABLE=1
@@ -219,7 +224,7 @@ do
     ENABLE=1
     ;;
     -v | --version )
-      echo "proxysql-admin version 1.4.0"
+      echo "proxysql-admin version 1.3.7"
       exit 0
     ;;
     --help )
@@ -700,7 +705,99 @@ adduser(){
   fi
 }
 
-if [ "$ENABLE" == 1 ] || [ "$DISABLE" == 1 ] || [ "$ADDUSER" == 1 ]; then
+syncusers() {
+  # This function was created to auto sync all the existing users already in MySQL to proxySQL's
+  # mysql_users table.  As there is not much point in having users in ProxySQL that don't exist in
+  # MySQL this function with delete any users from ProxySQL that were not found in MySQL.  Going
+  # forward you can add/remove application users in MySQL then rerun proxysql-admin with the
+  # --syncusers switch to replicate the changes to ProxySQL.
+  # LIMITATIONS: Will not work properly in cases where the same user name exists in MySQL with
+  #              several hosts and different passwords.  This will cause ProxySQL to throw a
+  #              "UNIQUE constraint failed" error message.
+
+  proxysql_connection_check
+  cluster_connection_check
+
+  # Get current MySQL users, filter out header row, any users starting with "pxc_" and mysql.sys
+  MYSQLVER=$(mysql_exec "SELECT VERSION();" | tail -1 | cut -d'.' -f1,2 )
+
+  case $MYSQLVER in
+    5.6)
+      password_field="Password";;
+    5.7)
+      password_field="authentication_string";;
+  esac
+  
+  mysql_users=$(mysql_exec "SELECT User,${password_field} FROM mysql.user where ${password_field}!=''" | sed 's/\t/,/g' | egrep -v "User,${password_field}|^pxc_|mysql.sys" | sort | uniq )
+  check_cmd $? "Failed to load user list from Percona XtraDB Cluster. Please check username, password and other options for connecting to Percona XtraDB Cluster"
+  #Checking whether user is part of proxysql admin user list
+  proxysql_admin_user_check(){
+    userchk=$1
+	proxysql_admin_users=($(proxysql_exec "select variable_value  from global_variables where variable_name like 'admin-%_credentials'" | cut -d':' -f1 | grep -v variable_value))
+	if [[ " ${proxysql_admin_users[@]} " =~ " $userchk " ]];then
+	  is_proxysql_admin_user=1
+	else
+      is_proxysql_admin_user=0
+    fi
+  }
+  # Get current ProxySQL users, filter out header row and and users starting with "pxc_"
+  proxysql_users=$(proxysql_exec "SELECT username,password FROM mysql_users where password!=''" | sed 's/\t/,/g' | egrep -v "username,password|^pxc_" | sort | uniq )
+  check_cmd $? "Failed to load user list from ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
+
+  echo -e "\nSyncing user accounts from Percona XtraDB Cluster to ProxySQL"
+  # TEST FOR USERS THAT EXIST IN MYSQL BUT NOT IN PROXYSQL HERE AND ADD
+  for mysql_user in $mysql_users;do
+    match=0
+    for proxysql_user in $proxysql_users;do
+      if [ "$proxysql_user" == "$mysql_user" ];then
+        match=1
+      fi
+    done
+    if [ "$match" == 0 ];then
+      user=`echo $mysql_user | cut -d, -f1`
+      password=`echo $mysql_user | cut -d, -f2`
+
+      # Check if same username exists with a different password, delete the user to recreate.
+      for proxysql_user in $proxysql_users;do
+        echo $proxysql_user | grep "^${user}," > /dev/null
+        if [ "$?" == 0 ];then
+          # Remove the user
+          echo "Deleting existing user: $user"
+          proxysql_exec "DELETE FROM mysql_users WHERE username='${user}'"
+		  check_cmd $? "Failed to delete the user ($user) from ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
+        fi
+      done
+      proxysql_admin_user_check $user
+	  if [[ "$is_proxysql_admin_user" == "1" ]];then
+        echo -e "\nNote : '$user' is in proxysql admin user list, cannot not add this user to proxysql database( For more info https://github.com/sysown/proxysql/issues/709)"
+	  else
+        proxysql_exec "INSERT INTO mysql_users (username, password, active, default_hostgroup) VALUES ('${user}', '${password}', 1, 10)"
+	    check_cmd $? "Failed to add the user ($user) from Percona XtraDB Cluster to ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
+	  fi
+    fi
+  done
+
+  # TEST FOR USERS THAT EXIST IN PROXYSQL BUT NOT IN MYSQL HERE AND REMOVE
+  for proxysql_user in $proxysql_users;do
+    match=0
+    for mysql_user in $mysql_users;do
+      if [ "$proxysql_user" == "$mysql_user" ];then
+        match=1
+      fi
+    done
+    if [ "$match" == 0 ];then
+      # Delete the ProxySQL user
+      user=`echo $proxysql_user | cut -d, -f1`
+      echo -e "\nRemoving $proxysql_user from ProxySQL"
+      proxysql_exec "DELETE FROM mysql_users WHERE username='${user}'"
+	  check_cmd $? "Failed to delete the user ($user) from ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
+    fi
+  done
+
+  proxysql_exec "SAVE MYSQL USERS TO DISK;LOAD MYSQL USERS TO RUNTIME;" 
+}
+
+if [ "$ENABLE" == 1 ] || [ "$DISABLE" == 1 ] || [ "$ADDUSER" == 1 ] || [ "$SYNCUSERS" == 1 ]; then
   if [ "$ENABLE" == 1 ];then
     if [ -z "$QUICK_DEMO" ]; then
       echo -e "\nThis script will assist with configuring ProxySQL (currently only Percona XtraDB cluster in combination with ProxySQL is supported)"
@@ -724,6 +821,11 @@ if [ "$ENABLE" == 1 ] || [ "$DISABLE" == 1 ] || [ "$ADDUSER" == 1 ]; then
   if [ "$ADDUSER" == 1 ];then  
     adduser
     echo -e "\nAdded Percona XtraDB Cluster application user to the ProxySQL database!"
+  fi
+  if [ "$SYNCUSERS" == 1 ];then
+    # Check for existing proxysql process
+    syncusers
+    echo -e "\nSynced Percona XtraDB Cluster users to the ProxySQL database!"
   fi
 else
   echo "Usage: proxysql-admin <user credentials> {enable|disable}"
