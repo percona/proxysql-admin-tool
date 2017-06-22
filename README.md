@@ -28,6 +28,7 @@ Options:
   --mode=[loadbal|singlewrite]       ProxySQL read/write configuration mode, currently supporting: 'loadbal' and 'singlewrite' (the default) modes
   --write-node=host_name:port        Writer node to accept write statments. This option is supported only when using --mode=singlewrite
   --adduser                          Adds the Percona XtraDB Cluster application user to the ProxySQL database
+  --syncusers                        Sync user accounts currently configured in MySQL to ProxySQL (deletes ProxySQL users not in MySQL)
   --version, -v                      Print version info
 ```
 Pre-requisites 
