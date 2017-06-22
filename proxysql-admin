@@ -728,9 +728,18 @@ syncusers() {
       password_field="authentication_string";;
   esac
   
-  mysql_users=$(mysql_exec "SELECT User,${password_field} FROM mysql.user where ${password_field}!=''" | sed 's/\t/,/g' | egrep -v "User,${password_field}|^pxc_|mysql.sys|admin" | sort | uniq )
+  mysql_users=$(mysql_exec "SELECT User,${password_field} FROM mysql.user where ${password_field}!=''" | sed 's/\t/,/g' | egrep -v "User,${password_field}|^pxc_|mysql.sys" | sort | uniq )
   check_cmd $? "Failed to load user list from Percona XtraDB Cluster. Please check username, password and other options for connecting to Percona XtraDB Cluster"
-
+  #Checking whether user is part of proxysql admin user list
+  proxysql_admin_user_check(){
+    userchk=$1
+	proxysql_admin_users=($(proxysql_exec "select variable_value  from global_variables where variable_name like 'admin-%_credentials'" | cut -d':' -f1 | grep -v variable_value))
+	if [[ " ${proxysql_admin_users[@]} " =~ " $userchk " ]];then
+	  is_proxysql_admin_user=1
+	else
+      is_proxysql_admin_user=0
+    fi
+  }
   # Get current ProxySQL users, filter out header row and and users starting with "pxc_"
   proxysql_users=$(proxysql_exec "SELECT username,password FROM mysql_users where password!=''" | sed 's/\t/,/g' | egrep -v "username,password|^pxc_" | sort | uniq )
   check_cmd $? "Failed to load user list from ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
@@ -747,6 +756,7 @@ syncusers() {
     if [ "$match" == 0 ];then
       user=`echo $mysql_user | cut -d, -f1`
       password=`echo $mysql_user | cut -d, -f2`
+
       # Check if same username exists with a different password, delete the user to recreate.
       for proxysql_user in $proxysql_users;do
         echo $proxysql_user | grep "^${user}," > /dev/null
@@ -757,8 +767,13 @@ syncusers() {
 		  check_cmd $? "Failed to delete the user ($user) from ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
         fi
       done
-      proxysql_exec "INSERT INTO mysql_users (username, password, active, default_hostgroup) VALUES ('${user}', '${password}', 1, 10)"
-	  check_cmd $? "Failed to add the user ($user) from Percona XtraDB Cluster to ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
+      proxysql_admin_user_check $user
+	  if [[ "$is_proxysql_admin_user" == "1" ]];then
+        echo -e "\nNote : '$user' is in proxysql admin user list, cannot not add this user to proxysql database( For more info https://github.com/sysown/proxysql/issues/709)"
+	  else
+        proxysql_exec "INSERT INTO mysql_users (username, password, active, default_hostgroup) VALUES ('${user}', '${password}', 1, 10)"
+	    check_cmd $? "Failed to add the user ($user) from Percona XtraDB Cluster to ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
+	  fi
     fi
   done
 
@@ -779,7 +794,7 @@ syncusers() {
     fi
   done
 
-  proxysql_exec "SAVE MYSQL USERS TO DISK;LOAD MYSQL USERS TO RUNTIME;"
+  proxysql_exec "SAVE MYSQL USERS TO DISK;LOAD MYSQL USERS TO RUNTIME;" 
 }
 
 if [ "$ENABLE" == 1 ] || [ "$DISABLE" == 1 ] || [ "$ADDUSER" == 1 ] || [ "$SYNCUSERS" == 1 ]; then
@@ -810,7 +825,7 @@ if [ "$ENABLE" == 1 ] || [ "$DISABLE" == 1 ] || [ "$ADDUSER" == 1 ] || [ "$SYNCU
   if [ "$SYNCUSERS" == 1 ];then
     # Check for existing proxysql process
     syncusers
-    echo -e "\nSynced all Percona XtraDB Cluster users to the ProxySQL database!"
+    echo -e "\nSynced Percona XtraDB Cluster users to the ProxySQL database!"
   fi
 else
   echo "Usage: proxysql-admin <user credentials> {enable|disable}"
