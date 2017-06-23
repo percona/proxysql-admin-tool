@@ -831,3 +831,5 @@ else
   echo "Usage: proxysql-admin <user credentials> {enable|disable}"
   usage
 fi
+
+exit 0

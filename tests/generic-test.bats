@@ -102,9 +102,3 @@ run sudo proxysql-admin --write-node
 echo "$output"
         [ "$status" -eq 1 ]
 }
-
-@test "run proxysql-admin --syncusers without parameters" {
-run sudo proxysql-admin --syncusers
-echo "$output"
-        [ "$status" -eq 1 ]
-}
