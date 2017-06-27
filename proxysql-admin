@@ -58,6 +58,8 @@ usage () {
   echo "  --node-check-interval=3000         Interval for monitoring node checker script (in milliseconds)"
   echo "  --mode=[loadbal|singlewrite]       ProxySQL read/write configuration mode, currently supporting: 'loadbal' and 'singlewrite' (the default) modes"
   echo "  --write-node=host_name:port        Writer node to accept write statments. This option is supported only when using --mode=singlewrite"
+  echo "                                     Can accept comma delimited list with the first listed being the highest priority"
+### Consider adding a select or prompt option for --write-node that will let you select from discovered nodes during setup ###
   echo "  --adduser                          Adds the Percona XtraDB Cluster application user to the ProxySQL database"
   echo "  --syncusers                        Sync user accounts currently configured in MySQL to ProxySQL (deletes ProxySQL users not in MySQL)"
   echo "  --version, -v                      Print version info"
@@ -215,7 +217,13 @@ do
     fi
     ;;
     --write-node )
-    WRITE_NODE="$2"
+    if [ `grep -o ',' <<< $2 | wc -l` -gt 0 ];then
+      WRITE_NODES=`echo "$2" | sed 's/,/ /g'`
+      WRITE_NODE=`echo "$WRITE_NODES" | cut -d' ' -f1`
+      enable_priority=1
+    else
+      WRITE_NODE="$2"
+    fi
     shift 2
     ;;
     --quick-demo )
@@ -558,6 +566,8 @@ enable_proxysql(){
 
   # Adding Percona XtraDB Cluster nodes to ProxySQL
   echo -e "\nAdding the Percona XtraDB Cluster server nodes to ProxySQL"
+  # Delete an existing host priority file if its there
+  rm -f $HOST_PRIORITY_FILE
   if [ $MODE == "loadbal" ]; then
     proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id=$WRITE_HOSTGROUP_ID"
     wsrep_address=($(mysql_exec "show status like 'wsrep_incoming_addresses'" | awk '{print $2}' | sed 's|,| |g'))
@@ -602,6 +612,21 @@ enable_proxysql(){
       echo -e "Please configure ProxySQL manually.. Terminating!"
       exit 1
     fi
+
+    # Create the host priority file if multiple write nodes were specified
+    if [ -n $enable_priority ];then
+      # Create empty priority config file
+      echo '# ProxySQL Host Priority File' > $HOST_PRIORITY_FILE
+      echo '# Specify nodes in order from highest priority to lowest' >> $HOST_PRIORITY_FILE
+      check_cmd $? "Failed to create the host priority file, verify the directory permissions: $HOST_PRIORITY_FILE"
+      # Add the specified hosts to the file
+      echo -e "\nConfiguring $MODE mode with the following nodes designated as priority order:"
+      for i in $WRITE_NODES;do
+        echo $i >> $HOST_PRIORITY_FILE
+        echo " $i"
+      done
+    fi
+	
     for i in "${wsrep_address[@]}"; do	
       ws_ip=$(echo "$i" | cut -d':' -f1)
       ws_port=$(echo "$i" | cut -d':' -f2)
@@ -655,7 +680,8 @@ disable_proxysql(){
   proxysql_exec "DELETE FROM mysql_query_rules WHERE destination_hostgroup in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID)"
   check_cmd $? "Failed to delete the query rules from ProxySQL. Please check username, password and other options for connecting to ProxySQL database"
   proxysql_exec "LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS TO DISK;LOAD SCHEDULER TO RUNTIME;SAVE SCHEDULER TO DISK;LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;LOAD MYSQL QUERY RULES TO RUNTIME;SAVE MYSQL QUERY RULES TO DISK;"
-
+  # Delete the host priority file
+  rm -f $HOST_PRIORITY_FILE
 }
 
 adduser(){
