@@ -718,7 +718,7 @@ syncusers() {
   proxysql_connection_check
   cluster_connection_check
 
-  # Get current MySQL users, filter out header row, any users starting with "pxc_" and mysql.sys
+  # Get current MySQL users, filter out header row and mysql.sys user
   MYSQLVER=$(mysql_exec "SELECT VERSION();" | tail -1 | cut -d'.' -f1,2 )
 
   case $MYSQLVER in
@@ -728,7 +728,7 @@ syncusers() {
       password_field="authentication_string";;
   esac
   
-  mysql_users=$(mysql_exec "SELECT User,${password_field} FROM mysql.user where ${password_field}!=''" | sed 's/\t/,/g' | egrep -v "User,${password_field}|^pxc_|mysql.sys" | sort | uniq )
+  mysql_users=$(mysql_exec "SELECT User,${password_field} FROM mysql.user where ${password_field}!=''" | sed 's/\t/,/g' | egrep -v "User,${password_field}|mysql.sys" | sort | uniq )
   check_cmd $? "Failed to load user list from Percona XtraDB Cluster. Please check username, password and other options for connecting to Percona XtraDB Cluster"
   #Checking whether user is part of proxysql admin user list
   proxysql_admin_user_check(){
@@ -740,8 +740,8 @@ syncusers() {
       is_proxysql_admin_user=0
     fi
   }
-  # Get current ProxySQL users, filter out header row and and users starting with "pxc_"
-  proxysql_users=$(proxysql_exec "SELECT username,password FROM mysql_users where password!=''" | sed 's/\t/,/g' | egrep -v "username,password|^pxc_" | sort | uniq )
+  # Get current ProxySQL users and filter out header row
+  proxysql_users=$(proxysql_exec "SELECT username,password FROM mysql_users where password!=''" | sed 's/\t/,/g' | egrep -v "username,password" | sort | uniq )
   check_cmd $? "Failed to load user list from ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
 
   echo -e "\nSyncing user accounts from Percona XtraDB Cluster to ProxySQL"
