@@ -188,7 +188,50 @@ Enter Percona XtraDB Cluster application user password:
 Added Percona XtraDB Cluster application user to ProxySQL database!
 $ 
 ```
-__iiii) --test-run__
+__iv) --syncusers__
+                         
+This option will sync user accounts currently configured in Percona XtraDB cluster to ProxySQL database except password less users and user `admin`. It also deletes ProxySQL users not in Percona XtraDB cluster from ProxySQL database.
+
+```bash
+$ /usr/bin/proxysql-admin --syncusers
+
+Syncing user accounts from Percona XtraDB Cluster to ProxySQL
+
+Synced Percona XtraDB Cluster users to the ProxySQL database!
+$
+
+From ProxySQL DB
+mysql> select username from mysql_users;
++---------------+
+| username      |
++---------------+
+| monitor       |
+| one           |
+| proxysql_user |
+| two           |
++---------------+
+4 rows in set (0.00 sec)
+
+mysql>
+
+From PXC
+
+mysql> select user,host from mysql.user where authentication_string!='' and user not in ('admin','mysql.sys');
++---------------+-------+
+| user          | host  |
++---------------+-------+
+| monitor       | 192.% |
+| proxysql_user | 192.% |
+| two           | %     |
+| one           | %     |
++---------------+-------+
+4 rows in set (0.00 sec)
+
+mysql>
+
+```
+
+__v) --test-run__
 
 This option is used to setup dummy proxysql configuration.
 
