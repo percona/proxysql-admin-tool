@@ -743,7 +743,7 @@ syncusers() {
     echo "keep using the --syncusers option, you should either remove the extra duplicate users or"
     echo "synchronize the passwords for a given username."
     # Filter out the extra users from the mysql_users list
-    mysql_users=`for i in $uniq_mysql_usernames ; do echo "$mysql_users" | grep -m 1 $i ; done`
+    mysql_users=`for i in $uniq_mysql_usernames ; do echo "$mysql_users" | grep -m 1 "^${i}," ; done`
     echo "The following duplicate users have been filtered out and will only be added to ProxySQL once:"
     echo -e "${dup_mysql_usernames}" | sed 's/^/  /g'
   fi
@@ -796,7 +796,7 @@ syncusers() {
         echo "Adding user: $user"
         proxysql_exec "INSERT INTO mysql_users (username, password, active, default_hostgroup) VALUES ('${user}', '${password}', 1, 10)"
         check_cmd $? "Failed to add the user ($user) from Percona XtraDB Cluster to ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
-	  fi
+      fi
     fi
   done
 
