@@ -46,7 +46,7 @@ echo "$output"
 
 @test "run the check for --test-run" {
   run sudo  ./proxysql-admin  --enable --quick-demo <<< n
-  echo "$output"
+  #echo "$output"
   echo "${lines[9]}"
     [ "$status" -eq 0  ]
 
