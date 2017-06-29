@@ -24,6 +24,12 @@ echo "$output"
   [ "$report_interval" -eq 3000 ]
 }
 
+@test "run the check for --adduser" {
+  run_add_command=$(printf "proxysql_test_user1\ntest_user\ny" | sudo proxysql-admin --adduser)
+  run_check_user_command=$(mysql --user=admin --password=admin -h127.0.0.1 -P6032 -Bse "select 1 from mysql_users where username='proxysql_test_user1'" | awk '{print $0}')
+  [ "$run_check_user_command" -eq 1 ]
+}
+
 @test "run proxysql-admin --syncusers" {
 run sudo proxysql-admin --syncusers
 echo "$output"
