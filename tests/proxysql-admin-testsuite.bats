@@ -45,10 +45,8 @@ echo "$output"
 
 
 @test "run the check for --test-run" {
-  run sudo  ./proxysql-admin  --enable --quick-demo <<< n
-  #echo "$output"
+  run sudo proxysql-admin  --enable --quick-demo <<< n
   echo "$output"
-  echo "${lines[8]}"
     [ "$status" -eq 0 ]
-    #[ "${lines[10]}" = "You have selected No. Terminating." ]
+    [ "${lines[3]}" = "You have selected No. Terminating." ]
 }
