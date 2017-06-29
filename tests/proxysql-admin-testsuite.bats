@@ -42,3 +42,11 @@ echo "$output"
   proxysql_user_count=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD  --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select count(*) from mysql_users" | awk '{print $0}')
   [ "$cluster_user_count" -eq "$proxysql_user_count" ]
 }
+
+
+@test "run the check for --test-run" {
+  run sudo  ./proxysql-admin  --enable --quick-demo <<< n
+  echo "$output"
+    [ "$status" -eq 1  ]
+    [ "${lines[9]}" = "You have selected No. Terminating." ]
+}
