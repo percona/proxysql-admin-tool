@@ -15,8 +15,8 @@ echo "$output"
 
 @test "run the check for cluster size" {
   #get values from PXC and ProxySQL side
-  wsrep_cluster_count=$(mysql --user=$CLUSTER_APP_USERNAME -p$CLUSTER_APP_PASSWORD  --host=$CLUSTER_HOSTNAME --port=6033 --protocol=tcp -Bse"show status like 'wsrep_cluster_size'" | awk '{print $2}')
-  proxysql_cluster_count=$(mysql --user=$PROXYSQL_USERNAME --password=$PROXYSQL_PASSWORD -h$PROXYSQL_HOSTNAME -P$PROXYSQL_PORT -Bse "select count(*) from mysql_servers" | awk '{print $0}')
+  wsrep_cluster_count=$(mysql --user=$CLUSTER_APP_USERNAME --password=$CLUSTER_APP_PASSWORD  --host=$CLUSTER_HOSTNAME --port=6033 --protocol=tcp -Bse"show status like 'wsrep_cluster_size'" | awk '{print $2}')
+  proxysql_cluster_count=$(mysql --user=$PROXYSQL_USERNAME --password=$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT -Bse "select count(*) from mysql_servers" | awk '{print $0}')
   [ "$wsrep_cluster_count" -eq "$proxysql_cluster_count" ]
 }
 
