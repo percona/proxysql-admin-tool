@@ -19,6 +19,11 @@ echo "$output"
   [ "$wsrep_cluster_count" -eq "$proxysql_cluster_count" ]
 }
 
+@test "run the check for --node-check-interval" {
+  report_interval=$(mysql --user=admin -padmin  --host=localhost --port=6032 --protocol=tcp -Bse"select interval_ms from scheduler where id=10" | awk '{print $0}')
+  [ "$report_interval" -eq 3000 ]
+}
+
 @test "run proxysql-admin --syncusers" {
 run sudo proxysql-admin --syncusers
 echo "$output"
