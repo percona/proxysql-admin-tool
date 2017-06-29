@@ -31,10 +31,9 @@ echo "$output"
 }
 
 @test "run the check for --syncusers" {
-  run_source_command=$(sudo source /etc/proxysql-admin.cnf)
-  echo $CLUSTER_PORT
-
-
+  cluster_user_count=$(mysql --user=admin --password=admin  --host=localhost --port=21000 --protocol=tcp -Bse"select count(*) from mysql.user where authentication_string!='' and user not in ('admin','mysql.sys')" | awk '{print $1}')
+  proxysql_user_count=$(mysql --user=admin --password=admin -h127.0.0.1 -P6032 -Bse "select count(*) from mysql_users" | awk '{print $0}')
+  [ "$cluster_user_count" -eq "$proxysql_user_count" ]
 }
 
 @test "run proxysql-admin --syncusers" {
