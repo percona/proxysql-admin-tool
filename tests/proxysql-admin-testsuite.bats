@@ -30,6 +30,13 @@ echo "$output"
   [ "$run_check_user_command" -eq 1 ]
 }
 
+@test "run the check for --syncusers" {
+  run_source_command=$(sudo source /etc/proxysql-admin.cnf)
+  echo $CLUSTER_PORT
+
+
+}
+
 @test "run proxysql-admin --syncusers" {
 run sudo proxysql-admin --syncusers
 echo "$output"
