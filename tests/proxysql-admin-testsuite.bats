@@ -48,7 +48,7 @@ echo "$output"
   run sudo  ./proxysql-admin  --enable --quick-demo <<< n
   #echo "$output"
   echo "$output"
-  echo "${lines[0]}"
+  echo "${lines[9]}"
     [ "$status" -eq 0 ]
     #[ "${lines[10]}" = "You have selected No. Terminating." ]
 }
