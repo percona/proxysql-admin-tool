@@ -1,4 +1,5 @@
 ## proxysql-admin setup tests
+source /etc/proxysql-admin.cnf
 
 @test "run proxysql-admin -d" {
 run sudo proxysql-admin -d
