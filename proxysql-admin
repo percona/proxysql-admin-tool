@@ -231,7 +231,6 @@ do
     ;;
     --include-slaves )
       SLAVE_NODES=`echo "$2" | sed 's/,/ /g'`
-#     enable_slaves=1
     shift 2
     ;;
     --quick-demo )
