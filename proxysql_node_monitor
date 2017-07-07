@@ -11,16 +11,19 @@ else
   exit 1
 fi
 
-SLAVEREAD_HOSTGROUP_ID=$READ_HOSTGROUP_ID
 WRITE_HOSTGROUP_ID="${1:-0}"
 READ_HOSTGROUP_ID="${2:-0}"
+SLAVEREAD_HOSTGROUP_ID=$READ_HOSTGROUP_ID
+if [ $SLAVEREAD_HOSTGROUP_ID -eq $WRITE_HOSTGROUP_ID ];then
+  let SLAVEREAD_HOSTGROUP_ID+=1
+fi
 ERR_FILE="${3:-/dev/null}"
 CHECK_STATUS=0
 SLAVE_SECONDS_BEHIND=3600 #How far behind can a slave be before its put into OFFLINE_SOFT state
 
-if [ $debug -eq 1 ];then echo "`date` DEBUG RW_MODE: $RW_MODE" >> $ERR_FILE;fi
+if [ $debug -eq 1 ];then echo "`date` DEBUG MODE: $MODE" >> $ERR_FILE;fi
 
-if [ "$RW_MODE" == "loadbal" ]; then
+if [ "$MODE" == "loadbal" ]; then
   MODE_COMMENT="READWRITE"
   WRITE_WEIGHT="1000"
 else
@@ -221,8 +224,8 @@ mode_change_check(){
   # Check if the current writer is in an OFFLINE_SOFT state
   checkwriter_hid=`proxysql_exec "select hostgroup_id from mysql_servers where comment in ('WRITE', 'READWRITE') and status='OFFLINE_SOFT'"`
   if [[ -n "$checkwriter_hid" ]]; then
-    # Found a writer node that was in 'OFFLINE_SOFT' state, move it to the READ hostgroup unless the RW_MODE is 'loadbal'
-    if [ "$RW_MODE" != "loadbal" ];then
+    # Found a writer node that was in 'OFFLINE_SOFT' state, move it to the READ hostgroup unless the MODE is 'loadbal'
+    if [ "$MODE" != "loadbal" ];then
       if [ $debug -eq 1 ];then echo "`date` DEBUG mode_change_check: Found OFFLINE_SOFT writer, changing to READ status and hostgroup $READ_HOSTGROUP_ID" >> $ERR_FILE;fi
       proxysql_exec "UPDATE mysql_servers set hostgroup_id = $READ_HOSTGROUP_ID, comment='READ', weight=1000 WHERE comment='WRITE' and status='OFFLINE_SOFT'"
       check_cmd $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check proxysql credentials"
@@ -277,8 +280,8 @@ mode_change_check(){
       proxysql_exec "UPDATE mysql_servers set hostgroup_id = $WRITE_HOSTGROUP_ID, weight=$WRITE_WEIGHT WHERE hostname='$ws_ip' and port=$ws_port"
       check_cmd $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check proxysql credentials"
       echo "`date` $ws_ip:$ws_port (slave) is ONLINE, switching to write hostgroup" >> $ERR_FILE
-    elif [ "$RW_MODE" != "loadbal" ] && [ -n "$current_hosts" ];then
-      # Only do this if the RW_MODE is not 'loadbal'
+    elif [ "$MODE" != "loadbal" ] && [ -n "$current_hosts" ];then
+      # Only do this if the MODE is not 'loadbal'
       if [ $debug -eq 1 ];then echo "`date` DEBUG mode_change_check1: Changing $ws_ip:$ws_port to WRITE status and hostgroup $WRITE_HOSTGROUP_ID" >> $ERR_FILE;fi
       proxysql_exec "UPDATE mysql_servers set hostgroup_id = $WRITE_HOSTGROUP_ID, comment='WRITE', weight=$WRITE_WEIGHT WHERE hostname='$ws_ip' and port=$ws_port"
       check_cmd $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check proxysql credentials"
@@ -306,8 +309,8 @@ mode_change_check(){
 
     if [ -z $priority_hosts ];then
       # Order file wasn't found
-      # Do not change the config of a cluster node if the RW_MODE is 'loadbal'
-      if [ -n "$available_cluster_hosts" ] && [ -n "$writer_was_slave" ] && [ "$RW_MODE" != "loadbal" ];then
+      # Do not change the config of a cluster node if the MODE is 'loadbal'
+      if [ -n "$available_cluster_hosts" ] && [ -n "$writer_was_slave" ] && [ "$MODE" != "loadbal" ];then
         # There is a regular cluster node available, put it back in the writer hostgroup
         ws_ip=$(echo $available_cluster_hosts | cut -d':' -f1)
         ws_port=$(echo $available_cluster_hosts | cut -d':' -f2)

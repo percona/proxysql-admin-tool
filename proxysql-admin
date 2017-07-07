@@ -373,16 +373,17 @@ else
   fi
 fi
 
+# Set default hostgroup values if not set in the config file
+if [ -z $WRITE_HOSTGROUP_ID ];then WRITE_HOSTGROUP_ID=10;fi
+if [ -z $WRITE_HOSTGROUP_ID ];then READ_HOSTGROUP_ID=11;fi
+
 if [ $MODE == "loadbal" ]; then
   SLAVEREAD_HOSTGROUP_ID=$READ_HOSTGROUP_ID
-#  WRITE_HOSTGROUP_ID=10
   READ_HOSTGROUP_ID=$WRITE_HOSTGROUP_ID
   if [ -e "${CONFIG_FILE}" ]; then
     sudo sed -i "0,/^[ \t]*export MODE[ \t]*=.*$/s|^[ \t]*export MODE[ \t]*=.*$|export MODE=\"loadbal\"|" "${CONFIG_FILE}"
   fi
 elif [ $MODE == "singlewrite" ]; then
-#  WRITE_HOSTGROUP_ID=10
-#  READ_HOSTGROUP_ID=11
   SLAVEREAD_HOSTGROUP_ID=$READ_HOSTGROUP_ID
   if [ -e "${CONFIG_FILE}" ]; then
     sudo sed -i "0,/^[ \t]*export MODE[ \t]*=.*$/s|^[ \t]*export MODE[ \t]*=.*$|export MODE=\"singlewrite\"|" "${CONFIG_FILE}"
