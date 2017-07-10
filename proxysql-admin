@@ -375,7 +375,7 @@ fi
 
 # Set default hostgroup values if not set in the config file
 if [ -z $WRITE_HOSTGROUP_ID ];then WRITE_HOSTGROUP_ID=10;fi
-if [ -z $WRITE_HOSTGROUP_ID ];then READ_HOSTGROUP_ID=11;fi
+if [ -z $READ_HOSTGROUP_ID ];then READ_HOSTGROUP_ID=11;fi
 
 if [ $MODE == "loadbal" ]; then
   SLAVEREAD_HOSTGROUP_ID=$READ_HOSTGROUP_ID
