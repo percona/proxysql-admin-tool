@@ -58,11 +58,12 @@ usage () {
   echo "  --node-check-interval=3000         Interval for monitoring node checker script (in milliseconds)"
   echo "  --mode=[loadbal|singlewrite]       ProxySQL read/write configuration mode, currently supporting: 'loadbal' and 'singlewrite' (the default) modes"
   echo "  --write-node=host_name:port        Writer node to accept write statments. This option is supported only when using --mode=singlewrite"
-  echo "                                     Can accept comma delimited list with the first listed being the highest priority"
-  echo "                                     If this is used make sure 'read_only=1' is in the slave's my.cnf"
+  echo "                                     Can accept comma delimited list with the first listed being the highest priority, priority failover requires"
+  echo "                                     two or more nodes to be specified.
 ### Consider adding a select or prompt option for --write-node that will let you select from discovered nodes during setup ###
   echo "  --include-slaves=host_name:port    Add specified slave node(s) to ProxySQL, these nodes will go into the reader hostgroup and will only be put into"
-  echo "                                     the writer hostgroup if all cluster nodes are down.  Slaves must read only.  Can accept comma delimited list."
+  echo "                                     the writer hostgroup if all cluster nodes are down.  Slaves must be read only.  Can accept comma delimited list."
+  echo "                                     If this is used make sure 'read_only=1' is in the slave's my.cnf"
   echo "  --adduser                          Adds the Percona XtraDB Cluster application user to the ProxySQL database"
   echo "  --syncusers                        Sync user accounts currently configured in MySQL to ProxySQL (deletes ProxySQL users not in MySQL)"
   echo "  --version, -v                      Print version info"

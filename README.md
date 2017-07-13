@@ -27,10 +27,11 @@ Options:
   --node-check-interval=3000         Interval for monitoring node checker script (in milliseconds)
   --mode=[loadbal|singlewrite]       ProxySQL read/write configuration mode, currently supporting: 'loadbal' and 'singlewrite' (the default) modes
   --write-node=host_name:port        Writer node to accept write statments. This option is supported only when using --mode=singlewrite
-                                     Can accept comma delimited list with the first listed being the highest priority
-                                     If this is used make sure 'read_only=1' is in the slave's my.cnf
+                                     Can accept comma delimited list with the first listed being the highest priority, priority failover requires
+                                     two or more nodes to be specified.
   --include-slaves=host_name:port    Add specified slave node(s) to ProxySQL, these nodes will go into the reader hostgroup and will only be put into
-                                     the writer hostgroup if all cluster nodes are down.  Slaves must read only.  Can accept comma delimited list.
+                                     the writer hostgroup if all cluster nodes are down.  Slaves must be read only.  Can accept comma delimited list.
+                                     If this is used make sure 'read_only=1' is in the slave's my.cnf
   --adduser                          Adds the Percona XtraDB Cluster application user to the ProxySQL database
   --syncusers                        Sync user accounts currently configured in MySQL to ProxySQL (deletes ProxySQL users not in MySQL)
   --version, -v                      Print version info
