@@ -702,6 +702,7 @@ enable_proxysql(){
       ws_port=$(echo "$i" | cut -d':' -f2)
       proxysql_exec "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment) VALUES ('$ws_ip',$SLAVEREAD_HOSTGROUP_ID,$ws_port,1000,'SLAVEREAD');"
       check_cmd $? "Failed to add the slave node $ws_ip:$ws_port. Please check username, password and other options for connecting to ProxySQL database"
+      proxysql_exec "LOAD MYSQL SERVERS TO RUNTIME; SAVE MYSQL SERVERS TO DISK;"
       echo " $i"
     done
   fi
