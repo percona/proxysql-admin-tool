@@ -97,6 +97,8 @@ set_slave_status() {
           proxysql_exec "UPDATE mysql_servers set status = 'ONLINE', weight=1000 WHERE hostname='$ws_ip' and port=$ws_port;"
           check_cmd $? "Cannot update Percona XtraDB Cluster node $ws_ip:$ws_port to ProxySQL database, Please check proxysql credentials" 
           echo "`date` ${SLAVEREAD_HOSTGROUP_ID}:$ws_ip:$ws_port Slave node set to ONLINE status to ProxySQL database." >> $ERR_FILE
+        else
+          echo "`date` Slave node (${ws_hg_id}:${i}) current status '$ws_status' in ProxySQL database!" >> $ERR_FILE
         fi
       fi
     elif [ "$slave_sql_running" != "Yes" ];then
