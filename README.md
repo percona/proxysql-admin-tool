@@ -305,4 +305,5 @@ mysql>
 __vi) --include-slaves=host_name:port__
 
 This option will help us to include specified slave node(s) to ProxySQL database. These nodes will go into the reader hostgroup and will only be put into the writer hostgroup if all cluster nodes are down.  Slaves must be read only.  Can accept comma delimited list. If this is used make sure 'read_only=1' is in the slave's my.cnf.
+
 PS : With _loadbal_ mode slave hosts only accepts read/write requests when all cluster nodes are down.
