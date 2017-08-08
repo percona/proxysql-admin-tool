@@ -426,6 +426,34 @@ if [  ${HOSTGROUP_READER_ID} -ne -1 -a ${NUMBER_READERS_ONLINE} -eq 0 ]; then
         safety_cnt=$(( $safety_cnt + 1 ))
     done
   done
+  CHECK_SLAVE=$(proxysql_exec "SELECT hostname FROM mysql_servers WHERE comment='SLAVEREAD' AND status='ONLINE'" 2>>${ERR_FILE}| tail -1 2>>${ERR_FILE})
+  IS_QUERY_RULE_ACTIVE=$(proxysql_exec "SELECT active FROM mysql_query_rules WHERE destination_hostgroup=11 limit 1;" 2>> ${ERR_FILE} | tail -1 2>>${ERR_FILE})
+  if [ "$MODE" == "singlewrite" ]; then
+    if [[ -z ${CHECK_SLAVE} ]]; then
+      if [[ ${IS_QUERY_RULE_ACTIVE} -eq 1 ]]; then
+        proxysql_exec "UPDATE mysql_query_rules SET active=0 WHERE destination_hostgroup=11;" 2>> ${ERR_FILE}
+        proxysql_exec "LOAD MYSQL QUERY RULES TO RUNTIME;" 2>> ${ERR_FILE}
+        echo "`date` No readers found, marking single writer node as read/write mode" >> ${ERR_FILE}
+      fi
+    else
+      if [[ ${IS_QUERY_RULE_ACTIVE} -eq 0 ]]; then
+        proxysql_exec "UPDATE mysql_query_rules SET active=1 WHERE destination_hostgroup=11;" 2>> ${ERR_FILE}
+        proxysql_exec "LOAD MYSQL QUERY RULES TO RUNTIME;" 2>> ${ERR_FILE}
+        echo "`date` Slave host is online, disabling read transaction from writer node" >> ${ERR_FILE}
+      fi
+    fi   
+  fi
+fi
+
+if [ "$MODE" == "singlewrite" ]; then
+  if [  ${HOSTGROUP_READER_ID} -ne -1 -a ${NUMBER_READERS_ONLINE} -gt 0 ]; then
+    IS_QUERY_RULE_ACTIVE=$(proxysql_exec "SELECT active FROM mysql_query_rules WHERE destination_hostgroup=11 limit 1;" 2>> ${ERR_FILE} | tail -1 2>>${ERR_FILE})
+    if [[ ${IS_QUERY_RULE_ACTIVE} -eq 0 ]]; then
+      proxysql_exec "UPDATE mysql_query_rules SET active=1 WHERE destination_hostgroup=11;" 2>> ${ERR_FILE}
+      proxysql_exec "LOAD MYSQL QUERY RULES TO RUNTIME;" 2>> ${ERR_FILE}
+      echo "`date` Found reader, disabling read transaction from writer node" >> ${ERR_FILE}
+    fi
+  fi
 fi
 
 echo "`date` ###### Loading mysql_servers config into runtime ######" >> ${ERR_FILE}
