@@ -27,6 +27,10 @@ Options:
   --node-check-interval=3000         Interval for monitoring node checker script (in milliseconds)
   --mode=[loadbal|singlewrite]       ProxySQL read/write configuration mode, currently supporting: 'loadbal' and 'singlewrite' (the default) modes
   --write-node=host_name:port        Writer node to accept write statments. This option is supported only when using --mode=singlewrite
+                                     Can accept comma delimited list with the first listed being the highest priority.
+  --include-slaves=host_name:port    Add specified slave node(s) to ProxySQL, these nodes will go into the reader hostgroup and will only be put into
+                                     the writer hostgroup if all cluster nodes are down.  Slaves must be read only.  Can accept comma delimited list.
+                                     If this is used make sure 'read_only=1' is in the slave's my.cnf
   --adduser                          Adds the Percona XtraDB Cluster application user to the ProxySQL database
   --syncusers                        Sync user accounts currently configured in MySQL to ProxySQL (deletes ProxySQL users not in MySQL)
   --version, -v                      Print version info
@@ -110,8 +114,14 @@ ___Extra options___
 
 __i) --mode__
 
-This option allows you to setup read/write mode for cluster nodes in ProxySQL database based on the hostgroup. For now, the only supported modes are _loadbal_ and _singlewrite_. _singlewrite_ is the default mode, and it will configure Percona Cluster to only accept writes on one single node only (and this node can be provided either interactively or instead by using the --write-node option to specify the hostname and the port number for the one single write node). All other remaining nodes will be read-only and accept only read statements. The mode _loadbal_ on the other hand is a load balanced set of evenly weighted read/write nodes.
+This option allows you to setup read/write mode for cluster nodes in ProxySQL database based on the hostgroup. For now, the only supported modes are _loadbal_ and _singlewrite_. _singlewrite_ is the default mode, and it will configure Percona Cluster to only accept writes on one single node only. All other remaining nodes will be read-only and accept only read statements. 
 
+With --write-node option we can control a priority order of what host is most desired to be the writer at any given time.
+When used the feature will create the config file which is by default "/var/lib/proxysql/host_priority.conf", this is configurable in proxysql-admin.cnf. Servers can be specified comma delimited - 10.0.0.51:3306, 10.0.0.52:3306 - The 51 node will always be in the writer hostgroup if it is ONLINE, if it is OFFLINE the 52 node will go into the writer hostgroup, and if it goes down a node from the remaining nodes will be randomly chosen for the writer hostgroup.
+This new config file will be deleted when --disable is used. This will ensure a specified writer-node will always be the writer node while it is ONLINE.
+
+The mode _loadbal_ on the other hand is a load balanced set of evenly weighted read/write nodes.
+ 
 _singlewrite_ mode setup:
 ```bash
 $ sudo grep "MODE" /etc/proxysql-admin.cnf
@@ -291,3 +301,9 @@ mysql> select hostgroup_id,hostname,port,status,comment from mysql_servers;
 mysql> 
  
 ```
+
+__vi) --include-slaves=host_name:port__
+
+This option will help us to include specified slave node(s) to ProxySQL database. These nodes will go into the reader hostgroup and will only be put into the writer hostgroup if all cluster nodes are down.  Slaves must be read only.  Can accept comma delimited list. If this is used make sure 'read_only=1' is in the slave's my.cnf.
+
+PS : With _loadbal_ mode slave hosts only accepts read/write requests when all cluster nodes are down.

@@ -150,7 +150,7 @@ function change_server_status() {
 
 echo "`date` ###### HANDLE WRITER NODES ######" >> ${ERR_FILE}
 NUMBER_WRITERS_ONLINE=0
-proxysql_exec "SELECT hostgroup_id, hostname, port, status FROM mysql_servers WHERE hostgroup_id IN ($HOSTGROUP_WRITER_ID) AND status <> 'OFFLINE_HARD' ORDER BY hostgroup_id, weight DESC, hostname, port" | while read hostgroup server port stat
+proxysql_exec "SELECT hostgroup_id, hostname, port, status FROM mysql_servers WHERE hostgroup_id IN ($HOSTGROUP_WRITER_ID) AND status <> 'OFFLINE_HARD' AND comment <> 'SLAVEREAD' ORDER BY hostgroup_id, weight DESC, hostname, port" | while read hostgroup server port stat
 do
   WSREP_STATUS=$(mysql_exec "SHOW STATUS LIKE 'wsrep_local_state'" 2>>${ERR_FILE}| tail -1 2>>${ERR_FILE})
   PXC_MAIN_MODE=$(mysql_exec "SHOW VARIABLES LIKE 'pxc_maint_mode'" 2>>${ERR_FILE} | tail -1 2>>${ERR_FILE})
@@ -246,7 +246,7 @@ do
 done
 
 # NUMBER_WRITERS_ONLINE is lost after loop
-NUMBER_WRITERS_ONLINE=$(proxysql_exec "SELECT count(*) FROM mysql_servers WHERE hostgroup_id IN ($HOSTGROUP_WRITER_ID) AND status = 'ONLINE'" 2>>${ERR_FILE}| tail -1 2>>${ERR_FILE})
+NUMBER_WRITERS_ONLINE=$(proxysql_exec "SELECT count(*) FROM mysql_servers WHERE hostgroup_id IN ($HOSTGROUP_WRITER_ID) AND status = 'ONLINE' AND comment <> 'SLAVEREAD'" 2>>${ERR_FILE}| tail -1 2>>${ERR_FILE})
 
 
 NUMBER_READERS_ONLINE=0
@@ -254,7 +254,7 @@ if [ ${HOSTGROUP_READER_ID} -ne -1 ]; then
 
   echo "`date` ###### HANDLE READER NODES ######" >> ${ERR_FILE}
   if [ $WRITER_IS_READER -eq 1 ]; then
-    READER_PROXYSQL_QUERY="SELECT hostgroup_id, hostname, port, status, 'NULL' FROM mysql_servers WHERE hostgroup_id IN ($HOSTGROUP_READER_ID) AND status <> 'OFFLINE_HARD' ORDER BY weight DESC, hostname, port"
+    READER_PROXYSQL_QUERY="SELECT hostgroup_id, hostname, port, status, 'NULL' FROM mysql_servers WHERE hostgroup_id IN ($HOSTGROUP_READER_ID) AND status <> 'OFFLINE_HARD' AND comment <> 'SLAVEREAD' ORDER BY weight DESC, hostname, port"
   elif [ $WRITER_IS_READER -eq 0 ]; then
     # We will not try to change reader state of nodes that are writer ONLINE, so what we do is we ORDER BY writer.status ASC because by accident ONLINE is last in the line
     READER_PROXYSQL_QUERY="SELECT reader.hostgroup_id,
@@ -269,6 +269,7 @@ if [ ${HOSTGROUP_READER_ID} -ne -1 ]; then
     AND writer.port = reader.port
   WHERE reader.hostgroup_id = $HOSTGROUP_READER_ID
     AND reader.status <> 'OFFLINE_HARD'
+	AND reader.comment <> 'SLAVEREAD'
   ORDER BY writer.status ASC,
            reader.weight DESC,
            reader.hostname,
@@ -374,7 +375,7 @@ if [ ${HOSTGROUP_READER_ID} -ne -1 ]; then
     fi
   done
 
-  NUMBER_READERS_ONLINE=$(proxysql_exec "SELECT count(*) FROM mysql_servers WHERE hostgroup_id IN ($HOSTGROUP_READER_ID) AND status = 'ONLINE'" 2>>${ERR_FILE}| tail -1 2>>${ERR_FILE})
+  NUMBER_READERS_ONLINE=$(proxysql_exec "SELECT count(*) FROM mysql_servers WHERE hostgroup_id IN ($HOSTGROUP_READER_ID) AND status = 'ONLINE' AND comment <> 'SLAVEREAD'" 2>>${ERR_FILE}| tail -1 2>>${ERR_FILE})
 fi
 
 echo "`date` ###### SUMMARY ######" >> ${ERR_FILE}
@@ -388,7 +389,7 @@ cnt=0
 if [ ${NUMBER_WRITERS_ONLINE} -eq 0 ]; then
   echo "`date` ###### TRYING TO FIX MISSING WRITERS ######"
   echo "`date` No writers found, Trying to enable last available node of the cluster (in Donor/Desync state)" >> ${ERR_FILE}
-  proxysql_exec "SELECT hostgroup_id, hostname, port, status FROM mysql_servers WHERE hostgroup_id IN ($HOSTGROUP_WRITER_ID) AND status <> 'OFFLINE_HARD'" | while read hostgroup server port stat
+  proxysql_exec "SELECT hostgroup_id, hostname, port, status FROM mysql_servers WHERE hostgroup_id IN ($HOSTGROUP_WRITER_ID) AND status <> 'OFFLINE_HARD' AND comment <> 'SLAVEREAD'" | while read hostgroup server port stat
   do
     safety_cnt=0
       while [ ${cnt} -le $NUMBER_WRITERS -a ${safety_cnt} -lt 5 ]
@@ -411,7 +412,7 @@ cnt=0
 if [  ${HOSTGROUP_READER_ID} -ne -1 -a ${NUMBER_READERS_ONLINE} -eq 0 ]; then
   echo "`date` ###### TRYING TO FIX MISSING READERS ######"
   echo "`date` --> No readers found, Trying to enable last available node of the cluster (in Donor/Desync state) or pick the master" >> ${ERR_FILE}
-  proxysql_exec "SELECT hostgroup_id, hostname, port, status FROM mysql_servers WHERE hostgroup_id IN ($HOSTGROUP_WRITER_ID) AND status <> 'OFFLINE_HARD'" | while read hostgroup server port stat
+  proxysql_exec "SELECT hostgroup_id, hostname, port, status FROM mysql_servers WHERE hostgroup_id IN ($HOSTGROUP_WRITER_ID) AND status <> 'OFFLINE_HARD' AND comment <> 'SLAVEREAD'" | while read hostgroup server port stat
   do
     safety_cnt=0
       while [ ${cnt} -eq 0 -a ${safety_cnt} -lt 5 ]
@@ -425,6 +426,34 @@ if [  ${HOSTGROUP_READER_ID} -ne -1 -a ${NUMBER_READERS_ONLINE} -eq 0 ]; then
         safety_cnt=$(( $safety_cnt + 1 ))
     done
   done
+  CHECK_SLAVE=$(proxysql_exec "SELECT hostname FROM mysql_servers WHERE comment='SLAVEREAD' AND status='ONLINE'" 2>>${ERR_FILE}| tail -1 2>>${ERR_FILE})
+  IS_QUERY_RULE_ACTIVE=$(proxysql_exec "SELECT active FROM mysql_query_rules WHERE destination_hostgroup=$HOSTGROUP_READER_ID limit 1;" 2>> ${ERR_FILE} | tail -1 2>>${ERR_FILE})
+  if [ "$MODE" == "singlewrite" ]; then
+    if [[ -z ${CHECK_SLAVE} ]]; then
+      if [[ ${IS_QUERY_RULE_ACTIVE} -eq 1 ]]; then
+        proxysql_exec "UPDATE mysql_query_rules SET active=0 WHERE destination_hostgroup=$HOSTGROUP_READER_ID;" 2>> ${ERR_FILE}
+        proxysql_exec "LOAD MYSQL QUERY RULES TO RUNTIME;" 2>> ${ERR_FILE}
+        echo "`date` No readers found, marking single writer node as read/write mode" >> ${ERR_FILE}
+      fi
+    else
+      if [[ ${IS_QUERY_RULE_ACTIVE} -eq 0 ]]; then
+        proxysql_exec "UPDATE mysql_query_rules SET active=1 WHERE destination_hostgroup=$HOSTGROUP_READER_ID;" 2>> ${ERR_FILE}
+        proxysql_exec "LOAD MYSQL QUERY RULES TO RUNTIME;" 2>> ${ERR_FILE}
+        echo "`date` Slave host is online, disabling read transaction from writer node" >> ${ERR_FILE}
+      fi
+    fi   
+  fi
+fi
+
+if [ "$MODE" == "singlewrite" ]; then
+  if [  ${HOSTGROUP_READER_ID} -ne -1 -a ${NUMBER_READERS_ONLINE} -gt 0 ]; then
+    IS_QUERY_RULE_ACTIVE=$(proxysql_exec "SELECT active FROM mysql_query_rules WHERE destination_hostgroup=$HOSTGROUP_READER_ID limit 1;" 2>> ${ERR_FILE} | tail -1 2>>${ERR_FILE})
+    if [[ ${IS_QUERY_RULE_ACTIVE} -eq 0 ]]; then
+      proxysql_exec "UPDATE mysql_query_rules SET active=1 WHERE destination_hostgroup=$HOSTGROUP_READER_ID;" 2>> ${ERR_FILE}
+      proxysql_exec "LOAD MYSQL QUERY RULES TO RUNTIME;" 2>> ${ERR_FILE}
+      echo "`date` Found reader, disabling read transaction from writer node" >> ${ERR_FILE}
+    fi
+  fi
 fi
 
 echo "`date` ###### Loading mysql_servers config into runtime ######" >> ${ERR_FILE}
