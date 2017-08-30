@@ -816,6 +816,8 @@ syncusers() {
       password_field="Password";;
     5.7)
       password_field="authentication_string";;
+    10.2)
+      password_field="Password";;
   esac
   
   mysql_users=$(mysql_exec "SELECT User,${password_field} FROM mysql.user where ${password_field}!=''" | sed 's/\t/,/g' | egrep -v "User,${password_field}|mysql.sys" | sort | uniq )
