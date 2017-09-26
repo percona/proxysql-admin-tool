@@ -241,7 +241,7 @@ mysql>
 
 ```
 
-__v) --test-run__
+__v) --quick-demo__
 
 This option is used to setup dummy proxysql configuration.
 
