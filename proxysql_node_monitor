@@ -20,6 +20,7 @@ fi
 ERR_FILE="${3:-/dev/null}"
 CHECK_STATUS=0
 SLAVE_SECONDS_BEHIND=3600 #How far behind can a slave be before its put into OFFLINE_SOFT state
+CLUSTER_TIMEOUT=3 # Maximum time to wait for cluster status
 
 if [ $debug -eq 1 ];then echo "`date` DEBUG MODE: $MODE" >> $ERR_FILE;fi
 
@@ -51,7 +52,7 @@ proxysql_exec() {
 
 mysql_exec() {
   query=$1
-  printf "[client]\nuser=${CLUSTER_USERNAME}\npassword=${CLUSTER_PASSWORD}\nhost=${CLUSTER_HOSTNAME}\nport=${CLUSTER_PORT}\n" | \
+  printf "[client]\nconnect-timeout=${CLUSTER_TIMEOUT}\nuser=${CLUSTER_USERNAME}\npassword=${CLUSTER_PASSWORD}\nhost=${CLUSTER_HOSTNAME}\nport=${CLUSTER_PORT}\n" | \
       mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "${query}" 2>/dev/null
 }
 
@@ -406,6 +407,8 @@ CLUSTER_HOST_INFO=`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE 
 check_cmd $? "Could not retrieve cluster node info from ProxySQL. Please check cluster login credentials"
 
 CLUSTER_HOSTS=($(proxysql_exec "SELECT hostname || '-' || port FROM mysql_servers WHERE status='ONLINE' and comment<>'SLAVEREAD' and hostgroup_id in ($WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID)"))
+CLUSTER_TIMEOUT=($(proxysql_exec "SELECT MAX(interval_ms / 1000 - 1, 1) FROM scheduler"))
+
 for i in "${CLUSTER_HOSTS[@]}"; do
   CLUSTER_HOSTNAME=$(echo $i | cut -d'-' -f1)
   CLUSTER_PORT=$(echo $i | cut -d'-' -f2)
@@ -425,8 +428,6 @@ if [[ -z $CLUSTER_HOST_INFO ]]; then
   # No Cluster nodes are available, but is a slave available?
   SLAVE_HOST_INFO=`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE status='ONLINE' and comment='SLAVEREAD' and hostgroup_id in ($WRITE_HOSTGROUP_ID, $SLAVEREAD_HOSTGROUP_ID) limit 1"`
   check_cmd $? "Could not retrieve cluster login info from ProxySQL. Please check cluster login credentials"
-  SLAVE_HOSTNAME=$(echo $CLUSTER_HOST_INFO | awk '{print $1}')
-  SLAVE_PORT=$(echo $CLUSTER_HOST_INFO | awk '{print $2}')
   if [[ -z $SLAVE_HOST_INFO ]]; then
     if [ $debug -eq 1 ];then echo "`date` DEBUG No online slaves were found, will recheck" >> $ERR_FILE;fi
     # Check for a slave in a status other than 'ONLINE'
