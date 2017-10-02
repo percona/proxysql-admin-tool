@@ -239,7 +239,7 @@ do
     ENABLE=1
     ;;
     -v | --version )
-      echo "proxysql-admin version 1.3.9"
+      echo "proxysql-admin version 1.4.3"
       exit 0
     ;;
     --help )
