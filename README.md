@@ -20,6 +20,7 @@ Options:
   --cluster-hostname=host_name       Hostname for connecting to the Percona XtraDB Cluster node
   --cluster-app-username=user_name   Application username for connecting to the Percona XtraDB Cluster node
   --cluster-app-password[=password]  Application password for connecting to the Percona XtraDB Cluster node
+  --without-cluster-app-user         Configure Percona XtraDB Cluster without application user
   --monitor-username=user_name       Username for monitoring Percona XtraDB Cluster nodes through ProxySQL
   --monitor-password[=password]      Password for monitoring Percona XtraDB Cluster nodes through ProxySQL
   --enable, -e                       Auto-configure Percona XtraDB Cluster nodes into ProxySQL
