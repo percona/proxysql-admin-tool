@@ -3,6 +3,8 @@ ProxySQL Admin
 
 The ProxySQL Admin (proxysql-admin) solution configures Percona XtraDB cluster nodes into ProxySQL.
 
+Please log ProxySQL Admin bug reports here https://jira.percona.com/projects/PSQLADM.
+
 proxysql-admin usage info
 
 ```bash
