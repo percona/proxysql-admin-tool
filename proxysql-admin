@@ -137,7 +137,7 @@ do
     esac
     shift 2
     ;;
-    --proxysql-host )
+    --proxysql-hostname )
     PROXYSQL_HOSTNAME="$2"
     shift 2
     ;;
@@ -167,7 +167,7 @@ do
     esac
     shift 2
     ;;
-    --cluster-host )
+    --cluster-hostname )
     CLUSTER_HOSTNAME="$2"
     shift 2
     ;;
