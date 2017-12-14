@@ -842,9 +842,12 @@ syncusers() {
     fi
   }
   # Get current ProxySQL users and filter out header row
-  proxysql_users=$(proxysql_exec "SELECT username,password FROM mysql_users where password!=''" | sed 's/\t/,/g' | egrep -v "username,password" | sort | uniq )
-  check_cmd $? "Failed to load user list from ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
-
+  get_proxysql_users() {
+    local proxysql_users=$(proxysql_exec "SELECT username,password FROM mysql_users where password!=''" | sed 's/\t/,/g' | egrep -v "username,password" | sort | uniq )
+    check_cmd $? "Failed to load user list from ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
+    echo "$proxysql_users"
+  }
+  proxysql_users=$(get_proxysql_users)
   echo -e "\nSyncing user accounts from Percona XtraDB Cluster to ProxySQL"
   # TEST FOR USERS THAT EXIST IN MYSQL BUT NOT IN PROXYSQL HERE AND ADD
   for mysql_user in $mysql_users;do
@@ -879,6 +882,8 @@ syncusers() {
   done
 
   # TEST FOR USERS THAT EXIST IN PROXYSQL BUT NOT IN MYSQL HERE AND REMOVE
+  # Again get all users
+  proxysql_users=$(get_proxysql_users)
   for proxysql_user in $proxysql_users;do
     match=0
     for mysql_user in $mysql_users;do
