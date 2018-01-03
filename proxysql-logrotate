@@ -5,5 +5,9 @@
         notifempty
         compress
         create 0600 proxysql proxysql
-        rotate 5
+        rotate 15
+	postrotate
+	. /etc/proxysql-admin.cnf
+        /usr/bin/printf "%s\n" "[client]" "user=${PROXYSQL_USERNAME}"  "password=${PROXYSQL_PASSWORD}"  "host=${PROXYSQL_HOSTNAME}" "port=${PROXYSQL_PORT}"   | /usr/bin/mysql --defaults-file=/dev/stdin --protocol=tcp -Nse "PROXYSQL FLUSH LOGS"
+        endscript
 }
