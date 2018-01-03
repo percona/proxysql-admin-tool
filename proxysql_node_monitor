@@ -62,7 +62,7 @@ set_slave_status() {
   if [ $debug -eq 1 ];then echo "`date` DEBUG START set_slave_status" >> $ERR_FILE;fi
   # This function will get and return a status of a slave node, 4=GOOD, 2=BEHIND, 0=OTHER
   SLAVE_STATUS=$(printf "[client]\nuser=${CLUSTER_USERNAME}\npassword=${CLUSTER_PASSWORD}\nhost=${ws_ip}\nport=${ws_port}\n" | mysql --defaults-file=/dev/stdin --protocol=tcp -Bse 'SHOW SLAVE STATUS\G' 2>/var/lib/proxysql/proxysql_admin_error_info)
-  check_cmd $? "Cannot get staus from the slave $ws_ip:$ws_port, Please check cluster login credentials" "`cat /var/lib/proxysql/proxysql_admin_error_info`"
+  check_cmd $? "Cannot get status from the slave $ws_ip:$ws_port, Please check cluster login credentials" "`cat /var/lib/proxysql/proxysql_admin_error_info`"
   SLAVE_STATUS=$(echo "$SLAVE_STATUS" | sed 's/ //g')
   echo "$SLAVE_STATUS" | grep "^Master_Host:" >/dev/null
   if [ $? -ne 0 ];then
@@ -426,23 +426,26 @@ if [[ -z $CLUSTER_HOST_INFO ]]; then
   # Set CLUSTER_OFFLINE variable, used my the set_slave_status function and the bottom of this script
   CLUSTER_OFFLINE=1
   # No Cluster nodes are available, but is a slave available?
-  SLAVE_HOST_INFO=`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE status='ONLINE' and comment='SLAVEREAD' and hostgroup_id in ($WRITE_HOSTGROUP_ID, $SLAVEREAD_HOSTGROUP_ID) limit 1"`
-  check_cmd $? "Could not retrieve cluster login info from ProxySQL. Please check cluster login credentials"
-  if [[ -z $SLAVE_HOST_INFO ]]; then
-    if [ $debug -eq 1 ];then echo "`date` DEBUG No online slaves were found, will recheck" >> $ERR_FILE;fi
-    # Check for a slave in a status other than 'ONLINE'
-    # This is an emergency measure, just put a random slave online
-    # Would be nice to try to find the most up to date slave if there is more than one, but that would require
-    # a query to all slaves to check their positions, probably not worth the overhead - something to think about
-    slave_host=(`proxysql_exec "SELECT hostname,port FROM mysql_servers where comment='SLAVEREAD' and hostgroup_id in ($WRITE_HOSTGROUP_ID, $SLAVEREAD_HOSTGROUP_ID) ORDER BY random() LIMIT 1" | sed 's|\t|:|g' | tr '\n' ' '`)
-    if [ $debug -eq 1 ];then echo "`date` DEBUG Trying to bring slave: $slave_host ONLINE due to cluster being down" >> $ERR_FILE;fi
-    ws_ip=$(echo $slave_host | cut -d':' -f1)
-    ws_port=$(echo $slave_host | cut -d':' -f2)
-    set_slave_status
-  else
-    if [ $debug -eq 1 ];then echo "`date` DEBUG online slaves were found" >> $ERR_FILE;fi
-    # Run function here to move the slave into the write hostgroup
-    mode_change_check
+  SLAVE_CHECK=`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE comment='SLAVEREAD' limit 1"`
+  if [[ ! -z $SLAVE_CHECK ]]; then
+    SLAVE_HOST_INFO=`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE status='ONLINE' and comment='SLAVEREAD' and hostgroup_id in ($WRITE_HOSTGROUP_ID, $SLAVEREAD_HOSTGROUP_ID) limit 1"`
+    check_cmd $? "Could not retrieve cluster login info from ProxySQL. Please check cluster login credentials"
+    if [[ -z $SLAVE_HOST_INFO ]]; then
+      if [ $debug -eq 1 ];then echo "`date` DEBUG No online slaves were found, will recheck" >> $ERR_FILE;fi
+      # Check for a slave in a status other than 'ONLINE'
+      # This is an emergency measure, just put a random slave online
+      # Would be nice to try to find the most up to date slave if there is more than one, but that would require
+      # a query to all slaves to check their positions, probably not worth the overhead - something to think about
+      slave_host=(`proxysql_exec "SELECT hostname,port FROM mysql_servers where comment='SLAVEREAD' and hostgroup_id in ($WRITE_HOSTGROUP_ID, $SLAVEREAD_HOSTGROUP_ID) ORDER BY random() LIMIT 1" | sed 's|\t|:|g' | tr '\n' ' '`)
+      if [ $debug -eq 1 ];then echo "`date` DEBUG Trying to bring slave: $slave_host ONLINE due to cluster being down" >> $ERR_FILE;fi
+      ws_ip=$(echo $slave_host | cut -d':' -f1)
+      ws_port=$(echo $slave_host | cut -d':' -f2)
+      set_slave_status
+    else
+      if [ $debug -eq 1 ];then echo "`date` DEBUG online slaves were found" >> $ERR_FILE;fi
+      # Run function here to move the slave into the write hostgroup
+      mode_change_check
+    fi
   fi
   SLAVE_HOST_INFO=`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE status='ONLINE' and comment='SLAVEREAD' and hostgroup_id='$WRITE_HOSTGROUP_ID' limit 1"`
   if [[ -z $SLAVE_HOST_INFO ]]; then
