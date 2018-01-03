@@ -906,7 +906,7 @@ if [ "$ENABLE" == 1 ] || [ "$DISABLE" == 1 ] || [ "$ADDUSER" == 1 ] || [ "$SYNCU
     echo -e "\nProxySQL read/write configuration mode is ${BD}$MODE${NBD}"
     enable_proxysql
     echo -e "\nProxySQL configuration completed!\n"
-    PROXYSQL_CLIENT_PORT=$(proxysql_exec "SELECT * FROM runtime_global_variables WHERE variable_name='mysql-interfaces'" | awk '{print $2}' | grep -o -P '(?<=:).*(?=;)')
+    PROXYSQL_CLIENT_PORT=$(proxysql_exec "SELECT * FROM runtime_global_variables WHERE variable_name='mysql-interfaces'" | awk '{print $2}' | grep -o -P '(?<=:).*' | cut -d';' -f1 )
     echo -e "ProxySQL has been successfully configured to use with Percona XtraDB Cluster\n"
     echo -e "You can use the following login credentials to connect your application through ProxySQL\n"
     if [ -z "$QUICK_DEMO" ]; then
