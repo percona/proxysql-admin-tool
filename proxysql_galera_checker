@@ -179,6 +179,7 @@ do
         else
           NUMBER_WRITERS_ONLINE=$(( $NUMBER_WRITERS_ONLINE + 1 ))
           change_server_status $HOSTGROUP_WRITER_ID "$server" $port "OFFLINE_SOFT" "max write nodes reached (${NUMBER_WRITERS})"
+          echo "1" > ${RELOAD_CHECK_FILE}
         fi
     elif [ $NUMBER_WRITERS -gt 0 -a "${WSREP_STATUS}" = "4" -a "$stat" != "ONLINE"  -a "${PXC_MAIN_MODE}" != "DISABLED" ] ; then
       NUMBER_WRITERS_ONLINE=$(( $NUMBER_WRITERS_ONLINE + 1 ))
@@ -249,6 +250,7 @@ do
     elif [ "${PXC_MAIN_MODE}" != "DISABLED" -a "$stat" = "ONLINE" ];then
       echo "`date` Changing server $hostgroup:$server:$port to status OFFLINE_SOFT due to $PXC_MAIN_MODE" >> ${ERR_FILE}
       change_server_status  $HOSTGROUP_WRITER_ID "$server" $port "OFFLINE_SOFT" "Changed  server $hostgroup:$server:$port to status OFFLINE_SOFT due to $PXC_MAIN_MODE" 2>> ${ERR_FILE}
+      echo "1" > ${RELOAD_CHECK_FILE}
     elif [ "${WSREP_STATUS}" != "4" -a "$stat" = "OFFLINE_SOFT" ]; then
       echo "`date` server $hostgroup:$server:$port is already OFFLINE_SOFT, WSREP status is ${WSREP_STATUS} which is not ok" >> ${ERR_FILE}
     fi
@@ -316,6 +318,7 @@ if [ ${HOSTGROUP_READER_ID} -ne -1 ]; then
           elif [ "${PXC_MAIN_MODE}" != "DISABLED" -a "$stat" = "ONLINE" ];then
             echo "`date` Changing server $hostgroup:$server:$port to status OFFLINE_SOFT due to $PXC_MAIN_MODE" >> ${ERR_FILE}
             change_server_status  $hostgroup "$server" $port "OFFLINE_SOFT" "Changed  server $hostgroup:$server:$port to status OFFLINE_SOFT due to $PXC_MAIN_MODE" 2>> ${ERR_FILE}
+            echo "1" > ${RELOAD_CHECK_FILE}
           fi
         fi
       else
@@ -337,6 +340,7 @@ if [ ${HOSTGROUP_READER_ID} -ne -1 ]; then
           elif [ "${PXC_MAIN_MODE}" != "DISABLED" -a "$stat" = "ONLINE" ];then
             echo "`date` Changing server $hostgroup:$server:$port to status OFFLINE_SOFT due to $PXC_MAIN_MODE" >> ${ERR_FILE}
             change_server_status  $hostgroup "$server" $port "OFFLINE_SOFT" "Changed  server $hostgroup:$server:$port to status OFFLINE_SOFT due to $PXC_MAIN_MODE" 2>> ${ERR_FILE}
+            echo "1" > ${RELOAD_CHECK_FILE}
           fi
         fi
       fi
@@ -370,6 +374,7 @@ if [ ${HOSTGROUP_READER_ID} -ne -1 ]; then
         elif [ "${PXC_MAIN_MODE}" != "DISABLED" -a "$stat" = "ONLINE" ];then
           echo "`date` Changing server $hostgroup:$server:$port to status OFFLINE_SOFT due to $PXC_MAIN_MODE" >> ${ERR_FILE}
           change_server_status  $hostgroup "$server" $port "OFFLINE_SOFT" "Changed  server $hostgroup:$server:$port to status OFFLINE_SOFT due to $PXC_MAIN_MODE" 2>> ${ERR_FILE}
+          echo "1" > ${RELOAD_CHECK_FILE}
         fi
       fi
     fi
@@ -388,6 +393,7 @@ if [ ${HOSTGROUP_READER_ID} -ne -1 ]; then
       elif [ "${PXC_MAIN_MODE}" != "DISABLED" -a "$stat" = "ONLINE" ];then
         echo "`date` Changing server $hostgroup:$server:$port to status OFFLINE_SOFT due to $PXC_MAIN_MODE" >> ${ERR_FILE}
         change_server_status  $HOSTGROUP_WRITER_ID "$server" $port "OFFLINE_SOFT" "Changed  server $hostgroup:$server:$port to status OFFLINE_SOFT due to $PXC_MAIN_MODE" 2>> ${ERR_FILE}
+        echo "1" > ${RELOAD_CHECK_FILE}
       elif [ "${WSREP_STATUS}" != "4" -a "$stat" = "OFFLINE_SOFT" ]; then
         echo "`date` server $hostgroup:$server:$port is already OFFLINE_SOFT, WSREP status is ${WSREP_STATUS} which is not ok" >> ${ERR_FILE}
       fi
