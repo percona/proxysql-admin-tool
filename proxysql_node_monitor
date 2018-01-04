@@ -195,9 +195,9 @@ update_cluster(){
             echo "`date` No writer found, promoting $ws_ip:$ws_port as writer node!" >> $ERR_FILE
             proxysql_exec "UPDATE mysql_servers set hostgroup_id = $WRITE_HOSTGROUP_ID, comment='WRITE', weight=1000000 WHERE hostname='$ws_ip' and port=$ws_port"
             check_cmd $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check proxysql credentials"
-            CHECK_STATUS=1
           fi
         fi
+        CHECK_STATUS=1
       fi
     fi
   done
