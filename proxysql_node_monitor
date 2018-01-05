@@ -50,10 +50,13 @@ proxysql_exec() {
       mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "${query}" 2>/dev/null
 }
 
+#Timeout exists for instances where mysqld may be hung
+TIMEOUT=10
+
 mysql_exec() {
   query=$1
   printf "[client]\nconnect-timeout=${CLUSTER_TIMEOUT}\nuser=${CLUSTER_USERNAME}\npassword=${CLUSTER_PASSWORD}\nhost=${CLUSTER_HOSTNAME}\nport=${CLUSTER_PORT}\n" | \
-      mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "${query}" 2>/dev/null
+      timeout $TIMEOUT mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "${query}" 2>/dev/null
 }
 
 set_slave_status() {
@@ -61,7 +64,7 @@ set_slave_status() {
   # The ws_ip and ws_port variables are used and must be set before calling this function
   if [ $debug -eq 1 ];then echo "`date` DEBUG START set_slave_status" >> $ERR_FILE;fi
   # This function will get and return a status of a slave node, 4=GOOD, 2=BEHIND, 0=OTHER
-  SLAVE_STATUS=$(printf "[client]\nuser=${CLUSTER_USERNAME}\npassword=${CLUSTER_PASSWORD}\nhost=${ws_ip}\nport=${ws_port}\n" | mysql --defaults-file=/dev/stdin --protocol=tcp -Bse 'SHOW SLAVE STATUS\G' 2>/var/lib/proxysql/proxysql_admin_error_info)
+  SLAVE_STATUS=$(printf "[client]\nuser=${CLUSTER_USERNAME}\npassword=${CLUSTER_PASSWORD}\nhost=${ws_ip}\nport=${ws_port}\n" | timeout $TIMEOUT mysql --defaults-file=/dev/stdin --protocol=tcp -Bse 'SHOW SLAVE STATUS\G' 2>/var/lib/proxysql/proxysql_admin_error_info)
   check_cmd $? "Cannot get status from the slave $ws_ip:$ws_port, Please check cluster login credentials" "`cat /var/lib/proxysql/proxysql_admin_error_info`"
   SLAVE_STATUS=$(echo "$SLAVE_STATUS" | sed 's/ //g')
   echo "$SLAVE_STATUS" | grep "^Master_Host:" >/dev/null
