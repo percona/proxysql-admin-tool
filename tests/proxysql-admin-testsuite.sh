@@ -120,6 +120,7 @@ start_pxc_node
 
 ${PXC_BASEDIR}/bin/mysql -uroot -S${PXC_BASEDIR}/node1/socket.sock -e"GRANT ALL ON *.* TO admin@'%' identified by 'admin';flush privileges;"
 sed -i "s/3306/${BASEPORT}/" $PROXYSQL_BASE/etc/proxysql-admin.cnf
+sed -i "s|\/var\/lib\/proxysql|$PROXYSQL_BASE|" $PROXYSQL_BASE/etc/proxysql-admin.cnf
 sudo cp $PROXYSQL_BASE/etc/proxysql-admin.cnf /etc/proxysql-admin.cnf
 sudo cp $PROXYSQL_BASE/usr/bin/* /usr/bin/
  
