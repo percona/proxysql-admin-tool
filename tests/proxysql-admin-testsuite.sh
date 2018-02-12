@@ -29,7 +29,7 @@ ROOT_FS=$WORKDIR
 mkdir -p $WORKDIR/logs
 
 ps -ef | egrep "mysqld" | grep "$(whoami)" | egrep -v "grep" | xargs kill -9 2>/dev/null
-ps -ef | egrep "proxysql" | grep "$(whoami)" | egrep -v "grep" | xargs kill -9 2>/dev/null
+ps -ef | egrep "node..sock" | grep "$(whoami)" | egrep -v "grep" | xargs kill -9 2>/dev/null
 
 cd ${WORKDIR}
 
