@@ -3,7 +3,14 @@
 # The script is used for testing proxysql-admin functionality
 
 # User Configurable Variables
-WORKDIR=$1
+if [ -z $1 ]; then
+  echo "No valid parameters were passed. Need relative workdir setting. Retry.";
+  echo "Usage example:"
+  echo "$./proxysql-admin-testsuite.sh /sda/proxysql-testing"
+  exit 1
+else
+  WORKDIR=$1
+fi
 SBENCH="sysbench"
 SCRIPT_PWD=$(cd `dirname $0` && pwd)
 PXC_START_TIMEOUT=200
@@ -25,6 +32,10 @@ ps -ef | egrep "mysqld" | grep "$(whoami)" | egrep -v "grep" | xargs kill -9 2>/
 ps -ef | egrep "proxysql" | grep "$(whoami)" | egrep -v "grep" | xargs kill -9 2>/dev/null
 
 cd ${WORKDIR}
+
+echo "Removing existing basedir"
+find . -maxdepth 1 -type d -name 'Percona-XtraDB-Cluster-5.*' -exec rm -rf {} \+
+find . -maxdepth 1 -type d -name 'proxysql-1.*' -exec rm -rf {} \+
 
 #Check PXC binary tar ball
 PXC_TAR=$(ls -1td ?ercona-?tra??-?luster* | grep ".tar" | head -n1)
@@ -50,7 +61,6 @@ else
   exit 1
 fi
 
-rm *.tar.gz
 $PROXYSQL_BASE/usr/bin/proxysql -D $PROXYSQL_BASE  $PROXYSQL_BASE/proxysql.log &
 
 
@@ -105,11 +115,11 @@ start_pxc_node(){
       --datadir=$node $WSREP_CLUSTER_ADD \
       --wsrep_provider_options=gmcast.listen_addr=tcp://$LADDR1 \
       --log-error=$WORKDIR/logs/node$i.err \
-      --socket=$node/socket.sock --port=$RBASE1 > $WORKDIR/logs/node$i.err 2>&1 &
+      --socket=/tmp/node$i.sock --port=$RBASE1 > $WORKDIR/logs/node$i.err 2>&1 &
     for X in $(seq 0 ${PXC_START_TIMEOUT}); do
       sleep 1
-      if ${PXC_BASEDIR}/bin/mysqladmin -uroot -S$node/socket.sock ping > /dev/null 2>&1; then
-        echo "Started PXC node$i. Socket : $node/socket.sock"
+      if ${PXC_BASEDIR}/bin/mysqladmin -uroot -S/tmp/node$i.sock ping > /dev/null 2>&1; then
+        echo "Started PXC node$i. Socket : /tmp/node$i.sock"
         break
       fi
     done
@@ -118,7 +128,7 @@ start_pxc_node(){
 
 start_pxc_node
 
-${PXC_BASEDIR}/bin/mysql -uroot -S${PXC_BASEDIR}/node1/socket.sock -e"GRANT ALL ON *.* TO admin@'%' identified by 'admin';flush privileges;"
+${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/node1.sock -e"GRANT ALL ON *.* TO admin@'%' identified by 'admin';flush privileges;"
 sed -i "s/3306/${BASEPORT}/" $PROXYSQL_BASE/etc/proxysql-admin.cnf
 sed -i "s|\/var\/lib\/proxysql|$PROXYSQL_BASE|" $PROXYSQL_BASE/etc/proxysql-admin.cnf
 sudo cp $PROXYSQL_BASE/etc/proxysql-admin.cnf /etc/proxysql-admin.cnf
@@ -137,6 +147,6 @@ sudo TERM=xterm bats $SCRIPT_PWD/generic-test.bats
 echo "proxysql-admin testsuite bats test log"
 sudo TERM=xterm bats $SCRIPT_PWD/proxysql-admin-testsuite.bats 
 
-${PXC_BASEDIR}/bin/mysqladmin  --socket=${PXC_BASEDIR}/node1/socket.sock  -u root shutdown
-${PXC_BASEDIR}/bin/mysqladmin  --socket=${PXC_BASEDIR}/node2/socket.sock  -u root shutdown
-${PXC_BASEDIR}/bin/mysqladmin  --socket=${PXC_BASEDIR}/node3/socket.sock  -u root shutdown
+${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/node1.sock  -u root shutdown
+${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/node2.sock  -u root shutdown
+${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/node3.sock  -u root shutdown
