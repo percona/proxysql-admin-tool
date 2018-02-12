@@ -1,4 +1,5 @@
 # proxysql admin interface credentials.
+export PROXYSQL_DATADIR='/var/lib/proxysql'
 export PROXYSQL_USERNAME='admin'
 export PROXYSQL_PASSWORD='admin'
 export PROXYSQL_HOSTNAME='localhost'
@@ -26,4 +27,4 @@ export READ_HOSTGROUP_ID='11'
 export MODE="singlewrite"
 
 # ProxySQL Cluster Node Priority File
-export HOST_PRIORITY_FILE='/var/lib/proxysql/host_priority.conf'
+export HOST_PRIORITY_FILE=$PROXYSQL_DATADIR/host_priority.conf

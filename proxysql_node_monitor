@@ -50,10 +50,13 @@ proxysql_exec() {
       mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "${query}" 2>/dev/null
 }
 
+#Timeout exists for instances where mysqld may be hung
+TIMEOUT=10
+
 mysql_exec() {
   query=$1
   printf "[client]\nconnect-timeout=${CLUSTER_TIMEOUT}\nuser=${CLUSTER_USERNAME}\npassword=${CLUSTER_PASSWORD}\nhost=${CLUSTER_HOSTNAME}\nport=${CLUSTER_PORT}\n" | \
-      mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "${query}" 2>/dev/null
+      timeout $TIMEOUT mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "${query}" 2>/dev/null
 }
 
 set_slave_status() {
@@ -61,8 +64,8 @@ set_slave_status() {
   # The ws_ip and ws_port variables are used and must be set before calling this function
   if [ $debug -eq 1 ];then echo "`date` DEBUG START set_slave_status" >> $ERR_FILE;fi
   # This function will get and return a status of a slave node, 4=GOOD, 2=BEHIND, 0=OTHER
-  SLAVE_STATUS=$(printf "[client]\nuser=${CLUSTER_USERNAME}\npassword=${CLUSTER_PASSWORD}\nhost=${ws_ip}\nport=${ws_port}\n" | mysql --defaults-file=/dev/stdin --protocol=tcp -Bse 'SHOW SLAVE STATUS\G' 2>/var/lib/proxysql/proxysql_admin_error_info)
-  check_cmd $? "Cannot get status from the slave $ws_ip:$ws_port, Please check cluster login credentials" "`cat /var/lib/proxysql/proxysql_admin_error_info`"
+  SLAVE_STATUS=$(printf "[client]\nuser=${CLUSTER_USERNAME}\npassword=${CLUSTER_PASSWORD}\nhost=${ws_ip}\nport=${ws_port}\n" | timeout $TIMEOUT mysql --defaults-file=/dev/stdin --protocol=tcp -Bse 'SHOW SLAVE STATUS\G' 2>${PROXYSQL_DATADIR}/proxysql_admin_error_info)
+  check_cmd $? "Cannot get status from the slave $ws_ip:$ws_port, Please check cluster login credentials" "`cat ${PROXYSQL_DATADIR}/proxysql_admin_error_info`"
   SLAVE_STATUS=$(echo "$SLAVE_STATUS" | sed 's/ //g')
   echo "$SLAVE_STATUS" | grep "^Master_Host:" >/dev/null
   if [ $? -ne 0 ];then
@@ -182,10 +185,14 @@ update_cluster(){
         #This is a slave, check health differently
         set_slave_status
       else
-        echo "`date` Node ${ws_hg_id}:${i} does not exists in cluster membership!" >> $ERR_FILE
-        echo "`date` Removing Node ${ws_hg_id}:${i} from ProxySQL database!" >> $ERR_FILE
-        proxysql_exec "DELETE FROM  mysql_servers  WHERE hostname='$ws_ip' and port=$ws_port;"
-        check_cmd $? "Cannot update Percona XtraDB Cluster node $ws_ip:$ws_port to ProxySQL database, Please check proxysql credentials"
+        if [ "$ws_status" == "OFFLINE_SOFT" ]; then
+          echo "`date` Cluster node ${ws_hg_id}:${i} does not exists in cluster membership! Chaning status from OFFLINE_SOFT to OFFLINE_HARD" >> $ERR_FILE
+          proxysql_exec "UPDATE mysql_servers set status = 'OFFLINE_HARD' WHERE hostname='$ws_ip' and port=$ws_port"
+          check_cmd $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check proxysql credentials"
+          CHECK_STATUS=1
+        fi
+        node_status=$(echo `proxysql_exec "SELECT status from mysql_servers WHERE hostname='$ws_ip' and port=$ws_port"`)
+        echo "`date` Cluster node (${ws_hg_id}:${i}) current status '$node_status' in ProxySQL database!" >> $ERR_FILE
         if [ "$MODE" == "singlewrite" ]; then
           checkwriter_hid=`proxysql_exec "select hostgroup_id from mysql_servers where comment='WRITE'"`
           if [[ -z "$checkwriter_hid" ]]; then
@@ -195,9 +202,10 @@ update_cluster(){
             echo "`date` No writer found, promoting $ws_ip:$ws_port as writer node!" >> $ERR_FILE
             proxysql_exec "UPDATE mysql_servers set hostgroup_id = $WRITE_HOSTGROUP_ID, comment='WRITE', weight=1000000 WHERE hostname='$ws_ip' and port=$ws_port"
             check_cmd $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check proxysql credentials"
+            CHECK_STATUS=1
           fi
         fi
-        CHECK_STATUS=1
+        
       fi
     fi
   done
@@ -335,8 +343,6 @@ mode_change_check(){
         proxysql_exec "UPDATE mysql_servers set hostgroup_id = $WRITE_HOSTGROUP_ID, comment='WRITE', weight=$WRITE_WEIGHT WHERE hostname='$ws_ip' and port=$ws_port"
         check_cmd $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check proxysql credentials"
         echo "`date` $ws_ip:$ws_port is ONLINE, switching to write hostgroup" >> $ERR_FILE
-      else
-        # No order file found and a slave is not the current writer, behave as before 
         CHECK_STATUS=1
       fi
     else
@@ -396,7 +402,7 @@ mode_change_check(){
 }
 
 # Monitoring user needs 'REPLICATION CLIENT' privilege
-
+echo "`date` ###### Percona XtraDB Cluster status ######" >> $ERR_FILE
 CLUSTER_USERNAME=$(proxysql_exec "SELECT variable_value FROM global_variables WHERE variable_name='mysql-monitor_username'")
 check_cmd $? "Could not retrieve cluster login info from ProxySQL. Please check cluster login credentials"
 
@@ -449,7 +455,12 @@ if [[ -z $CLUSTER_HOST_INFO ]]; then
   fi
   SLAVE_HOST_INFO=`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE status='ONLINE' and comment='SLAVEREAD' and hostgroup_id='$WRITE_HOSTGROUP_ID' limit 1"`
   if [[ -z $SLAVE_HOST_INFO ]]; then
-    echo "`date` Percona XtraDB Cluster nodes are offline or not configured, please check status" >> $ERR_FILE
+    offline_hosts=(`proxysql_exec "SELECT hostgroup_id,hostname,port,status FROM mysql_servers where hostgroup_id in ( $WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID, $SLAVEREAD_HOSTGROUP_ID )" | sed 's|\t|:|g' | tr '\n' ' '`)
+    for i in "${offline_hosts[@]}"; do
+      offline_host=(`echo ${i} | awk -F: '{print $1 ":" $2 ":" $3}'`)
+      offline_host_status=(`echo ${i} | cut -d':' -f4`)
+      echo "`date` Cluster node ($offline_host) current status '$offline_host_status' in ProxySQL database!" >> $ERR_FILE
+    done
   else
     echo "`date` Percona XtraDB Cluster nodes are offline, a slave node is in the writer hostgroup, please check status" >> $ERR_FILE
   fi
