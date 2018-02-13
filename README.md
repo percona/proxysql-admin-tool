@@ -12,6 +12,7 @@ Usage: [ options ]
 Options:
   --config-file                      Read login credentials from a configuration file (overrides any login credentials specified on the command line)
   --quick-demo                       Setup a quick demo with no authentication
+  --proxysql-datadir=<datadir>       Setup a quick demo with no authentication
   --proxysql-username=user_name      Username for connecting to the ProxySQL service
   --proxysql-password[=password]     Password for connecting to the ProxySQL service
   --proxysql-port=port_num           Port Nr. for connecting to the ProxySQL service
@@ -42,6 +43,39 @@ Pre-requisites
 --------------
 * ProxySQL and Cluster should be up and running.
 * For security purposes, please ensure to change the default user settings in the ProxySQL configuration file.
+* _ProxySQL configuration file(/etc/proxysql-admin.cnf)_
+```bash
+  # proxysql admin interface credentials.
+  export PROXYSQL_DATADIR='/var/lib/proxysql'
+  export PROXYSQL_USERNAME='admin'
+  export PROXYSQL_PASSWORD='admin'
+  export PROXYSQL_HOSTNAME='localhost'
+  export PROXYSQL_PORT='6032'
+
+  # PXC admin credentials for connecting to pxc-cluster-node.
+  export CLUSTER_USERNAME='admin'
+  export CLUSTER_PASSWORD='admin'
+  export CLUSTER_HOSTNAME='localhost'
+  export CLUSTER_PORT='3306'
+
+  # proxysql monitoring user. proxysql admin script will create this user in pxc to monitor pxc-nodes.
+  export MONITOR_USERNAME='monitor'
+  export MONITOR_PASSWORD='monit0r'
+
+  # Application user to connect to pxc-node through proxysql
+  export CLUSTER_APP_USERNAME='proxysql_user'
+  export CLUSTER_APP_PASSWORD='passw0rd'
+
+  # ProxySQL read/write hostgroup 
+  export WRITE_HOSTGROUP_ID='10'
+  export READ_HOSTGROUP_ID='11'
+
+  # ProxySQL read/write configuration mode.
+  export MODE="singlewrite"
+
+  # ProxySQL Cluster Node Priority File
+  export HOST_PRIORITY_FILE=$PROXYSQL_DATADIR/host_priority.conf
+```
 
 It is recommend you use _--config-file_ to run this proxysql-admin script.
 
