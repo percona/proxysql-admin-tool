@@ -535,6 +535,23 @@ enable_proxysql(){
   fi
   proxysql_connection_check
 
+  # Checking an existing host priority file if its there
+  if [ -f $HOST_PRIORITY_FILE ]; then
+    echo ""
+    read -p "Host priority file ($HOST_PRIORITY_FILE) is already present. Would you like to replace with the new file [y/n] ? " check_param
+    case $check_param in
+      y|Y)
+        rm -f $HOST_PRIORITY_FILE
+      ;;
+      n|N)
+        echo -e "\nHost priority file is not deleted. Please make sure you have properly configured $HOST_PRIORITY_FILE"
+      ;;
+      *)
+        echo "Please type [y/n]! Terminating."
+        exit 1
+      ;;
+    esac
+  fi
   #modifying proxysql-admin.cnf file with command line proxysql user credentials if you dont use --config-file option.
   #if [ -z "${CONFIG_FILE}" ]; then 
   #  sed -i "s|[ \t]*PROXYSQL_USERNAME[ \t]*=.*$| PROXYSQL_USERNAME=\"${PROXYSQL_USERNAME}\"|" /etc/proxysql-admin.cnf
@@ -629,8 +646,6 @@ enable_proxysql(){
 
   # Adding Percona XtraDB Cluster nodes to ProxySQL
   echo -e "\nAdding the Percona XtraDB Cluster server nodes to ProxySQL"
-  # Delete an existing host priority file if its there
-  rm -f $HOST_PRIORITY_FILE
   if [ $MODE == "loadbal" ]; then
     proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id=$WRITE_HOSTGROUP_ID"
     for i in "${wsrep_address[@]}"; do	
