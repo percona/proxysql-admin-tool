@@ -12,7 +12,7 @@ Usage: [ options ]
 Options:
   --config-file                      Read login credentials from a configuration file (overrides any login credentials specified on the command line)
   --quick-demo                       Setup a quick demo with no authentication
-  --proxysql-datadir=<datadir>       Setup a quick demo with no authentication
+  --proxysql-datadir=<datadir>       Specify proxysql data directory location
   --proxysql-username=user_name      Username for connecting to the ProxySQL service
   --proxysql-password[=password]     Password for connecting to the ProxySQL service
   --proxysql-port=port_num           Port Nr. for connecting to the ProxySQL service
