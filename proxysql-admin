@@ -369,6 +369,10 @@ else
   CLUSTER_APP_PASSWORD=''
 fi
 
+if [[ -z "$PROXYSQL_DATADIR" ]]; then
+  PROXYSQL_DATADIR='/var/lib/proxysql'
+fi
+
 if [[ -z "$NODE_CHECK_INTERVAL" ]]; then
   NODE_CHECK_INTERVAL=3000
 fi

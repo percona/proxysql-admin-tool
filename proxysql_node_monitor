@@ -11,6 +11,10 @@ else
   exit 1
 fi
 
+if [[ -z "$PROXYSQL_DATADIR" ]]; then
+  PROXYSQL_DATADIR='/var/lib/proxysql'
+fi
+
 WRITE_HOSTGROUP_ID="${1:-0}"
 READ_HOSTGROUP_ID="${2:-0}"
 SLAVEREAD_HOSTGROUP_ID=$READ_HOSTGROUP_ID
