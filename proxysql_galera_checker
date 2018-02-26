@@ -36,8 +36,8 @@ Notes about the mysql_servers in ProxySQL:
                      will be changed to either ONLINE or OFFLINE_SOFT.
 
 
-When no nodes were found to be in wsrep_local_state=4 (SYNCED) for either 
-read or write nodes, then the script will try 5 times for each node to try 
+When no nodes were found to be in wsrep_local_state=4 (SYNCED) for either
+read or write nodes, then the script will try 5 times for each node to try
 to find nodes wsrep_local_state=4 (SYNCED) or wsrep_local_state=2 (DONOR/DESYNC)
 
 This is to avoid $0 to mark all nodes as OFFLINE_SOFT
@@ -56,15 +56,6 @@ RELOAD_CHECK_FILE="${PROXYSQL_DATADIR}/reload"
 
 echo "0" > ${RELOAD_CHECK_FILE}
 
-#Running proxysql_node_monitor script.
-if [ ! -f /usr/bin/proxysql_node_monitor ] ;then
-  echo "`date` ERROR! Could not run /usr/bin/proxysql_node_monitor. Monitoring script does not exists in default location. Terminating" >> ${ERR_FILE}
-  exit 1  
-else
-  /usr/bin/proxysql_node_monitor $HOSTGROUP_WRITER_ID $HOSTGROUP_READER_ID ${PROXYSQL_DATADIR}/proxysql_node_monitor.log
-fi
-
-
 proxysql_exec() {
   local query="$1"
   printf "%s\n" \
@@ -76,6 +67,7 @@ proxysql_exec() {
       | mysql --defaults-file=/dev/stdin --protocol=tcp -Nse "${query}"
 }
 
+CLUSTER_NAME=$(proxysql_exec "select comment from scheduler where arg1=$HOSTGROUP_WRITER_ID")
 #Timeout exists for instances where mysqld may be hung
 TIMEOUT=10
 
@@ -89,6 +81,14 @@ mysql_exec() {
       "port=${port}"  \
       | timeout $TIMEOUT mysql --defaults-file=/dev/stdin --protocol=tcp -nNE -e "${query}"
 }
+
+#Running proxysql_node_monitor script.
+if [ ! -f /usr/bin/proxysql_node_monitor ] ;then
+  echo "`date` ERROR! Could not run /usr/bin/proxysql_node_monitor. Monitoring script does not exists in default location. Terminating" >> ${ERR_FILE}
+  exit 1
+else
+  /usr/bin/proxysql_node_monitor $HOSTGROUP_WRITER_ID $HOSTGROUP_READER_ID ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_proxysql_node_monitor.log
+fi
 
 if [ "$1" = '-h' -o "$1" = '--help'  -o -z "$1" ]
 then
@@ -130,7 +130,7 @@ if [ $WRITER_IS_READER -ne 0 -a $WRITER_IS_READER -ne 1 ]; then
 fi
 
 
-# print information prior to a run if ${ERR_FILE} is defined 
+# print information prior to a run if ${ERR_FILE} is defined
 echo "`date` ###### proxysql_galera_checker.sh SUMMARY ######" >> ${ERR_FILE}
 echo "`date` Hostgroup writers $HOSTGROUP_WRITER_ID" >> ${ERR_FILE}
 echo "`date` Hostgroup readers $HOSTGROUP_READER_ID" >> ${ERR_FILE}
@@ -280,13 +280,13 @@ if [ ${HOSTGROUP_READER_ID} -ne -1 ]; then
          reader.status,
          writer.status
   FROM mysql_servers as reader
-  LEFT JOIN mysql_servers as writer 
-    ON writer.hostgroup_id = $HOSTGROUP_WRITER_ID 
-    AND writer.hostname = reader.hostname 
+  LEFT JOIN mysql_servers as writer
+    ON writer.hostgroup_id = $HOSTGROUP_WRITER_ID
+    AND writer.hostname = reader.hostname
     AND writer.port = reader.port
   WHERE reader.hostgroup_id = $HOSTGROUP_READER_ID
     AND reader.status <> 'OFFLINE_HARD'
-	AND reader.comment <> 'SLAVEREAD'
+        AND reader.comment <> 'SLAVEREAD'
   ORDER BY writer.status ASC,
            reader.weight DESC,
            reader.hostname,
@@ -354,7 +354,7 @@ if [ ${HOSTGROUP_READER_ID} -ne -1 ]; then
           echo "`date` server $hostgroup:$server:$port is already ONLINE" >> ${ERR_FILE}
           OFFLINE_READERS_FOUND=$(( $OFFLINE_READERS_FOUND + 1 ))
         fi
-      
+
         # WSREP status OK, but node is not marked ONLINE
         if [ "${WSREP_STATUS}" = "4" -a "$stat" != "ONLINE" ] ; then
           change_server_status $HOSTGROUP_READER_ID "$server" $port "ONLINE" "changed state, making read node ONLINE"
@@ -369,7 +369,7 @@ if [ ${HOSTGROUP_READER_ID} -ne -1 ]; then
           echo "`date` server $hostgroup:$server:$port is $stat" >> ${ERR_FILE}
           OFFLINE_READERS_FOUND=$(( $OFFLINE_READERS_FOUND + 1 ))
         fi
-      
+
         # WSREP status OK, but node is not marked ONLINE
         if [ "${WSREP_STATUS}" = "4" -a "$stat" != "ONLINE" -a "${PXC_MAIN_MODE}" == "DISABLED" ] ; then
           change_server_status $HOSTGROUP_READER_ID "$server" $port "ONLINE" "changed state, making read node ONLINE"
@@ -488,7 +488,7 @@ if [  ${HOSTGROUP_READER_ID} -ne -1 -a ${NUMBER_READERS_ONLINE} -eq 0 ]; then
         proxysql_exec "LOAD MYSQL QUERY RULES TO RUNTIME;" 2>> ${ERR_FILE}
         echo "`date` Slave host is online, disabling read transaction from writer node" >> ${ERR_FILE}
       fi
-    fi   
+    fi
   fi
 fi
 

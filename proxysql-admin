@@ -249,7 +249,7 @@ do
     ENABLE=1
     ;;
     -v | --version )
-      echo "proxysql-admin version 1.4.5"
+      echo "proxysql-admin version 1.4.6"
       exit 0
     ;;
     --help )
@@ -456,6 +456,10 @@ check_proxysql(){
   fi
 }
 
+CLUSTER_NAME=$(mysql_exec "select @@wsrep_cluster_name;")
+rm -rf ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_mode
+echo "$MODE" > ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_mode
+
 user_input_check(){
   USER_CATEGORY=$1
   USER_DESCRIPTION=$2
@@ -488,19 +492,26 @@ user_input_check(){
   if [ "$USER_CATEGORY" != "MONITOR" ]; then
     check_user=$(mysql_exec "SELECT user,host FROM mysql.user where user='$USERNAME' and host='$USER_HOST_RANGE';")
     if [[ -z "$check_user" ]]; then
-      mysql_exec "CREATE USER $USERNAME@'$USER_HOST_RANGE' IDENTIFIED BY '$PASSWORD';"
-      check_cmd $? "Failed to add Percona XtraDB Cluster application user: '$USERNAME'. Please check '$CLUSTER_USERNAME'@'$CLUSTER_HOSTNAME' has proper permission to create montioring user"
-      if [ ! -z "$QUICK_DEMO" ]; then
-        mysql_exec "GRANT ALL ON *.* to $USERNAME@'$USER_HOST_RANGE'"
-        check_cmd $? "$CLUSTER_USERNAME@'$CLUSTER_HOSTNAME' does not have the GRANT privilege required to assign the requested permissions"
-      fi
+      precheck_user=$(proxysql_exec "SELECT username FROM mysql_users where username='$USERNAME'")
+	  if [[ -z "$precheck_user" ]]; then  
+        mysql_exec "CREATE USER $USERNAME@'$USER_HOST_RANGE' IDENTIFIED BY '$PASSWORD';"
+        check_cmd $? "Failed to add Percona XtraDB Cluster application user: '$USERNAME'. Please check '$CLUSTER_USERNAME'@'$CLUSTER_HOSTNAME' has proper permission to create montioring user"
+        if [ ! -z "$QUICK_DEMO" ]; then
+          mysql_exec "GRANT ALL ON *.* to $USERNAME@'$USER_HOST_RANGE'"
+          check_cmd $? "$CLUSTER_USERNAME@'$CLUSTER_HOSTNAME' does not have the GRANT privilege required to assign the requested permissions"
+        fi
 
-      proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$USERNAME','$PASSWORD',1,$HOSTGROUP_ID);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
-      check_cmd $? "Failed to add Percona XtraDB Cluster application user: '$USERNAME' in ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
-      if [ -z "$QUICK_DEMO" ]; then
-        echo -e "\nPercona XtraDB Cluster application user '${BD}$USERNAME'@'$USER_HOST_RANGE${NBD}' has been added with the USAGE privilege, please make sure to the grant appropriate privileges"
+        proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$USERNAME','$PASSWORD',1,$HOSTGROUP_ID);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
+        check_cmd $? "Failed to add Percona XtraDB Cluster application user: '$USERNAME' in ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
+        if [ -z "$QUICK_DEMO" ]; then
+          echo -e "\nPercona XtraDB Cluster application user '${BD}$USERNAME'@'$USER_HOST_RANGE${NBD}' has been added with the USAGE privilege, please make sure to the grant appropriate privileges"
+        else
+          echo -e "\nPercona XtraDB Cluster application user '${BD}$USERNAME'@'$USER_HOST_RANGE${NBD}' has been added with ${BD}ALL${NBD} privileges, ${BD}this user is created for testing purposes${NBD}"
+        fi
       else
-        echo -e "\nPercona XtraDB Cluster application user '${BD}$USERNAME'@'$USER_HOST_RANGE${NBD}' has been added with ${BD}ALL${NBD} privileges, ${BD}this user is created for testing purposes${NBD}"
+        echo -e "\nERROR: The application user ${BD}$USERNAME${NBD} is already present in ProxySQL database. Terminating!"
+        echo -e " Note: ProxySQL do not allow duplicate username."
+        exit 1
       fi
     else
       check_user=$(proxysql_exec "SELECT username FROM mysql_users where username='$USERNAME'")
@@ -509,7 +520,9 @@ user_input_check(){
         proxysql_exec "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$USERNAME','$PASSWORD',1,$HOSTGROUP_ID);LOAD MYSQL USERS TO RUNTIME;SAVE MYSQL USERS FROM RUNTIME;SAVE MYSQL USERS TO DISK;"
         check_cmd $? "Failed to add Percona XtraDB Cluster application user: '$USERNAME' in ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
       else
-        echo -e "\nThe application user '${BD}${USERNAME}'@'$USER_HOST_RANGE${NBD}' is already present in Percona XtraDB Cluster and ProxySQL database."
+        echo -e "\nERROR: The application user ${BD}$USERNAME${NBD} is already present in ProxySQL database. Terminating!"
+        echo -e " Note: ProxySQL do not allow duplicate username."
+        exit 1
       fi
     fi
   fi
@@ -566,6 +579,11 @@ enable_proxysql(){
 
   cluster_connection_check
 
+  check_hgs=$(proxysql_exec "SELECT hostgroup_id FROM mysql_servers where hostgroup_id in ($READ_HOSTGROUP_ID,$WRITE_HOSTGROUP_ID)")
+  if [[ ! -z "$check_hgs" ]]; then
+    echo -e "\nERROR: READ/WRITE hostgroups($READ_HOSTGROUP_ID,$WRITE_HOSTGROUP_ID) are already present in ProxySQL database. Terminating!"
+    exit 1
+  fi
   CLUSTER_NETWORK=$(mysql_exec "show status like 'wsrep_incoming_addresses'" | awk '{print $2}' | cut -d'.' -f1)
   if [[ "$CLUSTER_NETWORK" =~ ^[0-9]+$ ]]; then 
     USER_HOST_RANGE="$CLUSTER_NETWORK.%"
@@ -742,22 +760,16 @@ enable_proxysql(){
 
   # Adding Percona XtraDB Cluster monitoring scripts
   # Adding proxysql galera check scheduler
-  proxysql_exec "DELETE FROM SCHEDULER WHERE ID=10;"
+  proxysql_exec "DELETE FROM SCHEDULER WHERE COMMENT='$CLUSTER_NAME';"
   check_cmd $? "Failed to delete the Percona XtraDB Cluster nodes from ProxySQL. Please check username, password and other options for connecting to ProxySQL database"
   if [ $MODE == "singlewrite" ]; then
     NUMBER_WRITERS=1
   else
     NUMBER_WRITERS=0
   fi
-  proxysql_exec "INSERT  INTO SCHEDULER (id,active,interval_ms,filename,arg1,arg2,arg3,arg4,arg5) VALUES (10,1,$NODE_CHECK_INTERVAL,'$PROXYSQL_GALERA_CHECK',$WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID,$NUMBER_WRITERS,1,'$PROXYSQL_DATADIR/proxysql_galera_check.log');"
+  proxysql_exec "INSERT  INTO SCHEDULER (active,interval_ms,filename,arg1,arg2,arg3,arg4,arg5,comment) VALUES (1,$NODE_CHECK_INTERVAL,'$PROXYSQL_GALERA_CHECK',$WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID,$NUMBER_WRITERS,1,'$PROXYSQL_DATADIR/${CLUSTER_NAME}_proxysql_galera_check.log','$CLUSTER_NAME');"
   check_cmd $? "Failed to add the Percona XtraDB Cluster monitoring scheduler in ProxySQL. Please check username, password and other options for connecting to ProxySQL database"
-
-  # Adding Percona XtraDB Cluster membership checking scheduler
-  #proxysql_exec "DELETE FROM SCHEDULER WHERE ID=11;"
-  #check_cmd $?
-  #proxysql_exec "INSERT  INTO SCHEDULER (id,active,interval_ms,filename,arg1,arg2,arg3) VALUES (11,1,5000,'$PROXYSQL_NODE_MONITOR',$WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID,'$PROXYSQL_DATADIR/proxysql_node_monitor.log');"
-  #check_cmd $? "Failed to add the Percona XtraDB Cluster membership checking scheduler in ProxySQL"
-
+  
   proxysql_exec "LOAD SCHEDULER TO RUNTIME;SAVE SCHEDULER TO DISK;"
 }
 
@@ -771,7 +783,7 @@ disable_proxysql(){
   proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID);"
   check_cmd $? "Failed to delete the Percona XtraDB Cluster nodes from ProxySQL. Please check username, password and other options for connecting to ProxySQL database"
   echo "Removing scheduler script from ProxySQL database."
-  proxysql_exec "DELETE FROM SCHEDULER WHERE ID IN (10);"
+  proxysql_exec "DELETE FROM SCHEDULER WHERE COMMENT='$CLUSTER_NAME';"
   check_cmd $? "Failed to delete the Galera checker from ProxySQL. Please check username, password and other options for connecting to ProxySQL database"
   echo "Removing query rules from ProxySQL database if any."
   proxysql_exec "DELETE FROM mysql_query_rules WHERE destination_hostgroup in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID)"
