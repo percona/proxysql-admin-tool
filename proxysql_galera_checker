@@ -9,6 +9,10 @@ else
 fi
 #
 
+if [[ -z "$PROXYSQL_DATADIR" ]]; then
+  PROXYSQL_DATADIR='/var/lib/proxysql'
+fi
+
 function usage()
 {
   cat << EOF

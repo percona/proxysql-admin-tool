@@ -11,6 +11,10 @@ else
   exit 1
 fi
 
+if [[ -z "$PROXYSQL_DATADIR" ]]; then
+  PROXYSQL_DATADIR='/var/lib/proxysql'
+fi
+
 WRITE_HOSTGROUP_ID="${1:-0}"
 READ_HOSTGROUP_ID="${2:-0}"
 SLAVEREAD_HOSTGROUP_ID=$READ_HOSTGROUP_ID
@@ -187,14 +191,14 @@ update_cluster(){
       else
         if [ "$ws_status" == "OFFLINE_SOFT" ]; then
           echo "`date` Cluster node ${ws_hg_id}:${i} does not exists in cluster membership! Chaning status from OFFLINE_SOFT to OFFLINE_HARD" >> $ERR_FILE
-          proxysql_exec "UPDATE mysql_servers set status = 'OFFLINE_HARD' WHERE hostname='$ws_ip' and port=$ws_port"
+          proxysql_exec "UPDATE mysql_servers set status = 'OFFLINE_HARD', hostgroup_id = $READ_HOSTGROUP_ID, comment='READ', weight=1000 WHERE hostname='$ws_ip' and port=$ws_port"
           check_cmd $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check proxysql credentials"
           CHECK_STATUS=1
         fi
         node_status=$(echo `proxysql_exec "SELECT status from mysql_servers WHERE hostname='$ws_ip' and port=$ws_port"`)
         echo "`date` Cluster node (${ws_hg_id}:${i}) current status '$node_status' in ProxySQL database!" >> $ERR_FILE
         if [ "$MODE" == "singlewrite" ]; then
-          checkwriter_hid=`proxysql_exec "select hostgroup_id from mysql_servers where comment='WRITE'"`
+          checkwriter_hid=`proxysql_exec "select hostgroup_id from mysql_servers where comment='WRITE' and status='ONLINE'"`
           if [[ -z "$checkwriter_hid" ]]; then
             current_hosts=(`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE  status='ONLINE' and comment='READ'  ORDER BY random() LIMIT 1" | sed 's|\t|:|g' | tr '\n' ' '`)
             ws_ip=$(echo $current_hosts | cut -d':' -f1)
