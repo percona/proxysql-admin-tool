@@ -372,7 +372,7 @@ mode_change_check(){
       # Only initiate changing hosts if a more priority host was found
       if [ -n $found_host ];then
         # Check to see if the host in 'current_host' is the writer
-        current_writer=(`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE status='ONLINE' and comment='WRITE'" | sed 's|\t|:|g' | tr '\n' ' '`)
+        current_writer=(`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE status='ONLINE' and comment='WRITE' and hostgroup_id=$WRITE_HOSTGROUP_ID" | sed 's|\t|:|g' | tr '\n' ' '`)
         if [ "$current_hosts" != "$current_writer" ];then
           # Switch the writer around
           if [ -n "$current_writer" ];then
