@@ -20,6 +20,7 @@ RBASE="$(( RPORT*1000 ))"
 ADDR="127.0.0.1"
 SUSER=root
 SPASS=
+OS_USER=$(whoami)
 
 if [ -z $WORKDIR ];then
   WORKDIR="${PWD}"
@@ -132,6 +133,7 @@ ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/node1.sock -e"GRANT ALL ON *.* TO admin@'
 sed -i "s/3306/${BASEPORT}/" $PROXYSQL_BASE/etc/proxysql-admin.cnf
 sed -i "s|\/var\/lib\/proxysql|$PROXYSQL_BASE|" $PROXYSQL_BASE/etc/proxysql-admin.cnf
 sudo cp $PROXYSQL_BASE/etc/proxysql-admin.cnf /etc/proxysql-admin.cnf
+sudo chown $OS_USER:$OS_USER /etc/proxysql-admin.cnf
 sudo cp $PROXYSQL_BASE/usr/bin/* /usr/bin/
  
 if [[ ! -e $(which bats 2> /dev/null) ]] ;then

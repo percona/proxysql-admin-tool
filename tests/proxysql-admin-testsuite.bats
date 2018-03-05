@@ -21,7 +21,8 @@ echo "$output"
 }
 
 @test "run the check for --node-check-interval" {
-  report_interval=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD  --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse"select interval_ms from scheduler where id=10" | awk '{print $0}')
+  wsrep_cluster_name=$(mysql --user=$CLUSTER_APP_USERNAME --password=$CLUSTER_APP_PASSWORD  --host=$CLUSTER_HOSTNAME --port=6033 --protocol=tcp -Bse"select @@wsrep_cluster_name")
+  report_interval=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD  --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse"select interval_ms from scheduler where comment='$wsrep_cluster_name'" | awk '{print $0}')
   [ "$report_interval" -eq 3000 ]
 }
 
@@ -57,7 +58,7 @@ echo "$output"
 
   # check that the tables are equal at start
   mysql_servers=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select * from mysql_servers order by port;" 2>/dev/null)
-  runtime_mysql_servers=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select * from mysql_servers order by port;" 2>/dev/null)
+  runtime_mysql_servers=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select * from runtime_mysql_servers order by port;" 2>/dev/null)
   [ "$(echo \"$mysql_servers\"|md5sum)" = "$(echo \"$runtime_mysql_servers\"|md5sum)" ]
 
   # shutdown writer
@@ -81,13 +82,13 @@ echo "$output"
   cluster_address=$(ps aux|grep mysqld|grep -o "\-\-wsrep_cluster_address=gcomm.* --wsrep_provider_options"|sort|head -n1|grep -o ",gcomm.*,"|sed 's/^,//'|sed 's/,$//')
   first_writer_start_cmd="$first_writer_start_cmd --wsrep_cluster_address=$cluster_address"
   nohup $first_writer_start_cmd --user=$first_writer_start_user 3>- &
-  sleep 3
+  sleep 10
   nr_nodes=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select count(*) from mysql_servers where status='ONLINE';" 2>/dev/null)
   [ "$nr_nodes" = "3" ]
 
   # check that the tables are equal at end
   mysql_servers=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select * from mysql_servers order by port;" 2>/dev/null)
-  runtime_mysql_servers=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select * from mysql_servers order by port;" 2>/dev/null)
+  runtime_mysql_servers=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select * from runtime_mysql_servers order by port;" 2>/dev/null)
   [ "$(echo \"$mysql_servers\"|md5sum)" = "$(echo \"$runtime_mysql_servers\"|md5sum)" ]
 }
 
