@@ -1,6 +1,8 @@
 #!/bin/bash
 ## inspired by Percona clustercheck.sh
 
+ERR_FILE="${5:-/dev/null}"
+
 if [ -f /etc/proxysql-admin.cnf ]; then
   source /etc/proxysql-admin.cnf
 else
@@ -51,7 +53,6 @@ HOSTGROUP_WRITER_ID="${1}"
 HOSTGROUP_READER_ID="${2:--1}"
 NUMBER_WRITERS="${3:-0}"
 WRITER_IS_READER="${4:-1}"
-ERR_FILE="${5:-/dev/null}"
 RELOAD_CHECK_FILE="${PROXYSQL_DATADIR}/reload"
 
 echo "0" > ${RELOAD_CHECK_FILE}

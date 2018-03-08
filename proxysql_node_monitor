@@ -4,6 +4,7 @@
 
 debug=0
 
+ERR_FILE="${3:-/dev/null}"
 if [ -f /etc/proxysql-admin.cnf ]; then
   source /etc/proxysql-admin.cnf
 else
@@ -21,7 +22,7 @@ SLAVEREAD_HOSTGROUP_ID=$READ_HOSTGROUP_ID
 if [ $SLAVEREAD_HOSTGROUP_ID -eq $WRITE_HOSTGROUP_ID ];then
   let SLAVEREAD_HOSTGROUP_ID+=1
 fi
-ERR_FILE="${3:-/dev/null}"
+
 CHECK_STATUS=0
 SLAVE_SECONDS_BEHIND=3600 #How far behind can a slave be before its put into OFFLINE_SOFT state
 CLUSTER_TIMEOUT=3 # Maximum time to wait for cluster status
