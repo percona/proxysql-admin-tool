@@ -97,8 +97,21 @@ echo "$output"
         [ "$status" -eq 1 ]
 }
 
+@test "run proxysql-admin --mode check wrong option" {
+run sudo proxysql-admin --mode=foo
+echo "$output"
+        [ "$status" -eq 1 ]
+		[ "${lines[0]}" == "ERROR: Invalid --mode passed:" ]
+}
+
 @test "run proxysql-admin --write-node without parameters" {
 run sudo proxysql-admin --write-node
 echo "$output"
         [ "$status" -eq 1 ]
+}
+
+@test "run proxysql-admin --version check" {
+  admin_version=$(sudo proxysql-admin -v | grep -oe "1\.[0-9]\.[0-9]")
+  proxysql_version=$(sudo proxysql --help | grep -oe '1\.[0-9]\.[0-9]')
+ [ "${proxysql_version}" = "${admin_version}" ]
 }

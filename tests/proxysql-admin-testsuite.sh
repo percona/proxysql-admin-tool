@@ -15,9 +15,6 @@ SBENCH="sysbench"
 SCRIPT_PWD=$(cd `dirname $0` && pwd)
 PXC_START_TIMEOUT=200
 WORKDIR="${WORKDIR}/$PROXYSQL_BASE_NUMBER"
-RPORT=$(( RANDOM%21 + 10 ))
-RBASE="$(( RPORT*1000 ))"
-ADDR="127.0.0.1"
 SUSER=root
 SPASS=
 OS_USER=$(whoami)
@@ -44,7 +41,7 @@ if [ ! -z $PXC_TAR ];then
   tar -xzf $PXC_TAR
   PXCBASE=$(ls -1td ?ercona-?tra??-?luster* | grep -v ".tar" | head -n1)
   export PATH="$WORKDIR/$PXCBASE/bin:$PATH"
-  PXC_BASEDIR="${WORKDIR}/$PXCBASE"
+  export PXC_BASEDIR="${WORKDIR}/$PXCBASE"
 else
   echo "ERROR! Percona-XtraDB-Cluster binary tarball does not exist. Terminating"
   exit 1
@@ -73,7 +70,11 @@ fi
 
 
 start_pxc_node(){
+  CLUSTER_NAME=$1
   NODES=3
+  RPORT=$(( RANDOM%21 + 10 ))
+  RBASE="$(( RPORT*1000 ))"
+  ADDR="127.0.0.1"
   # Creating default my.cnf file
   cd $PXC_BASEDIR
   echo "[mysqld]" > my.cnf
@@ -95,15 +96,15 @@ start_pxc_node(){
     RBASE1="$(( RBASE + ( 100 * $i ) ))"
     LADDR1="$ADDR:$(( RBASE1 + 8 ))"
     WSREP_CLUSTER="${WSREP_CLUSTER}gcomm://$LADDR1,"
-    node="${PXC_BASEDIR}/node$i"
+    node="${PXC_BASEDIR}/${CLUSTER_NAME}${i}"
     if [ "$(${PXC_BASEDIR}/bin/mysqld --version | grep -oe '5\.[567]' | head -n1 )" != "5.7" ]; then
       mkdir -p $node $keyring_node
       if  [ ! "$(ls -A $node)" ]; then 
-        ${MID} --datadir=$node  > $WORKDIR/logs/startup_node$i.err 2>&1 || exit 1;
+        ${MID} --datadir=$node  > $WORKDIR/logs/startup_node${CLUSTER_NAME}${i}.err 2>&1 || exit 1;
       fi
     fi
     if [ ! -d $node ]; then
-      ${MID} --datadir=$node  > $WORKDIR/logs/startup_node$i.err 2>&1 || exit 1;
+      ${MID} --datadir=$node  > $WORKDIR/logs/startup_node${CLUSTER_NAME}${i}.err 2>&1 || exit 1;
     fi
     if [ $i -eq 1 ]; then
       WSREP_CLUSTER_ADD="--wsrep_cluster_address=gcomm:// "
@@ -115,25 +116,26 @@ start_pxc_node(){
     ${PXC_BASEDIR}/bin/mysqld --defaults-file=${PXC_BASEDIR}/my.cnf \
       --datadir=$node $WSREP_CLUSTER_ADD \
       --wsrep_provider_options=gmcast.listen_addr=tcp://$LADDR1 \
-      --log-error=$WORKDIR/logs/node$i.err \
-      --socket=/tmp/node$i.sock --port=$RBASE1 > $WORKDIR/logs/node$i.err 2>&1 &
+      --log-error=$WORKDIR/logs/${CLUSTER_NAME}${i}.err \
+      --socket=/tmp/${CLUSTER_NAME}${i}.sock --port=$RBASE1 > $WORKDIR/logs/${CLUSTER_NAME}${i}.err 2>&1 &
     for X in $(seq 0 ${PXC_START_TIMEOUT}); do
       sleep 1
-      if ${PXC_BASEDIR}/bin/mysqladmin -uroot -S/tmp/node$i.sock ping > /dev/null 2>&1; then
-        echo "Started PXC node$i. Socket : /tmp/node$i.sock"
+      if ${PXC_BASEDIR}/bin/mysqladmin -uroot -S/tmp/${CLUSTER_NAME}${i}.sock ping > /dev/null 2>&1; then
+        echo "Started PXC ${CLUSTER_NAME}${i}. Socket : /tmp/${CLUSTER_NAME}${i}.sock"
         break
       fi
     done
   done
 }
 
-start_pxc_node
+start_pxc_node cluster_one
+start_pxc_node cluster_two
 
-${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/node1.sock -e"GRANT ALL ON *.* TO admin@'%' identified by 'admin';flush privileges;"
-sed -i "s/3306/${BASEPORT}/" $PROXYSQL_BASE/etc/proxysql-admin.cnf
-sed -i "s|\/var\/lib\/proxysql|$PROXYSQL_BASE|" $PROXYSQL_BASE/etc/proxysql-admin.cnf
+${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock -e"GRANT ALL ON *.* TO admin@'%' identified by 'admin';flush privileges;"
+${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock -e"GRANT ALL ON *.* TO admin@'%' identified by 'admin';flush privileges;"
 sudo cp $PROXYSQL_BASE/etc/proxysql-admin.cnf /etc/proxysql-admin.cnf
 sudo chown $OS_USER:$OS_USER /etc/proxysql-admin.cnf
+sudo sed -i "s|\/var\/lib\/proxysql|$PROXYSQL_BASE|" /etc/proxysql-admin.cnf
 sudo cp $PROXYSQL_BASE/usr/bin/* /usr/bin/
  
 if [[ ! -e $(which bats 2> /dev/null) ]] ;then
@@ -149,6 +151,9 @@ sudo TERM=xterm bats $SCRIPT_PWD/generic-test.bats
 echo "proxysql-admin testsuite bats test log"
 sudo TERM=xterm bats $SCRIPT_PWD/proxysql-admin-testsuite.bats 
 
-${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/node1.sock  -u root shutdown
-${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/node2.sock  -u root shutdown
-${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/node3.sock  -u root shutdown
+${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one1.sock  -u root shutdown
+${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one2.sock  -u root shutdown
+${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one3.sock  -u root shutdown
+${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_two1.sock  -u root shutdown
+${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_two2.sock  -u root shutdown
+${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_two3.sock  -u root shutdown
