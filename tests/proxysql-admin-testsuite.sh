@@ -75,6 +75,7 @@ start_pxc_node(){
   RPORT=$(( RANDOM%21 + 10 ))
   RBASE="$(( RPORT*1000 ))"
   ADDR="127.0.0.1"
+  WSREP_CLUSTER_NAME="--wsrep_cluster_name=$CLUSTER_NAME"
   # Creating default my.cnf file
   cd $PXC_BASEDIR
   echo "[mysqld]" > my.cnf
@@ -114,7 +115,7 @@ start_pxc_node(){
     fi
 
     ${PXC_BASEDIR}/bin/mysqld --defaults-file=${PXC_BASEDIR}/my.cnf \
-      --datadir=$node $WSREP_CLUSTER_ADD \
+      --datadir=$node $WSREP_CLUSTER_ADD $WSREP_CLUSTER_NAME \
       --wsrep_provider_options=gmcast.listen_addr=tcp://$LADDR1 \
       --log-error=$WORKDIR/logs/${CLUSTER_NAME}${i}.err \
       --socket=/tmp/${CLUSTER_NAME}${i}.sock --port=$RBASE1 > $WORKDIR/logs/${CLUSTER_NAME}${i}.err 2>&1 &
@@ -129,6 +130,8 @@ start_pxc_node(){
 }
 
 start_pxc_node cluster_one
+WSREP_CLUSTER=""
+NODES=0
 start_pxc_node cluster_two
 
 ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock -e"GRANT ALL ON *.* TO admin@'%' identified by 'admin';flush privileges;"
@@ -149,11 +152,12 @@ fi
 echo "proxysql-admin generic bats test log"
 sudo TERM=xterm bats $SCRIPT_PWD/generic-test.bats 
 echo "proxysql-admin testsuite bats test log"
-sudo TERM=xterm bats $SCRIPT_PWD/proxysql-admin-testsuite.bats 
-
+#sudo TERM=xterm bats $SCRIPT_PWD/proxysql-admin-testsuite.bats 
+'
 ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one1.sock  -u root shutdown
 ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one2.sock  -u root shutdown
 ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one3.sock  -u root shutdown
 ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_two1.sock  -u root shutdown
 ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_two2.sock  -u root shutdown
 ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_two3.sock  -u root shutdown
+'

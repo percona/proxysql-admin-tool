@@ -1,5 +1,4 @@
 ## proxysql-admin setup tests
-source /etc/proxysql-admin.cnf
 CLUSTER_ONE_PORT=$(${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock -Bse"select @@port")
 CLUSTER_TWO_PORT=$(${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock -Bse"select @@port")
 
@@ -7,6 +6,7 @@ sed -i "0,/^[ \t]*export CLUSTER_PORT[ \t]*=.*$/s|^[ \t]*export CLUSTER_PORT[ \t
 sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_one\"|" /etc/proxysql-admin.cnf
 sed -i "0,/^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$|export WRITE_HOSTGROUP_ID=\"10\"|" /etc/proxysql-admin.cnf
 sed -i "0,/^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$|export READ_HOSTGROUP_ID=\"11\"|" /etc/proxysql-admin.cnf
+source /etc/proxysql-admin.cnf
 
 @test "run proxysql-admin -d" {
 run sudo proxysql-admin -d
@@ -14,10 +14,23 @@ echo "$output"
     [ "$status" -eq  0 ]
 }
 
-@test "run proxysql-admin -e" {
+@test "run proxysql-admin -e for cluster one" {
 run sudo proxysql-admin -e <<< 'n'
 echo "$output"
     [ "$status" -eq  0 ]
+}
+
+@test "run the check for cluster size (cluster one)" {
+  #get values from PXC and ProxySQL side
+  wsrep_cluster_count=$(mysql --user=$CLUSTER_APP_USERNAME --password=$CLUSTER_APP_PASSWORD  --host=$CLUSTER_HOSTNAME --port=6033 --protocol=tcp -Bse"show status like 'wsrep_cluster_size'" | awk '{print $2}')
+  proxysql_cluster_count=$(mysql --user=$PROXYSQL_USERNAME --password=$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select count(*) from mysql_servers where hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID) " | awk '{print $0}')
+  [ "$wsrep_cluster_count" -eq "$proxysql_cluster_count" ]
+}
+
+@test "run the check for --node-check-interval (cluster one)" {
+  wsrep_cluster_name=$(mysql --user=$CLUSTER_APP_USERNAME --password=$CLUSTER_APP_PASSWORD  --host=$CLUSTER_HOSTNAME --port=6033 --protocol=tcp -Bse"select @@wsrep_cluster_name")
+  report_interval=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD  --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse"select interval_ms from scheduler where comment='$wsrep_cluster_name'" | awk '{print $0}')
+  [ "$report_interval" -eq 3000 ]
 }
 
 sed -i "0,/^[ \t]*export CLUSTER_PORT[ \t]*=.*$/s|^[ \t]*export CLUSTER_PORT[ \t]*=.*$|export CLUSTER_PORT=\"$CLUSTER_TWO_PORT\"|" /etc/proxysql-admin.cnf
@@ -25,26 +38,28 @@ sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_
 sed -i "0,/^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$|export WRITE_HOSTGROUP_ID=\"20\"|" /etc/proxysql-admin.cnf
 sed -i "0,/^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$|export READ_HOSTGROUP_ID=\"21\"|" /etc/proxysql-admin.cnf
 
+source /etc/proxysql-admin.cnf
+
 @test "run proxysql-admin -d" {
 run sudo proxysql-admin -d
 echo "$output"
     [ "$status" -eq  0 ]
 }
 
-@test "run proxysql-admin -e" {
+@test "run proxysql-admin -e for cluster two" {
 run sudo proxysql-admin -e <<< 'n'
 echo "$output"
     [ "$status" -eq  0 ]
 }
 
-@test "run the check for cluster size" {
+@test "run the check for cluster size (cluster two)" {
   #get values from PXC and ProxySQL side
   wsrep_cluster_count=$(mysql --user=$CLUSTER_APP_USERNAME --password=$CLUSTER_APP_PASSWORD  --host=$CLUSTER_HOSTNAME --port=6033 --protocol=tcp -Bse"show status like 'wsrep_cluster_size'" | awk '{print $2}')
-  proxysql_cluster_count=$(mysql --user=$PROXYSQL_USERNAME --password=$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select count(*) from mysql_servers" | awk '{print $0}')
+  proxysql_cluster_count=$(mysql --user=$PROXYSQL_USERNAME --password=$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select count(*) from mysql_servers where hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID)" | awk '{print $0}')
   [ "$wsrep_cluster_count" -eq "$proxysql_cluster_count" ]
 }
 
-@test "run the check for --node-check-interval" {
+@test "run the check for --node-check-interval (cluster two)" {
   wsrep_cluster_name=$(mysql --user=$CLUSTER_APP_USERNAME --password=$CLUSTER_APP_PASSWORD  --host=$CLUSTER_HOSTNAME --port=6033 --protocol=tcp -Bse"select @@wsrep_cluster_name")
   report_interval=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD  --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse"select interval_ms from scheduler where comment='$wsrep_cluster_name'" | awk '{print $0}')
   [ "$report_interval" -eq 3000 ]
@@ -70,10 +85,10 @@ echo "$output"
 
 @test "run the check for updating runtime_mysql_servers table" {
   # check initial writer info
-  first_writer_port=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select port from mysql_servers where hostgroup_id='10';" 2>/dev/null)
-  first_writer_status=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select status from mysql_servers where hostgroup_id='10';" 2>/dev/null)
-  first_writer_weight=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select weight from mysql_servers where hostgroup_id='10';" 2>/dev/null)
-  first_writer_comment=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select comment from mysql_servers where hostgroup_id='10';" 2>/dev/null)
+  first_writer_port=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select port from mysql_servers where hostgroup_id='$WRITE_HOSTGROUP_ID';" 2>/dev/null)
+  first_writer_status=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select status from mysql_servers where hostgroup_id='$WRITE_HOSTGROUP_ID';" 2>/dev/null)
+  first_writer_weight=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select weight from mysql_servers where hostgroup_id='$WRITE_HOSTGROUP_ID';" 2>/dev/null)
+  first_writer_comment=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select comment from mysql_servers where hostgroup_id='$WRITE_HOSTGROUP_ID';" 2>/dev/null)
   first_writer_start_cmd=$(ps aux|grep "mysqld"|grep "port=$first_writer_port"|sed 's:^.* /:/:')
   first_writer_start_user=$(ps aux|grep "mysqld"|grep "port=$first_writer_port"|awk -F' ' '{print $1}')
   [ "$first_writer_status" = "ONLINE" ]
@@ -94,9 +109,9 @@ echo "$output"
   [ "$nr_nodes" = "2" ]
 
   # check new writer info
-  second_writer_status=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select status from mysql_servers where hostgroup_id='10';" 2>/dev/null)
-  second_writer_weight=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select weight from mysql_servers where hostgroup_id='10';" 2>/dev/null)
-  second_writer_comment=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select comment from mysql_servers where hostgroup_id='10';" 2>/dev/null)
+  second_writer_status=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select status from mysql_servers where hostgroup_id='$WRITE_HOSTGROUP_ID';" 2>/dev/null)
+  second_writer_weight=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select weight from mysql_servers where hostgroup_id='$WRITE_HOSTGROUP_ID';" 2>/dev/null)
+  second_writer_comment=$(mysql --user=$PROXYSQL_USERNAME -p$PROXYSQL_PASSWORD --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_PORT --protocol=tcp -Bse "select comment from mysql_servers where hostgroup_id='$WRITE_HOSTGROUP_ID';" 2>/dev/null)
   [ "$second_writer_status" = "ONLINE" ]
   [ "$second_writer_weight" = "1000000" ]
   [ "$second_writer_comment" = "WRITE" ]
