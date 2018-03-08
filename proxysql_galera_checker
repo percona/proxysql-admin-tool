@@ -53,9 +53,6 @@ HOSTGROUP_WRITER_ID="${1}"
 HOSTGROUP_READER_ID="${2:--1}"
 NUMBER_WRITERS="${3:-0}"
 WRITER_IS_READER="${4:-1}"
-RELOAD_CHECK_FILE="${PROXYSQL_DATADIR}/reload"
-
-echo "0" > ${RELOAD_CHECK_FILE}
 
 proxysql_exec() {
   local query="$1"
@@ -69,6 +66,9 @@ proxysql_exec() {
 }
 
 CLUSTER_NAME=$(proxysql_exec "select comment from scheduler where arg1=$HOSTGROUP_WRITER_ID")
+RELOAD_CHECK_FILE="${PROXYSQL_DATADIR}/$CLUSTER_NAME_reload"
+
+echo "0" > ${RELOAD_CHECK_FILE}
 #Timeout exists for instances where mysqld may be hung
 TIMEOUT=10
 
