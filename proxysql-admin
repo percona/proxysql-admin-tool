@@ -595,7 +595,7 @@ enable_proxysql(){
 
   check_user=$(mysql_exec "SELECT user,host FROM mysql.user where user='$MONITOR_USERNAME' and host='$USER_HOST_RANGE';")
   if [[ -z "$check_user" ]]; then
-    mysql_exec "CREATE USER $MONITOR_USERNAME@'$USER_HOST_RANGE' IDENTIFIED BY '$MONITOR_PASSWORD';"
+    mysql_exec "CREATE USER '$MONITOR_USERNAME'@'$USER_HOST_RANGE' IDENTIFIED BY '$MONITOR_PASSWORD';"
     check_cmd $?  "Failed to create the ProxySQL monitoring user. Please check '$CLUSTER_USERNAME'@'$CLUSTER_HOSTNAME' has proper permission to create montioring user"
     proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
     check_cmd $?  "Failed to set the mysql-monitor variables in ProxySQL. Please check username, password and other options for connecting to ProxySQL database"
@@ -662,7 +662,7 @@ enable_proxysql(){
     done
     # GRANT REPLICATION CLIENT permissions to the monitoring user account
     echo -e "\nGranting 'REPLICATION CLIENT' privilege to $MONITOR_USERNAME@$USER_HOST_RANGE"
-    mysql_exec "GRANT REPLICATION CLIENT ON *.* TO $MONITOR_USERNAME@'$USER_HOST_RANGE';"
+    mysql_exec "GRANT REPLICATION CLIENT ON *.* TO '$MONITOR_USERNAME'@'$USER_HOST_RANGE';"
     check_cmd $? "$CLUSTER_USERNAME@'$CLUSTER_HOSTNAME' does not have the GRANT privilege required to assign the requested permissions"
   fi
 
