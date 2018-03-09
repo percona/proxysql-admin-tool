@@ -115,10 +115,10 @@ start_pxc_node(){
     fi
 
     ${PXC_BASEDIR}/bin/mysqld --defaults-file=${PXC_BASEDIR}/my.cnf \
-      --datadir=$node $WSREP_CLUSTER_ADD $WSREP_CLUSTER_NAME \
+      --datadir=$node $WSREP_CLUSTER_ADD  \
       --wsrep_provider_options=gmcast.listen_addr=tcp://$LADDR1 \
       --log-error=$WORKDIR/logs/${CLUSTER_NAME}${i}.err \
-      --socket=/tmp/${CLUSTER_NAME}${i}.sock --port=$RBASE1 > $WORKDIR/logs/${CLUSTER_NAME}${i}.err 2>&1 &
+      --socket=/tmp/${CLUSTER_NAME}${i}.sock --port=$RBASE1 $WSREP_CLUSTER_NAME > $WORKDIR/logs/${CLUSTER_NAME}${i}.err 2>&1 &
     for X in $(seq 0 ${PXC_START_TIMEOUT}); do
       sleep 1
       if ${PXC_BASEDIR}/bin/mysqladmin -uroot -S/tmp/${CLUSTER_NAME}${i}.sock ping > /dev/null 2>&1; then
@@ -151,13 +151,26 @@ fi
 
 echo "proxysql-admin generic bats test log"
 sudo TERM=xterm bats $SCRIPT_PWD/generic-test.bats 
-echo "proxysql-admin testsuite bats test log"
-#sudo TERM=xterm bats $SCRIPT_PWD/proxysql-admin-testsuite.bats 
-'
+
+echo "proxysql-admin testsuite bats test log for custer_one"
+CLUSTER_ONE_PORT=$(${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock -Bse"select @@port")
+sudo sed -i "0,/^[ \t]*export CLUSTER_PORT[ \t]*=.*$/s|^[ \t]*export CLUSTER_PORT[ \t]*=.*$|export CLUSTER_PORT=\"$CLUSTER_ONE_PORT\"|" /etc/proxysql-admin.cnf
+sudo sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_one\"|" /etc/proxysql-admin.cnf
+sudo sed -i "0,/^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$|export WRITE_HOSTGROUP_ID=\"10\"|" /etc/proxysql-admin.cnf
+sudo sed -i "0,/^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$|export READ_HOSTGROUP_ID=\"11\"|" /etc/proxysql-admin.cnf
+sudo TERM=xterm bats $SCRIPT_PWD/proxysql-admin-testsuite.bats 
+
+echo "proxysql-admin testsuite bats test log for custer_two"
+CLUSTER_TWO_PORT=$(${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock -Bse"select @@port")
+sudo sed -i "0,/^[ \t]*export CLUSTER_PORT[ \t]*=.*$/s|^[ \t]*export CLUSTER_PORT[ \t]*=.*$|export CLUSTER_PORT=\"$CLUSTER_TWO_PORT\"|" /etc/proxysql-admin.cnf
+sudo sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_two\"|" /etc/proxysql-admin.cnf
+sudo sed -i "0,/^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$|export WRITE_HOSTGROUP_ID=\"20\"|" /etc/proxysql-admin.cnf
+sudo sed -i "0,/^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$|export READ_HOSTGROUP_ID=\"21\"|" /etc/proxysql-admin.cnf
+sudo TERM=xterm bats $SCRIPT_PWD/proxysql-admin-testsuite.bats 
+
 ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one1.sock  -u root shutdown
 ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one2.sock  -u root shutdown
 ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one3.sock  -u root shutdown
 ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_two1.sock  -u root shutdown
 ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_two2.sock  -u root shutdown
 ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_two3.sock  -u root shutdown
-'
