@@ -15,6 +15,9 @@ if [[ -z "$PROXYSQL_DATADIR" ]]; then
   PROXYSQL_DATADIR='/var/lib/proxysql'
 fi
 
+#Timeout exists for instances where mysqld/proxysql may be hung
+TIMEOUT=5
+
 function usage()
 {
   cat << EOF
@@ -62,15 +65,13 @@ proxysql_exec() {
       "password=${PROXYSQL_PASSWORD}" \
       "host=${PROXYSQL_HOSTNAME}" \
       "port=${PROXYSQL_PORT}"  \
-      | mysql --defaults-file=/dev/stdin --protocol=tcp -Nse "${query}"
+      | timeout $TIMEOUT mysql --defaults-file=/dev/stdin --protocol=tcp -Nse "${query}"
 }
 
 CLUSTER_NAME=$(proxysql_exec "select comment from scheduler where arg1=$HOSTGROUP_WRITER_ID")
 RELOAD_CHECK_FILE="${PROXYSQL_DATADIR}/${CLUSTER_NAME}_reload"
 
 echo "0" > ${RELOAD_CHECK_FILE}
-#Timeout exists for instances where mysqld may be hung
-TIMEOUT=10
 
 mysql_exec() {
   local query="$1"

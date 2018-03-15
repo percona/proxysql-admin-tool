@@ -16,6 +16,9 @@ if [[ -z "$PROXYSQL_DATADIR" ]]; then
   PROXYSQL_DATADIR='/var/lib/proxysql'
 fi
 
+#Timeout exists for instances where mysqld/proxysql may be hung
+TIMEOUT=5
+
 WRITE_HOSTGROUP_ID="${1:-0}"
 READ_HOSTGROUP_ID="${2:-0}"
 SLAVEREAD_HOSTGROUP_ID=$READ_HOSTGROUP_ID
@@ -30,7 +33,7 @@ CLUSTER_TIMEOUT=3 # Maximum time to wait for cluster status
 proxysql_exec() {
   query=$1
     printf "[client]\nuser=${PROXYSQL_USERNAME}\npassword=${PROXYSQL_PASSWORD}\nhost=${PROXYSQL_HOSTNAME}\nport=${PROXYSQL_PORT}\n" | \
-      mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "${query}" 2>/dev/null
+     timeout $TIMEOUT mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "${query}" 2>/dev/null
 }
 
 if [ $debug -eq 1 ];then echo "`date` DEBUG MODE: $MODE" >> $ERR_FILE;fi
@@ -60,9 +63,6 @@ check_cmd(){
     fi
   fi
 }
-
-#Timeout exists for instances where mysqld may be hung
-TIMEOUT=10
 
 mysql_exec() {
   query=$1
