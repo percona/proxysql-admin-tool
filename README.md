@@ -349,7 +349,7 @@ PS : With _loadbal_ mode slave hosts only accepts read/write requests when all c
 
 Simple script to dump ProxySQL config and stats
 
-__ Usage: 
+__ Usage:__
 
 ```
 ./proxysql-status admin admin 127.0.0.1 6032
