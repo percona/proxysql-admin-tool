@@ -56,6 +56,9 @@ check_cmd(){
   MPID=$1
   ERROR_MSG=$2
   ERROR_INFO=$3
+  if [ "$MPID" == "124" ]; then
+    echo "`date` TIMEOUT ERROR: Connection terminated due to timeout." >> $ERR_FILE
+  fi
   if [ ${MPID} -ne 0 ]; then 
     echo "`date` WARNING: $ERROR_MSG." >> $ERR_FILE
     if [[ ! -z  $ERROR_INFO ]]; then

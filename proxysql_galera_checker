@@ -66,6 +66,9 @@ proxysql_exec() {
       "host=${PROXYSQL_HOSTNAME}" \
       "port=${PROXYSQL_PORT}"  \
       | timeout $TIMEOUT mysql --defaults-file=/dev/stdin --protocol=tcp -Nse "${query}"
+  if [ "$?" == "124" ]; then
+    echo "`date` TIMEOUT ERROR: Connection terminated due to timeout." >> $ERR_FILE
+  fi
 }
 
 CLUSTER_NAME=$(proxysql_exec "select comment from scheduler where arg1=$HOSTGROUP_WRITER_ID")
@@ -82,6 +85,9 @@ mysql_exec() {
       "host=${server}" \
       "port=${port}"  \
       | timeout $TIMEOUT mysql --defaults-file=/dev/stdin --protocol=tcp -nNE -e "${query}"
+  if [ "$?" == "124" ]; then
+    echo "`date` TIMEOUT ERROR: Connection terminated due to timeout." >> $ERR_FILE
+  fi
 }
 
 #Running proxysql_node_monitor script.
