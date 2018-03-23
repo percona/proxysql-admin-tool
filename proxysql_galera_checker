@@ -76,6 +76,38 @@ proxysql_exec() {
 CLUSTER_NAME=$(proxysql_exec "select comment from scheduler where arg1=$HOSTGROUP_WRITER_ID")
 RELOAD_CHECK_FILE="${PROXYSQL_DATADIR}/${CLUSTER_NAME}_reload"
 
+# WIth thanks, http://bencane.com/2015/09/22/preventing-duplicate-cron-job-executions/
+CHECKER_PIDFILE=${PROXYSQL_DATADIR}/${CLUSTER_NAME}_galera_checker.pid
+if [ -f $CHECKER_PIDFILE ] ; then
+  GPID=$(cat $CHECKER_PIDFILE)
+  if ps -f $GPID | grep -o proxysql_galera_check > /dev/null 2>&1 ; then
+    ps -p $GPID > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+      echoit "ProxySQL galera checker process already running."
+      exit 1
+    else
+      echo $$ > $CHECKER_PIDFILE
+      if [ $? -ne 0 ] ; then
+        echoit "Could not create galera checker PID file"
+        exit 1
+      fi
+    fi
+  else
+    echoit "Warning! Existing PID($GPID) belongs to some other process. Creating new PID file."
+    echo $$ > $CHECKER_PIDFILE
+    if [ $? -ne 0 ] ; then
+      echoit "Could not create galera checker PID file"
+      exit 1
+    fi
+  fi
+else
+  echo $$ > $CHECKER_PIDFILE
+  if [ $? -ne 0 ]; then
+    echoit "Could not create galera checker PID file"
+    exit 1
+  fi
+fi
+
 echo "0" > ${RELOAD_CHECK_FILE}
 
 mysql_exec() {
@@ -520,4 +552,5 @@ else
     echoit "###### Not loading mysql_servers, no change needed ######"
 fi
 
+rm $CHECKER_PIDFILE
 exit 0
