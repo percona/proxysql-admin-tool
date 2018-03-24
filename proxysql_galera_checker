@@ -76,11 +76,11 @@ proxysql_exec() {
 CLUSTER_NAME=$(proxysql_exec "select comment from scheduler where arg1=$HOSTGROUP_WRITER_ID")
 RELOAD_CHECK_FILE="${PROXYSQL_DATADIR}/${CLUSTER_NAME}_reload"
 
-# WIth thanks, http://bencane.com/2015/09/22/preventing-duplicate-cron-job-executions/
+# With thanks, http://bencane.com/2015/09/22/preventing-duplicate-cron-job-executions/
 CHECKER_PIDFILE=${PROXYSQL_DATADIR}/${CLUSTER_NAME}_galera_checker.pid
 if [ -f $CHECKER_PIDFILE ] ; then
   GPID=$(cat $CHECKER_PIDFILE)
-  if ps -f $GPID | grep -o proxysql_galera_check > /dev/null 2>&1 ; then
+  if ps -p $GPID -o args=ARGS | grep $ERR_FILE | grep -o proxysql_galera_check > /dev/null 2>&1 ; then
     ps -p $GPID > /dev/null 2>&1
     if [ $? -eq 0 ]; then
       echoit "ProxySQL galera checker process already running."
