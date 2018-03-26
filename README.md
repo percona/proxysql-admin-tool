@@ -88,6 +88,17 @@ This script will accept two different options to configure Cluster nodes
  ___scheduler___ script info :
   * __proxysql_galera_checker__ : will check desynced nodes, and temporarily deactivate them. This will also call __proxysql_node_monitor__ script to check cluster node membership, and re-configure ProxySQL if cluster membership changes occur
 
+```
+Note:
+         As proxysql_galera_check runs in regular intervals, there is the possibility of a race 
+      condition in certain circumstances, for example starting this script twice or more at the 
+      same time. To avoid such situations from occuring, a Galera process identifier check file
+      was added, which will prevent duplicate  script execution in most cases. Still, it may be 
+      possible in some rare cases to circumvent this check if you execute more then one copy of 
+      proxysql_galera_check  simultaneously.  Please  note that  running  more then one copy of 
+      proxysql_galera_check in the same runtime environment at the same  time is not supported,
+      and may lead to undefined behavior.
+```
   It will also add two new users into the Percona XtraDB Cluster with the USAGE privilege; one is for monitoring cluster nodes through ProxySQL, and another is for connecting to Cluster node via the ProxySQL console. 
   
   Note: Please make sure to use super user credentials from Percona XtraDB Cluster to setup the default users.
