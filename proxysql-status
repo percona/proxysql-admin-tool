@@ -1,0 +1,38 @@
+#!/bin/bash
+
+USER=$1
+PASSWORD=$2
+HOST=$3
+PORT=$4
+
+echo "............ DUMPING MAIN DATABASE ............"
+TABLES=`mysql -u $USER -p$PASSWORD -h $HOST -P $PORT -BNe "SHOW TABLES" 2> /dev/null`
+for table in $TABLES
+do
+	echo "***** DUMPING $table *****"
+	mysql -u $USER -p$PASSWORD -h $HOST -P $PORT -Be "SELECT * FROM $table" 2> /dev/null
+	echo "***** END OF DUMPING $table *****"
+done
+echo "............ END OF DUMPING MAIN DATABASE ............"
+
+
+echo "............ DUMPING STATS DATABASE ............"
+TABLES=`mysql -u $USER -p$PASSWORD -h $HOST -P $PORT -BNe "SHOW TABLES FROM stats" 2> /dev/null`
+for table in $TABLES
+do
+	echo "***** DUMPING stats.$table *****"
+	mysql -u $USER -p$PASSWORD -h $HOST -P $PORT -e "SELECT * FROM $table" stats 2> /dev/null
+	echo "***** END OF DUMPING stats.$table *****"
+done
+echo "............ END OF DUMPING STATS DATABASE ............"
+
+
+echo "............ DUMPING MONITOR DATABASE ............"
+TABLES=`mysql -u $USER -p$PASSWORD -h $HOST -P $PORT -BNe "SHOW TABLES FROM monitor" 2> /dev/null`
+for table in $TABLES
+do
+	echo "***** DUMPING monitor.$table *****"
+	mysql -u $USER -p$PASSWORD -h $HOST -P $PORT -e "SELECT * FROM $table" monitor 2> /dev/null
+	echo "***** END OF DUMPING monitor.$table *****"
+done
+echo "............ END OF DUMPING MONITOR DATABASE ............"
