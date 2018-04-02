@@ -11,17 +11,22 @@ if [ -z $1 ]; then
 else
   WORKDIR=$1
 fi
+
+if [[ ! -e $(which mysql 2> /dev/null) ]] ;then
+  echo "ERROR! 'mysql' is currently not installed. Please install mysql. Terminating!"
+  exit 1
+fi
+  
 SBENCH="sysbench"
 SCRIPT_PWD=$(cd `dirname $0` && pwd)
 PXC_START_TIMEOUT=200
-WORKDIR="${WORKDIR}/$PROXYSQL_BASE_NUMBER"
 SUSER=root
 SPASS=
 OS_USER=$(whoami)
 
 if [ -z $WORKDIR ];then
   WORKDIR="${PWD}"
-fi 
+fi
 ROOT_FS=$WORKDIR
 
 mkdir -p $WORKDIR/logs
@@ -33,7 +38,6 @@ cd ${WORKDIR}
 
 echo "Removing existing basedir"
 find . -maxdepth 1 -type d -name 'Percona-XtraDB-Cluster-5.*' -exec rm -rf {} \+
-find . -maxdepth 1 -type d -name 'proxysql-1.*' -exec rm -rf {} \+
 
 #Check PXC binary tar ball
 PXC_TAR=$(ls -1td ?ercona-?tra??-?luster* | grep ".tar" | head -n1)
@@ -47,20 +51,11 @@ else
   exit 1
 fi
 
-
-PROXYSQL_TAR=$(ls -1td proxysql-*.tar.gz | grep ".tar" | head -n1)
-if [ ! -z $PROXYSQL_TAR ];then
-  tar -xzf $PROXYSQL_TAR
-  PROXYSQL_BASE=$(ls -1td proxysql-1* | grep -v ".tar" | head -n1)
-  export PATH="$WORKDIR/$PXCBASE/usr/bin/:$PATH"
-  PROXYSQL_BASE="${WORKDIR}/$PROXYSQL_BASE"
-else
-  echo "ERROR! proxysql binary tarball does not exist. Terminating"
-  exit 1
-fi
-
-$PROXYSQL_BASE/usr/bin/proxysql -D $PROXYSQL_BASE  $PROXYSQL_BASE/proxysql.log &
-
+PROXYSQL_BASE=$(ls -1td proxysql-1* | grep -v ".tar" | head -n1)
+export PATH="$WORKDIR/$PXCBASE/usr/bin/:$PATH"
+PROXYSQL_BASE="${WORKDIR}/$PROXYSQL_BASE"
+rm -rf $WORKDIR/proxysql_db; mkdir $WORKDIR/proxysql_db
+$PROXYSQL_BASE/usr/bin/proxysql -D $WORKDIR/proxysql_db  $WORKDIR/proxysql_db/proxysql.log &
 
 if [ "$(${PXC_BASEDIR}/bin/mysqld --version | grep -oe '5\.[567]' | head -n1)" == "5.7" ]; then
   MID="${PXC_BASEDIR}/bin/mysqld --no-defaults --initialize-insecure --basedir=${PXC_BASEDIR}"
@@ -100,7 +95,7 @@ start_pxc_node(){
     node="${PXC_BASEDIR}/${CLUSTER_NAME}${i}"
     if [ "$(${PXC_BASEDIR}/bin/mysqld --version | grep -oe '5\.[567]' | head -n1 )" != "5.7" ]; then
       mkdir -p $node $keyring_node
-      if  [ ! "$(ls -A $node)" ]; then 
+      if  [ ! "$(ls -A $node)" ]; then
         ${MID} --datadir=$node  > $WORKDIR/logs/startup_node${CLUSTER_NAME}${i}.err 2>&1 || exit 1;
       fi
     fi
@@ -109,7 +104,7 @@ start_pxc_node(){
     fi
     if [ $i -eq 1 ]; then
       WSREP_CLUSTER_ADD="--wsrep_cluster_address=gcomm:// "
-	  BASEPORT=$RBASE1
+          BASEPORT=$RBASE1
     else
       WSREP_CLUSTER_ADD="--wsrep_cluster_address=$WSREP_CLUSTER"
     fi
@@ -140,17 +135,17 @@ sudo cp $PROXYSQL_BASE/etc/proxysql-admin.cnf /etc/proxysql-admin.cnf
 sudo chown $OS_USER:$OS_USER /etc/proxysql-admin.cnf
 sudo sed -i "s|\/var\/lib\/proxysql|$PROXYSQL_BASE|" /etc/proxysql-admin.cnf
 sudo cp $PROXYSQL_BASE/usr/bin/* /usr/bin/
- 
-if [[ ! -e $(which bats 2> /dev/null) ]] ;then
+
+if [[ ! -e $(sudo which bats 2> /dev/null) ]] ;then
   pushd $ROOT_FS
   git clone https://github.com/sstephenson/bats
   cd bats
-  sudo ./install.sh /usr/local
+  sudo ./install.sh /usr
   popd
 fi
 
 echo "proxysql-admin generic bats test log"
-sudo TERM=xterm bats $SCRIPT_PWD/generic-test.bats 
+sudo TERM=xterm bats $SCRIPT_PWD/generic-test.bats
 
 echo "proxysql-admin testsuite bats test log for custer_one"
 CLUSTER_ONE_PORT=$(${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock -Bse"select @@port")
@@ -158,7 +153,7 @@ sudo sed -i "0,/^[ \t]*export CLUSTER_PORT[ \t]*=.*$/s|^[ \t]*export CLUSTER_POR
 sudo sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_one\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$|export WRITE_HOSTGROUP_ID=\"10\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$|export READ_HOSTGROUP_ID=\"11\"|" /etc/proxysql-admin.cnf
-sudo TERM=xterm bats $SCRIPT_PWD/proxysql-admin-testsuite.bats 
+sudo TERM=xterm bats $SCRIPT_PWD/proxysql-admin-testsuite.bats
 
 echo "proxysql-admin testsuite bats test log for custer_two"
 CLUSTER_TWO_PORT=$(${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock -Bse"select @@port")
@@ -166,7 +161,7 @@ sudo sed -i "0,/^[ \t]*export CLUSTER_PORT[ \t]*=.*$/s|^[ \t]*export CLUSTER_POR
 sudo sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_two\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$|export WRITE_HOSTGROUP_ID=\"20\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$|export READ_HOSTGROUP_ID=\"21\"|" /etc/proxysql-admin.cnf
-sudo TERM=xterm bats $SCRIPT_PWD/proxysql-admin-testsuite.bats 
+sudo TERM=xterm bats $SCRIPT_PWD/proxysql-admin-testsuite.bats
 
 ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one1.sock  -u root shutdown
 ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one2.sock  -u root shutdown
