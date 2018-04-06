@@ -63,8 +63,8 @@ proxysql_exec() {
   local query="$1"
   printf "%s\n" \
       "[client]" \
-      "user=${PROXYSQL_USERNAME}" \
-      "password=${PROXYSQL_PASSWORD}" \
+      "user='${PROXYSQL_USERNAME}'" \
+      "password='${PROXYSQL_PASSWORD}'" \
       "host=${PROXYSQL_HOSTNAME}" \
       "port=${PROXYSQL_PORT}"  \
       | timeout $TIMEOUT mysql --defaults-file=/dev/stdin --protocol=tcp -Nse "${query}"
@@ -114,8 +114,8 @@ mysql_exec() {
   local query="$1"
   printf "%s\n" \
       "[client]" \
-      "user=${MYSQL_USERNAME}" \
-      "password=${MYSQL_PASSWORD}" \
+      "user='${MYSQL_USERNAME}'" \
+      "password='${MYSQL_PASSWORD}'" \
       "host=${server}" \
       "port=${port}"  \
       | timeout $TIMEOUT mysql --defaults-file=/dev/stdin --protocol=tcp -nNE -e "${query}"

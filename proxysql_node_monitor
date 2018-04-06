@@ -35,7 +35,7 @@ CLUSTER_TIMEOUT=3 # Maximum time to wait for cluster status
 
 proxysql_exec() {
   query=$1
-    printf "[client]\nuser=${PROXYSQL_USERNAME}\npassword=${PROXYSQL_PASSWORD}\nhost=${PROXYSQL_HOSTNAME}\nport=${PROXYSQL_PORT}\n" | \
+    printf "[client]\nuser=\"${PROXYSQL_USERNAME}\"\npassword=\"${PROXYSQL_PASSWORD}\"\nhost=${PROXYSQL_HOSTNAME}\nport=${PROXYSQL_PORT}\n" | \
      timeout $TIMEOUT mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "${query}" 2>/dev/null
 }
 
@@ -73,7 +73,7 @@ check_cmd(){
 
 mysql_exec() {
   query=$1
-  printf "[client]\nconnect-timeout=${CLUSTER_TIMEOUT}\nuser=${CLUSTER_USERNAME}\npassword=${CLUSTER_PASSWORD}\nhost=${CLUSTER_HOSTNAME}\nport=${CLUSTER_PORT}\n" | \
+  printf "[client]\nconnect-timeout=${CLUSTER_TIMEOUT}\nuser=\"${CLUSTER_USERNAME}\"\npassword=\"${CLUSTER_PASSWORD}\"\nhost=${CLUSTER_HOSTNAME}\nport=${CLUSTER_PORT}\n" | \
       timeout $TIMEOUT mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "${query}" 2>/dev/null
 }
 
@@ -82,7 +82,7 @@ set_slave_status() {
   # The ws_ip and ws_port variables are used and must be set before calling this function
   if [ $debug -eq 1 ];then echoit "DEBUG START set_slave_status" ;fi
   # This function will get and return a status of a slave node, 4=GOOD, 2=BEHIND, 0=OTHER
-  SLAVE_STATUS=$(printf "[client]\nuser=${CLUSTER_USERNAME}\npassword=${CLUSTER_PASSWORD}\nhost=${ws_ip}\nport=${ws_port}\n" | timeout $TIMEOUT mysql --defaults-file=/dev/stdin --protocol=tcp -Bse 'SHOW SLAVE STATUS\G' 2>${PROXYSQL_DATADIR}/proxysql_admin_error_info)
+  SLAVE_STATUS=$(printf "[client]\nuser=\"${CLUSTER_USERNAME}\"\npassword=\"${CLUSTER_PASSWORD}\"\nhost=${ws_ip}\nport=${ws_port}\n" | timeout $TIMEOUT mysql --defaults-file=/dev/stdin --protocol=tcp -Bse 'SHOW SLAVE STATUS\G' 2>${PROXYSQL_DATADIR}/proxysql_admin_error_info)
   check_cmd $? "Cannot get status from the slave $ws_ip:$ws_port, Please check cluster login credentials" "`cat ${PROXYSQL_DATADIR}/proxysql_admin_error_info`"
   SLAVE_STATUS=$(echo "$SLAVE_STATUS" | sed 's/ //g')
   echo "$SLAVE_STATUS" | grep "^Master_Host:" >/dev/null
