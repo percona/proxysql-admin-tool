@@ -429,12 +429,12 @@ check_cmd $? "Could not retrieve cluster login info from ProxySQL. Please check 
 CLUSTER_HOST_INFO=`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE status='ONLINE' and comment<>'SLAVEREAD' and hostgroup_id in ($WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID) limit 1"`
 check_cmd $? "Could not retrieve cluster node info from ProxySQL. Please check proxysql login credentials"
 
-CLUSTER_HOSTS=($(proxysql_exec "SELECT hostname || '-' || port FROM mysql_servers WHERE status='ONLINE' and comment<>'SLAVEREAD' and hostgroup_id in ($WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID)"))
+CLUSTER_HOSTS=($(proxysql_exec "SELECT hostname || ':' || port FROM mysql_servers WHERE status='ONLINE' and comment<>'SLAVEREAD' and hostgroup_id in ($WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID)"))
 CLUSTER_TIMEOUT=($(proxysql_exec "SELECT MAX(interval_ms / 1000 - 1, 1) FROM scheduler"))
 
 for i in "${CLUSTER_HOSTS[@]}"; do
-  CLUSTER_HOSTNAME=$(echo $i | cut -d'-' -f1)
-  CLUSTER_PORT=$(echo $i | cut -d'-' -f2)
+  CLUSTER_HOSTNAME=$(echo $i | cut -d':' -f1)
+  CLUSTER_PORT=$(echo $i | cut -d':' -f2)
   CHECK_SERVER_STATUS=$(mysql_exec "SELECT @@port")
   if [[ -n $CHECK_SERVER_STATUS ]]; then
     CLUSTER_HOST_INFO="${CHECK_SERVER_STATUS}"
