@@ -214,12 +214,14 @@ update_cluster(){
           checkwriter_hid=`proxysql_exec "select hostgroup_id from mysql_servers where comment='WRITE' and status='ONLINE' and hostgroup_id in ($WRITE_HOSTGROUP_ID)"`
           if [[ -z "$checkwriter_hid" ]]; then
             current_hosts=(`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE  status='ONLINE' and comment='READ' and hostgroup_id='$READ_HOSTGROUP_ID' ORDER BY random() LIMIT 1" | sed 's|\t|:|g' | tr '\n' ' '`)
-            ws_ip=$(echo $current_hosts | cut -d':' -f1)
-            ws_port=$(echo $current_hosts | cut -d':' -f2)
-            echoit "No writer found, promoting $ws_ip:$ws_port as writer node!" 
-            proxysql_exec "UPDATE mysql_servers set hostgroup_id = $WRITE_HOSTGROUP_ID, comment='WRITE', weight=1000000 WHERE hostname='$ws_ip' and port=$ws_port"
-            check_cmd $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check proxysql login credentials"
-            CHECK_STATUS=1
+            if [[ ! -z $current_hosts ]]; then 
+              ws_ip=$(echo $current_hosts | cut -d':' -f1)
+              ws_port=$(echo $current_hosts | cut -d':' -f2)
+              echoit "No writer found, promoting $ws_ip:$ws_port as writer node!" 
+              proxysql_exec "UPDATE mysql_servers set hostgroup_id = $WRITE_HOSTGROUP_ID, comment='WRITE', weight=1000000 WHERE hostname='$ws_ip' and port=$ws_port"
+              check_cmd $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check proxysql login credentials"
+              CHECK_STATUS=1
+            fi
           fi
         fi
         
@@ -429,7 +431,7 @@ check_cmd $? "Could not retrieve cluster login info from ProxySQL. Please check 
 CLUSTER_HOST_INFO=`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE status='ONLINE' and comment<>'SLAVEREAD' and hostgroup_id in ($WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID) limit 1"`
 check_cmd $? "Could not retrieve cluster node info from ProxySQL. Please check proxysql login credentials"
 
-CLUSTER_HOSTS=($(proxysql_exec "SELECT hostname || ':' || port FROM mysql_servers WHERE status='ONLINE' and comment<>'SLAVEREAD' and hostgroup_id in ($WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID)"))
+CLUSTER_HOSTS=($(proxysql_exec "SELECT hostname || ':' || port FROM mysql_servers WHERE comment<>'SLAVEREAD' and hostgroup_id in ($WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID)"))
 CLUSTER_TIMEOUT=($(proxysql_exec "SELECT MAX(interval_ms / 1000 - 1, 1) FROM scheduler"))
 
 for i in "${CLUSTER_HOSTS[@]}"; do
