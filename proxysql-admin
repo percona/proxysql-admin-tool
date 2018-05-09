@@ -39,7 +39,7 @@ fi
 usage () {
   echo "Usage: [ options ]"
   echo "Options:"
-  echo "  --config-file                      Read login credentials from a configuration file (overrides any login credentials specified on the command line)"
+  echo "  --config-file=<config-file>        Read login credentials from a configuration file (overrides any login credentials specified on the command line)"
   echo "  --quick-demo                       Setup a quick demo with no authentication"
   echo "  --proxysql-datadir=<datadir>       Specify proxysql data directory location"
   echo "  --proxysql-username=user_name      Username for connecting to the ProxySQL service"
@@ -249,7 +249,7 @@ do
     ENABLE=1
     ;;
     -v | --version )
-      echo "proxysql-admin version 1.4.7"
+      echo "proxysql-admin version 1.4.8"
       exit 0
     ;;
     --help )
