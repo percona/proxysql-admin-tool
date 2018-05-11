@@ -44,8 +44,14 @@ if [ $debug -eq 1 ];then echoit "DEBUG MODE: $MODE" ;fi
 if [ $debug -eq 1 ];then echoit "DEBUG check mode name from proxysql data directory " ;fi
 CLUSTER_NAME=$(proxysql_exec "select comment from scheduler where arg1=$WRITE_HOSTGROUP_ID")
 
-if [ -f ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_mode ] ; then
-  MODE=$(cat ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_mode)
+if [[ -z $CLUSTER_NAME ]]; then
+  if [[ -f ${PROXYSQL_DATADIR}/mode ]] ; then
+    MODE=$(cat ${PROXYSQL_DATADIR}/mode)
+  fi
+else
+  if [[ -f ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_mode ]] ; then
+    MODE=$(cat ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_mode)
+  fi
 fi
 
 if [ "$MODE" == "loadbal" ]; then
