@@ -10,7 +10,7 @@ TABLES=`mysql -u $USER -p$PASSWORD -h $HOST -P $PORT --protocol=tcp -BNe "SHOW T
 for table in $TABLES
 do
 	echo "***** DUMPING $table *****"
-	mysql -u $USER -p$PASSWORD -h $HOST -P $PORT --protocol=tcp -Be "SELECT * FROM $table" 2> /dev/null
+	mysql -u $USER -p$PASSWORD -h $HOST -P $PORT --protocol=tcp -te "SELECT * FROM $table" 2> /dev/null
 	echo "***** END OF DUMPING $table *****"
 done
 echo "............ END OF DUMPING MAIN DATABASE ............"
@@ -21,7 +21,7 @@ TABLES=`mysql -u $USER -p$PASSWORD -h $HOST -P $PORT --protocol=tcp -BNe "SHOW T
 for table in $TABLES
 do
 	echo "***** DUMPING stats.$table *****"
-	mysql -u $USER -p$PASSWORD -h $HOST -P $PORT --protocol=tcp -e "SELECT * FROM $table" stats 2> /dev/null
+	mysql -u $USER -p$PASSWORD -h $HOST -P $PORT --protocol=tcp -te "SELECT * FROM $table" stats 2> /dev/null
 	echo "***** END OF DUMPING stats.$table *****"
 done
 echo "............ END OF DUMPING STATS DATABASE ............"
@@ -32,7 +32,7 @@ TABLES=`mysql -u $USER -p$PASSWORD -h $HOST -P $PORT --protocol=tcp -BNe "SHOW T
 for table in $TABLES
 do
 	echo "***** DUMPING monitor.$table *****"
-	mysql -u $USER -p$PASSWORD -h $HOST -P $PORT --protocol=tcp -e "SELECT * FROM $table" monitor 2> /dev/null
+	mysql -u $USER -p$PASSWORD -h $HOST -P $PORT --protocol=tcp -te "SELECT * FROM $table" monitor 2> /dev/null
 	echo "***** END OF DUMPING monitor.$table *****"
 done
 echo "............ END OF DUMPING MONITOR DATABASE ............"
