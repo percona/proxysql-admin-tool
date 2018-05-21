@@ -42,5 +42,5 @@ cat /var/lib/proxysql/host_priority.conf
 echo "............ END OF DUMPING HOST PRIORITY FILE ............"
 
 echo "............ DUMPING PROXYSQL ADMIN CNF FILE ............"
-cat /etc/proxysql-admin.conf
+cat /etc/proxysql-admin.cnf
 echo "............ END OF DUMPING PROXYSQL ADMIN CNF FILE ............"
