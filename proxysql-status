@@ -36,3 +36,11 @@ do
 	echo "***** END OF DUMPING monitor.$table *****"
 done
 echo "............ END OF DUMPING MONITOR DATABASE ............"
+
+echo "............ DUMPING HOST PRIORITY FILE ............"
+cat /var/lib/proxysql/host_priority.conf
+echo "............ END OF DUMPING HOST PRIORITY FILE ............"
+
+echo "............ DUMPING PROXYSQL ADMIN CNF FILE ............"
+cat /etc/proxysql-admin.conf
+echo "............ END OF DUMPING PROXYSQL ADMIN CNF FILE ............"
