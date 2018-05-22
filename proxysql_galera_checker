@@ -58,6 +58,8 @@ HOSTGROUP_WRITER_ID="${1}"
 HOSTGROUP_READER_ID="${2:--1}"
 NUMBER_WRITERS="${3:-0}"
 WRITER_IS_READER="${4:-1}"
+#Timeout exists for instances where mysqld may be hung
+TIMEOUT=10
 
 proxysql_exec() {
   local query="$1"
@@ -73,11 +75,73 @@ proxysql_exec() {
   fi
 }
 
+mysql_exec() {
+  local query="$1"
+  printf "%s\n" \
+      "[client]" \
+      "user='${MYSQL_USERNAME}'" \
+      "password='${MYSQL_PASSWORD}'" \
+      "host=${server}" \
+      "port=${port}"  \
+      | timeout $TIMEOUT mysql --defaults-file=/dev/stdin --protocol=tcp -nNE -e "${query}"
+  if [ "$?" == "124" ]; then
+    echoit "TIMEOUT ERROR: Connection terminated due to timeout."
+  fi
+}
+
+MYSQL_CREDENTIALS=$(proxysql_exec "SELECT variable_value FROM global_variables WHERE variable_name IN ('mysql-monitor_username','mysql-monitor_password') ORDER BY variable_name DESC")
+MYSQL_USERNAME=$(echo $MYSQL_CREDENTIALS | awk '{print $1}')
+MYSQL_PASSWORD=$(echo $MYSQL_CREDENTIALS | awk '{print $2}')
+AVAILABLE_HOST=$(proxysql_exec "SELECT hostname,port FROM mysql_servers where hostgroup_id in ($HOSTGROUP_WRITER_ID, $HOSTGROUP_READER_ID) and status='ONLINE' limit 1")
+server=$(echo $AVAILABLE_HOST | awk '{print $1}')
+port=$(echo $AVAILABLE_HOST | awk '{print $2}')
+
+
 CLUSTER_NAME=$(proxysql_exec "select comment from scheduler where arg1=$HOSTGROUP_WRITER_ID")
-RELOAD_CHECK_FILE="${PROXYSQL_DATADIR}/${CLUSTER_NAME}_reload"
+if [[ -z $CLUSTER_NAME ]]; then
+  CLUSTER_NAME=$(mysql_exec "select @@wsrep_cluster_name" 2>>${ERR_FILE}| tail -1 2>>${ERR_FILE})
+  if [[ ! -z $CLUSTER_NAME ]]; then  
+    proxysql_exec "update scheduler set comment='$CLUSTER_NAME',arg5='${PROXYSQL_DATADIR}/${CLUSTER_NAME}_proxysql_galera_check.log' where arg1=$HOSTGROUP_WRITER_ID;load scheduler to runtime;"
+  fi
+fi
+
+if [[ -z $CLUSTER_NAME ]]; then
+  RELOAD_CHECK_FILE="${PROXYSQL_DATADIR}/reload"
+else
+  RELOAD_CHECK_FILE="${PROXYSQL_DATADIR}/${CLUSTER_NAME}_reload"
+fi
+
+if [[ ! -f ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_mode ]] ; then
+  MODE_CHECK=$(proxysql_exec "select comment from mysql_servers where comment='WRITE' and hostgroup_id in ($WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID)")
+  if [[ "$MODE_CHECK" == "WRITE" ]]; then
+    if [[ -z $CLUSTER_NAME ]]; then 
+      echo "singlewrite" > ${PROXYSQL_DATADIR}/mode
+	else
+      echo "singlewrite" > ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_mode
+	fi
+  else
+    if [[ -z $CLUSTER_NAME ]]; then 
+      echo "loadbal" > ${PROXYSQL_DATADIR}/mode
+	else
+      echo "loadbal" > ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_mode
+	fi
+  fi
+  if [[ -z $CLUSTER_NAME ]]; then 
+    MODE=$(cat ${PROXYSQL_DATADIR}/mode)
+  else
+    MODE=$(cat ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_mode)  
+  fi
+else
+  MODE=$(cat ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_mode)
+fi
 
 # With thanks, http://bencane.com/2015/09/22/preventing-duplicate-cron-job-executions/
-CHECKER_PIDFILE=${PROXYSQL_DATADIR}/${CLUSTER_NAME}_galera_checker.pid
+if [[ -z $CLUSTER_NAME ]]; then 
+  CHECKER_PIDFILE=${PROXYSQL_DATADIR}/galera_checker.pid
+else
+  CHECKER_PIDFILE=${PROXYSQL_DATADIR}/${CLUSTER_NAME}_galera_checker.pid
+fi
+
 if [ -f $CHECKER_PIDFILE ] ; then
   GPID=$(cat $CHECKER_PIDFILE)
   if ps -p $GPID -o args=ARGS | grep $ERR_FILE | grep -o proxysql_galera_check > /dev/null 2>&1 ; then
@@ -110,26 +174,16 @@ fi
 
 echo "0" > ${RELOAD_CHECK_FILE}
 
-mysql_exec() {
-  local query="$1"
-  printf "%s\n" \
-      "[client]" \
-      "user='${MYSQL_USERNAME}'" \
-      "password='${MYSQL_PASSWORD}'" \
-      "host=${server}" \
-      "port=${port}"  \
-      | timeout $TIMEOUT mysql --defaults-file=/dev/stdin --protocol=tcp -nNE -e "${query}"
-  if [ "$?" == "124" ]; then
-    echoit "TIMEOUT ERROR: Connection terminated due to timeout."
-  fi
-}
-
 #Running proxysql_node_monitor script.
 if [[ ! -f /usr/bin/proxysql_node_monitor ]] ;then
   echoit "ERROR! Could not run /usr/bin/proxysql_node_monitor. Monitoring script does not exists in default location. Terminating"
   exit 1
 else
-  /usr/bin/proxysql_node_monitor $HOSTGROUP_WRITER_ID $HOSTGROUP_READER_ID ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_proxysql_node_monitor.log
+  if [[ -z $CLUSTER_NAME ]]; then
+    /usr/bin/proxysql_node_monitor $HOSTGROUP_WRITER_ID $HOSTGROUP_READER_ID ${PROXYSQL_DATADIR}/proxysql_node_monitor.log
+  else
+    /usr/bin/proxysql_node_monitor $HOSTGROUP_WRITER_ID $HOSTGROUP_READER_ID ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_proxysql_node_monitor.log
+  fi
 fi
 
 if [[ "$1" = '-h' || "$1" = '--help'  || -z "$1" ]]
@@ -180,14 +234,6 @@ echoit "Number of writers $NUMBER_WRITERS"
 echoit "Writers are readers $WRITER_IS_READER"
 echoit "log file $ERR_FILE"
 
-#Timeout exists for instances where mysqld may be hung
-TIMEOUT=10
-
-#proxysql_exec="env MYSQL_PWD=$PROXYSQL_PASSWORD mysql -u$PROXYSQL_USERNAME -h $PROXYSQL_HOSTNAME -P $PROXYSQL_PORT --protocol=tcp -Nse"
-MYSQL_CREDENTIALS=$(proxysql_exec "SELECT variable_value FROM global_variables WHERE variable_name IN ('mysql-monitor_username','mysql-monitor_password') ORDER BY variable_name DESC")
-MYSQL_USERNAME=$(echo $MYSQL_CREDENTIALS | awk '{print $1}')
-MYSQL_PASSWORD=$(echo $MYSQL_CREDENTIALS | awk '{print $2}')
-#mysql_exec="env MYSQL_PWD=$MYSQL_PASSWORD timeout $TIMEOUT mysql -nNE -u$MYSQL_USERNAME"
 
 
 function change_server_status() {
@@ -517,18 +563,20 @@ if [[  ${HOSTGROUP_READER_ID} -ne -1 && ${NUMBER_READERS_ONLINE} -eq 0 ]]; then
   done
   CHECK_SLAVE=$(proxysql_exec "SELECT hostname FROM mysql_servers WHERE comment='SLAVEREAD' AND status='ONLINE'" 2>>${ERR_FILE}| tail -1 2>>${ERR_FILE})
   IS_QUERY_RULE_ACTIVE=$(proxysql_exec "SELECT active FROM mysql_query_rules WHERE destination_hostgroup=$HOSTGROUP_READER_ID limit 1;" 2>> ${ERR_FILE} | tail -1 2>>${ERR_FILE})
-  if [ "$MODE" == "singlewrite" ]; then
-    if [[ -z ${CHECK_SLAVE} ]]; then
-      if [[ ${IS_QUERY_RULE_ACTIVE} -eq 1 ]]; then
-        proxysql_exec "UPDATE mysql_query_rules SET active=0 WHERE destination_hostgroup=$HOSTGROUP_READER_ID;" 2>> ${ERR_FILE}
-        proxysql_exec "LOAD MYSQL QUERY RULES TO RUNTIME;" 2>> ${ERR_FILE}
-        echoit "No readers found, marking single writer node as read/write mode"
-      fi
-    else
-      if [[ ${IS_QUERY_RULE_ACTIVE} -eq 0 ]]; then
-        proxysql_exec "UPDATE mysql_query_rules SET active=1 WHERE destination_hostgroup=$HOSTGROUP_READER_ID;" 2>> ${ERR_FILE}
-        proxysql_exec "LOAD MYSQL QUERY RULES TO RUNTIME;" 2>> ${ERR_FILE}
-        echoit "Slave host is online, disabling read transaction from writer node"
+  if [[ "$IS_QUERY_RULE_ACTIVE" != "" ]]; then
+    if [ "$MODE" == "singlewrite" ]; then
+      if [[ -z ${CHECK_SLAVE} ]]; then
+        if [[ ${IS_QUERY_RULE_ACTIVE} -eq 1 ]]; then
+          proxysql_exec "UPDATE mysql_query_rules SET active=0 WHERE destination_hostgroup=$HOSTGROUP_READER_ID;" 2>> ${ERR_FILE}
+          proxysql_exec "LOAD MYSQL QUERY RULES TO RUNTIME;" 2>> ${ERR_FILE}
+          echoit "No readers found, marking single writer node as read/write mode"
+        fi
+      else
+        if [[ ${IS_QUERY_RULE_ACTIVE} -eq 0 ]]; then
+          proxysql_exec "UPDATE mysql_query_rules SET active=1 WHERE destination_hostgroup=$HOSTGROUP_READER_ID;" 2>> ${ERR_FILE}
+          proxysql_exec "LOAD MYSQL QUERY RULES TO RUNTIME;" 2>> ${ERR_FILE}
+          echoit "Slave host is online, disabling read transaction from writer node"
+        fi
       fi
     fi
   fi
@@ -537,10 +585,12 @@ fi
 if [ "$MODE" == "singlewrite" ]; then
   if [[  ${HOSTGROUP_READER_ID} -ne -1 && ${NUMBER_READERS_ONLINE} -gt 0 ]]; then
     IS_QUERY_RULE_ACTIVE=$(proxysql_exec "SELECT active FROM mysql_query_rules WHERE destination_hostgroup=$HOSTGROUP_READER_ID limit 1;" 2>> ${ERR_FILE} | tail -1 2>>${ERR_FILE})
-    if [[ ${IS_QUERY_RULE_ACTIVE} -eq 0 ]]; then
-      proxysql_exec "UPDATE mysql_query_rules SET active=1 WHERE destination_hostgroup=$HOSTGROUP_READER_ID;" 2>> ${ERR_FILE}
-      proxysql_exec "LOAD MYSQL QUERY RULES TO RUNTIME;" 2>> ${ERR_FILE}
-      echoit "Found reader, disabling read transaction from writer node"
+    if [[ "$IS_QUERY_RULE_ACTIVE" != "" ]]; then
+      if [[ ${IS_QUERY_RULE_ACTIVE} -eq 0 ]]; then
+        proxysql_exec "UPDATE mysql_query_rules SET active=1 WHERE destination_hostgroup=$HOSTGROUP_READER_ID;" 2>> ${ERR_FILE}
+        proxysql_exec "LOAD MYSQL QUERY RULES TO RUNTIME;" 2>> ${ERR_FILE}
+        echoit "Found reader, disabling read transaction from writer node"
+      fi
     fi
   fi
 fi
