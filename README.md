@@ -363,5 +363,5 @@ Simple script to dump ProxySQL config and stats
 __Usage:__
 
 ```
-./proxysql-status admin admin 127.0.0.1 6032
+proxysql-status admin admin 127.0.0.1 6032
 ```
