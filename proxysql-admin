@@ -911,7 +911,7 @@ syncusers() {
 	  if [[ "$is_proxysql_admin_user" == "1" ]];then
         echo -e "\nNote : '$user' is in proxysql admin user list, cannot not add this user to proxysql database( For more info https://github.com/sysown/proxysql/issues/709)"
 	  else
-        proxysql_exec "INSERT INTO mysql_users (username, password, active, default_hostgroup) VALUES ('${user}', '${password}', 1, 10)"
+        proxysql_exec "INSERT INTO mysql_users (username, password, active, default_hostgroup) VALUES ('${user}', '${password}', 1, $WRITE_HOSTGROUP_ID)"
 	    check_cmd $? "Failed to add the user ($user) from Percona XtraDB Cluster to ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
 	  fi
     fi
