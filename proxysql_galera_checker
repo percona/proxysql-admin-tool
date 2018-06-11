@@ -95,7 +95,12 @@ MYSQL_PASSWORD=$(echo $MYSQL_CREDENTIALS | awk '{print $2}')
 AVAILABLE_HOST=$(proxysql_exec "SELECT hostname,port FROM mysql_servers where hostgroup_id in ($HOSTGROUP_WRITER_ID, $HOSTGROUP_READER_ID) and status='ONLINE' limit 1")
 server=$(echo $AVAILABLE_HOST | awk '{print $1}')
 port=$(echo $AVAILABLE_HOST | awk '{print $2}')
-
+CONNECTION_MSG=$( { printf "[client]\nuser=${MYSQL_USERNAME}\npassword=\"${MYSQL_PASSWORD}\"\nhost=${server}\nport=${port}\n" | mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "select @@port" >/dev/null; }  2>&1 )
+if [[ ! -z $CONNECTION_MSG ]]; then
+  echoit "$CONNECTION_MSG"
+  echoit "ProxySQL monitor credentials do not match with Percona XtraDB Cluster! Terminating."
+  exit 1
+fi
 
 CLUSTER_NAME=$(proxysql_exec "select comment from scheduler where arg1=$HOSTGROUP_WRITER_ID")
 if [[ -z $CLUSTER_NAME ]]; then
