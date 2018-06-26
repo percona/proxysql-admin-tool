@@ -346,6 +346,8 @@ mode_change_check(){
     checkslave_hid=`proxysql_exec "select hostgroup_id from mysql_servers where hostgroup_id='$WRITE_HOSTGROUP_ID' AND comment='SLAVEREAD'"`
     # Set a variable containing a random available cluster node
     available_cluster_hosts=(`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE status='ONLINE' and comment in ('READ', 'READWRITE') ORDER BY random() LIMIT 1" | sed 's|\t|:|g' | tr '\n' ' '`)
+    # If we have any writers at all
+    writers_hid = `proxysql_exec "select hostgroup_id from mysql_servers where hostgroup_id='$WRITE_HOSTGROUP_ID'"`
     if [[ -n "$checkslave_hid" ]]; then
       # The current writer is a slave, check for other ONLINE nodes to put in
       if [ -n "$available_cluster_hosts" ];then
@@ -360,15 +362,18 @@ mode_change_check(){
     if [ -z $priority_hosts ];then
       # Order file wasn't found
       # Do not change the config of a cluster node if the MODE is 'loadbal'
-      if [ -n "$available_cluster_hosts" ] && [ -n "$writer_was_slave" ] && [ "$MODE" != "loadbal" ];then
-        # There is a regular cluster node available, put it back in the writer hostgroup
-        ws_ip=$(echo $available_cluster_hosts | cut -d':' -f1)
-        ws_port=$(echo $available_cluster_hosts | cut -d':' -f2)
-        if [ $debug -eq 1 ];then echoit "DEBUG mode_change_check2: Changing $ws_ip:$ws_port to WRITE status and hostgroup $WRITE_HOSTGROUP_ID" ;fi
-        proxysql_exec "UPDATE mysql_servers set hostgroup_id = $WRITE_HOSTGROUP_ID, comment='WRITE', weight=$WRITE_WEIGHT WHERE hostname='$ws_ip' and port=$ws_port"
-        check_cmd $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check proxysql login credentials"
-        echoit "$ws_ip:$ws_port is ONLINE, switching to write hostgroup" 
-        CHECK_STATUS=1
+      if [ -n "$available_cluster_hosts" ] && [ "$MODE" != "loadbal" ];then
+        # If we disabled SLAVEREAD which was a writer or have no writers at all
+        if [ -n "$writer_was_slave" ] || [ -n "$writers_hid" ]; then
+          # There is a regular cluster node available, put it back in the writer hostgroup
+          ws_ip=$(echo $available_cluster_hosts | cut -d':' -f1)
+          ws_port=$(echo $available_cluster_hosts | cut -d':' -f2)
+          if [ $debug -eq 1 ];then echoit "DEBUG mode_change_check2: Changing $ws_ip:$ws_port to WRITE status and hostgroup $WRITE_HOSTGROUP_ID" ;fi
+          proxysql_exec "UPDATE mysql_servers set hostgroup_id = $WRITE_HOSTGROUP_ID, comment='WRITE', weight=$WRITE_WEIGHT WHERE hostname='$ws_ip' and port=$ws_port"
+          check_cmd $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check proxysql login credentials"
+          echoit "$ws_ip:$ws_port is ONLINE, switching to write hostgroup"
+          CHECK_STATUS=1
+        fi
       fi
     else
       # Check here if the highest priority node is the writer
@@ -410,15 +415,17 @@ mode_change_check(){
           CHECK_STATUS=1
         fi
       else
-        if [ -n "$available_cluster_hosts" ] && [ -n "$writer_was_slave" ];then
-          # There is a regular cluster node available, pull out the slave and put the cluster node back in the writer hostgroup
-          ws_ip=$(echo $available_cluster_hosts | cut -d':' -f1)
-          ws_port=$(echo $available_cluster_hosts | cut -d':' -f2)
-          if [ $debug -eq 1 ];then echoit "DEBUG mode_change_check4: Changing $ws_ip:$ws_port to hostgroup $WRITE_HOSTGROUP_ID" ;fi
-          proxysql_exec "UPDATE mysql_servers set hostgroup_id = $WRITE_HOSTGROUP_ID, weight=$WRITE_WEIGHT WHERE hostname='$ws_ip' and port=$ws_port"
-          check_cmd $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check proxysql login credentials"
-          echoit "$ws_ip:$ws_port is ONLINE, switching to write hostgroup" 
-          CHECK_STATUS=1
+        if [ -n "$available_cluster_hosts" ] ;then
+          if [ -n "$writer_was_slave" ] || [ -n "$writers_hid" ]; then
+            # There is a regular cluster node available, pull out the slave and put the cluster node back in the writer hostgroup
+            ws_ip=$(echo $available_cluster_hosts | cut -d':' -f1)
+            ws_port=$(echo $available_cluster_hosts | cut -d':' -f2)
+            if [ $debug -eq 1 ];then echoit "DEBUG mode_change_check4: Changing $ws_ip:$ws_port to hostgroup $WRITE_HOSTGROUP_ID" ;fi
+            proxysql_exec "UPDATE mysql_servers set hostgroup_id = $WRITE_HOSTGROUP_ID, weight=$WRITE_WEIGHT WHERE hostname='$ws_ip' and port=$ws_port"
+            check_cmd $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check proxysql login credentials"
+            echoit "$ws_ip:$ws_port is ONLINE, switching to write hostgroup"
+            CHECK_STATUS=1
+          fi
         fi
       fi
     fi
