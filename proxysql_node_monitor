@@ -258,9 +258,7 @@ update_cluster(){
 
 mode_change_check(){
   if [ $debug -eq 1 ];then echoit "DEBUG START mode_change_check" ;fi
-  if [[ -z $CLUSTER_NAME ]]; then
-      HOST_PRIORITY_FILE="${HOST_PRIORITY_FILE}_${CLUSTER_NAME}"
-  fi
+  HOST_PRIORITY_FILE=${PROXYSQL_DATADIR}/${CLUSTER_NAME}_host_priority
 
   if [ -f $HOST_PRIORITY_FILE ];then
     # Get the list of hosts from the host_priority file ignoring blanks and any lines that start with '#'
