@@ -43,7 +43,6 @@ if [ $debug -eq 1 ];then echoit "DEBUG MODE: $MODE" ;fi
 
 if [ $debug -eq 1 ];then echoit "DEBUG check mode name from proxysql data directory " ;fi
 CLUSTER_NAME=$(proxysql_exec "select comment from scheduler where arg1=$WRITE_HOSTGROUP_ID")
-
 if [[ -z $CLUSTER_NAME ]]; then
   if [[ -f ${PROXYSQL_DATADIR}/mode ]] ; then
     MODE=$(cat ${PROXYSQL_DATADIR}/mode)
@@ -259,6 +258,9 @@ update_cluster(){
 
 mode_change_check(){
   if [ $debug -eq 1 ];then echoit "DEBUG START mode_change_check" ;fi
+  if [[ -z $CLUSTER_NAME ]]; then
+      HOST_PRIORITY_FILE="${HOST_PRIORITY_FILE}_${CLUSTER_NAME}"
+  fi
 
   if [ -f $HOST_PRIORITY_FILE ];then
     # Get the list of hosts from the host_priority file ignoring blanks and any lines that start with '#'

@@ -460,6 +460,13 @@ CLUSTER_NAME=$(mysql_exec "select @@wsrep_cluster_name;")
 rm -rf ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_mode
 echo "$MODE" > ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_mode
 
+# Create the host priority file if multiple write nodes were specified
+if [ -n $enable_priority ];then
+    if [[ -z $CLUSTER_NAME ]]; then
+        HOST_PRIORITY_FILE="${HOST_PRIORITY_FILE}_${CLUSTER_NAME}"
+    fi
+fi
+
 user_input_check(){
   USER_CATEGORY=$1
   USER_DESCRIPTION=$2
