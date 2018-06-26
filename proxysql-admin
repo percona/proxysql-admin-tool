@@ -17,12 +17,6 @@
 # along with this program; if not, write to the Free Software Foundation, Inc.,
 # 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
-# Make sure only root can run this script
-if [ "$(id -u)" -ne 0 ]; then
-  echo "ERROR: This script must be run as root!" 1>&2
-  exit 1
-fi
-
 #bash prompt internal configuration
 BD=$(tput bold)
 NBD=$(tput sgr0)
@@ -95,6 +89,16 @@ if ! echo "$go_out" | grep -q 'config-file'; then
       echo "WARNING! Default configuration file (/etc/proxysql-admin.cnf) does not exist"
     fi
   fi
+fi
+
+if [[ -z "$PROXYSQL_DATADIR" ]]; then
+  PROXYSQL_DATADIR='/var/lib/proxysql'
+fi
+
+# Check if we have write permissions on proxysql datadir
+if [[ ! -w  $PROXYSQL_DATADIR ]]; then
+  echo "ERROR: This script must be run as root!" 1>&2
+  exit 1
 fi
 
 for arg
@@ -367,10 +371,6 @@ else
   MONITOR_PASSWORD='monitor'
   CLUSTER_APP_USERNAME='pxc_test_user'
   CLUSTER_APP_PASSWORD=''
-fi
-
-if [[ -z "$PROXYSQL_DATADIR" ]]; then
-  PROXYSQL_DATADIR='/var/lib/proxysql'
 fi
 
 if [[ -z "$NODE_CHECK_INTERVAL" ]]; then
