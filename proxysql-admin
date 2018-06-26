@@ -391,25 +391,11 @@ fi
 if [ -z $WRITE_HOSTGROUP_ID ];then WRITE_HOSTGROUP_ID=10;fi
 if [ -z $READ_HOSTGROUP_ID ];then READ_HOSTGROUP_ID=11;fi
 
-# We don't use need the correct mode in ${CONFIG_FILE} anymore 
-# We are using ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_mode
-# Adding this check just for safety to avoid below sed to fail
-if [[ ! -w ${CONFIG_FILE} ]]; then
-  echo "ERROR: cannot write to file ${CONFIG_FILE}"
-  exit 1
-fi
-
 if [ $MODE == "loadbal" ]; then
   SLAVEREAD_HOSTGROUP_ID=$READ_HOSTGROUP_ID
   READ_HOSTGROUP_ID=$WRITE_HOSTGROUP_ID
-  if [ -e "${CONFIG_FILE}" ]; then
-    sed -i "0,/^[ \t]*export MODE[ \t]*=.*$/s|^[ \t]*export MODE[ \t]*=.*$|export MODE=\"loadbal\"|" "${CONFIG_FILE}"
-  fi
 elif [ $MODE == "singlewrite" ]; then
   SLAVEREAD_HOSTGROUP_ID=$READ_HOSTGROUP_ID
-  if [ -e "${CONFIG_FILE}" ]; then
-    sed -i "0,/^[ \t]*export MODE[ \t]*=.*$/s|^[ \t]*export MODE[ \t]*=.*$|export MODE=\"singlewrite\"|" "${CONFIG_FILE}"
-  fi
 fi
 
 export PIDFILE="/tmp/cluster-proxysql-monitor.pid"
