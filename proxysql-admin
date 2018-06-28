@@ -17,16 +17,18 @@
 # along with this program; if not, write to the Free Software Foundation, Inc.,
 # 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
-# Make sure only root can run this script
-if [ "$(id -u)" -ne 0 ]; then
-  echo "ERROR: This script must be run as root!" 1>&2
-  exit 1
-fi
-
 #bash prompt internal configuration
 BD=$(tput bold)
 NBD=$(tput sgr0)
 
+# Check user permission to needed files/directory
+check_permission(){
+  file_checker=$1
+  if [ ! -w $file_checker ] ; then
+    echo "ERROR: You do not have permission to access $file_checker file/directory."
+    exit 1
+  fi
+}
 # Internal variables
 if [ -e "/dummypathnonexisting/.mylogin.cnf" ]; then
   echo "ERROR! /dummypathnonexisting/.mylogin.cnf found. This should not happen. Terminating";
@@ -90,6 +92,7 @@ if ! echo "$go_out" | grep -q 'config-file'; then
     # Reading default variables from default configuration file location.
     if [ -e "/etc/proxysql-admin.cnf" ]; then
       # Loading default configuration from /etc/proxysql-admin.cnf
+      check_permission "/etc/proxysql-admin.cnf"
       source /etc/proxysql-admin.cnf
       CONFIG_FILE="/etc/proxysql-admin.cnf"
     else
@@ -263,6 +266,13 @@ do
     ;;
   esac
 done
+
+# Check user permission to proxysql datadir
+if [[ -z $PROXYSQL_DATADIR ]]; then
+  check_permission "/var/lib/proxysql"
+else
+  check_permission $PROXYSQL_DATADIR
+fi
 
 if [ ! -z "$QUICK_DEMO" ]; then
   echo -e "\nThis script will assist with configuring ProxySQL (currently only Percona XtraDB cluster in combination with ProxySQL is supported)"
