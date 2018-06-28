@@ -347,7 +347,7 @@ mode_change_check(){
     # Set a variable containing a random available cluster node
     available_cluster_hosts=(`proxysql_exec "SELECT hostname,port FROM mysql_servers WHERE status='ONLINE' and comment in ('READ', 'READWRITE') ORDER BY random() LIMIT 1" | sed 's|\t|:|g' | tr '\n' ' '`)
     # If we have any writers at all
-    writers_hid = `proxysql_exec "select hostgroup_id from mysql_servers where hostgroup_id='$WRITE_HOSTGROUP_ID'"`
+    writer_hid=`proxysql_exec "select hostgroup_id from mysql_servers where hostgroup_id='$WRITE_HOSTGROUP_ID'"`
     if [[ -n "$checkslave_hid" ]]; then
       # The current writer is a slave, check for other ONLINE nodes to put in
       if [ -n "$available_cluster_hosts" ];then
@@ -364,7 +364,7 @@ mode_change_check(){
       # Do not change the config of a cluster node if the MODE is 'loadbal'
       if [ -n "$available_cluster_hosts" ] && [ "$MODE" != "loadbal" ];then
         # If we disabled SLAVEREAD which was a writer or have no writers at all
-        if [ -n "$writer_was_slave" ] || [ -n "$writers_hid" ]; then
+        if [ -n "$writer_was_slave" ] || [ -z "$writer_hid" ]; then
           # There is a regular cluster node available, put it back in the writer hostgroup
           ws_ip=$(echo $available_cluster_hosts | cut -d':' -f1)
           ws_port=$(echo $available_cluster_hosts | cut -d':' -f2)
@@ -416,7 +416,7 @@ mode_change_check(){
         fi
       else
         if [ -n "$available_cluster_hosts" ] ;then
-          if [ -n "$writer_was_slave" ] || [ -n "$writers_hid" ]; then
+          if [ -n "$writer_was_slave" ] || [ -z "$writer_hid" ]; then
             # There is a regular cluster node available, pull out the slave and put the cluster node back in the writer hostgroup
             ws_ip=$(echo $available_cluster_hosts | cut -d':' -f1)
             ws_port=$(echo $available_cluster_hosts | cut -d':' -f2)
