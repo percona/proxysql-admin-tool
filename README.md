@@ -72,9 +72,6 @@ Pre-requisites
 
   # ProxySQL read/write configuration mode.
   export MODE="singlewrite"
-
-  # ProxySQL Cluster Node Priority File
-  export HOST_PRIORITY_FILE=$PROXYSQL_DATADIR/host_priority.conf
 ```
 
 It is recommend you use _--config-file_ to run this proxysql-admin script.
@@ -166,7 +163,7 @@ __i) --mode__
 This option allows you to setup read/write mode for cluster nodes in ProxySQL database based on the hostgroup. For now, the only supported modes are _loadbal_ and _singlewrite_. _singlewrite_ is the default mode, and it will configure Percona Cluster to only accept writes on one single node only. All other remaining nodes will be read-only and accept only read statements. 
 
 With --write-node option we can control a priority order of what host is most desired to be the writer at any given time.
-When used the feature will create the config file which is by default "/var/lib/proxysql/host_priority.conf", this is configurable in proxysql-admin.cnf. Servers can be specified comma delimited - 10.0.0.51:3306, 10.0.0.52:3306 - The 51 node will always be in the writer hostgroup if it is ONLINE, if it is OFFLINE the 52 node will go into the writer hostgroup, and if it goes down a node from the remaining nodes will be randomly chosen for the writer hostgroup.
+When used the feature will create the config file which is by default stored as `${CLUSTER_NAME}_host_priority` under your `$PROXYSQL_DATADIR` folder. Servers can be specified comma delimited - 10.0.0.51:3306, 10.0.0.52:3306 - The 51 node will always be in the writer hostgroup if it is ONLINE, if it is OFFLINE the 52 node will go into the writer hostgroup, and if it goes down a node from the remaining nodes will be randomly chosen for the writer hostgroup.
 This new config file will be deleted when --disable is used. This will ensure a specified writer-node will always be the writer node while it is ONLINE.
 
 The mode _loadbal_ on the other hand is a load balanced set of evenly weighted read/write nodes.
