@@ -23,8 +23,9 @@ NBD=$(tput sgr0)
 
 # Check user permission to needed files/directory
 check_permission(){
-  file_checker=$1
-  if [ ! -w $file_checker ] ; then
+  permission=$1
+  file_checker=$2
+  if [ ! $permission $file_checker ] ; then
     echo "ERROR: You do not have permission to access $file_checker file/directory."
     exit 1
   fi
@@ -92,7 +93,7 @@ if ! echo "$go_out" | grep -q 'config-file'; then
     # Reading default variables from default configuration file location.
     if [ -e "/etc/proxysql-admin.cnf" ]; then
       # Loading default configuration from /etc/proxysql-admin.cnf
-      check_permission "/etc/proxysql-admin.cnf"
+      check_permission -r "/etc/proxysql-admin.cnf"
       source /etc/proxysql-admin.cnf
       CONFIG_FILE="/etc/proxysql-admin.cnf"
     else
@@ -114,7 +115,7 @@ do
       fi
       if [ -e "${CONFIG_FILE}" ]; then
         # Loading configuration from ${CONFIG_FILE}
-        check_permission "${CONFIG_FILE}"
+        check_permission -r "${CONFIG_FILE}"
         source "${CONFIG_FILE}"
       else
         echo "ERROR: The configuration file ${CONFIG_FILE} specified by --config-file does not exist. Terminating."
@@ -270,9 +271,9 @@ done
 
 # Check user permission to proxysql datadir
 if [[ -z $PROXYSQL_DATADIR ]]; then
-  check_permission "/var/lib/proxysql"
+  check_permission -w "/var/lib/proxysql"
 else
-  check_permission $PROXYSQL_DATADIR
+  check_permission -w $PROXYSQL_DATADIR
 fi
 
 if [ ! -z "$QUICK_DEMO" ]; then
@@ -294,7 +295,9 @@ if [ ! -z "$QUICK_DEMO" ]; then
     ;;
   esac
 fi
-
+################
+exit 1
+################
 if [[ ! -e $(which mysql 2> /dev/null) ]] ;then
   echo "The mysql client was not found, please install the mysql client package using your OS packaging manager!"
   exit 1
