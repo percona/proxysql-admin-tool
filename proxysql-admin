@@ -102,6 +102,16 @@ if ! echo "$go_out" | grep -q 'config-file'; then
   fi
 fi
 
+if [[ -z "$PROXYSQL_DATADIR" ]]; then
+  PROXYSQL_DATADIR='/var/lib/proxysql'
+fi
+
+# Check if we have write permissions on proxysql datadir
+if [[ ! -w  $PROXYSQL_DATADIR ]]; then
+  echo "ERROR: This script must be run as root!" 1>&2
+  exit 1
+fi
+
 for arg
 do
   case "$arg" in
@@ -384,10 +394,6 @@ else
   MONITOR_PASSWORD='monitor'
   CLUSTER_APP_USERNAME='pxc_test_user'
   CLUSTER_APP_PASSWORD=''
-fi
-
-if [[ -z "$PROXYSQL_DATADIR" ]]; then
-  PROXYSQL_DATADIR='/var/lib/proxysql'
 fi
 
 if [[ -z "$NODE_CHECK_INTERVAL" ]]; then
