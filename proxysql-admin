@@ -295,9 +295,7 @@ if [ ! -z "$QUICK_DEMO" ]; then
     ;;
   esac
 fi
-################
-exit 1
-################
+
 if [[ ! -e $(which mysql 2> /dev/null) ]] ;then
   echo "The mysql client was not found, please install the mysql client package using your OS packaging manager!"
   exit 1
