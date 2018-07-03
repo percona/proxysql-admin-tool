@@ -470,6 +470,7 @@ check_proxysql(){
 CLUSTER_NAME=$(mysql_exec "select @@wsrep_cluster_name;")
 rm -rf ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_mode
 echo "$MODE" > ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_mode
+HOST_PRIORITY_FILE=${PROXYSQL_DATADIR}/${CLUSTER_NAME}_host_priority
 
 user_input_check(){
   USER_CATEGORY=$1
