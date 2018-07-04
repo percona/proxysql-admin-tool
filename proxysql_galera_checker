@@ -42,7 +42,7 @@ check_permission(){
 # don't get limited by 5 arguntes only. Below set will reshuffle parameters.
 # example arg1=" --one=1 --two=2" will result in:
 # $1 = --one=1
-# $2 0 --two=2
+# $2 = --two=2
 if [ "$#" -eq 1 ]; then
     set -- $1
 fi
