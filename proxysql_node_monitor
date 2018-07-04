@@ -4,16 +4,111 @@
 
 debug=0
 
-ERR_FILE="${3:-/dev/null}"
+usage () {
+  echo "Usage:"
+  echo "  proxysql_node_monitor --write-hg=10 --read-hg=11 --config-file=/etc/proxysql-admin.cnf --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log"
+  echo ""
+  echo "Options:"
+  echo "  -w, --write-hg=<NUMBER>     Specify ProxySQL write hostgroup."
+  echo "  -r, --read-hg=<NUMBER>      Specify ProxySQL read hostgroup."
+  echo "  -c, --config-file=PATH      Specify ProxySQL-admin configuration file."
+  echo "  -l, --log=PATH              Specify proxysql_node_monitor log file."
+  echo "  -h, --help                  Display script usage information"
+  echo "  -v, --version               Print version info"
+}
+
+# Check user permission to needed file.
+check_permission(){
+  file_checker=$1
+  if [ ! -r $file_checker ] ; then
+    echo "ERROR: You do not have permission to access $file_checker file."
+    exit 1
+  fi
+}
+
+# Check if we have a functional getopt(1)
+if ! getopt --test
+  then
+  go_out="$(getopt --options=w:r:c:l:vh --longoptions=write-hg:,read-hg:,config-file:,log:,version,help \
+  --name="$(basename "$0")" -- "$@")"
+  test $? -eq 0 || exit 1
+  eval set -- "$go_out"
+fi
+
+if [[ $go_out == " --" ]];then
+  usage
+  exit 1
+fi
+
+for arg
+do
+  case "$arg" in
+    -- ) shift; break;;
+    -w | --write-hg )
+      export WRITE_HOSTGROUP_ID="$2"
+      shift 2
+    ;;
+    -r | --read-hg )
+      export READ_HOSTGROUP_ID="$2"
+      shift 2
+    ;;
+    --config-file )
+      CONFIG_FILE="$2"
+      shift 2
+      if [ -z "${CONFIG_FILE}" ]; then
+        echo "ERROR: The configuration file location (--config-file) was not provided. Terminating."
+        exit 1
+      fi
+      if [ -e "${CONFIG_FILE}" ]; then
+        # Loading configuration from ${CONFIG_FILE}
+        check_permission "${CONFIG_FILE}"
+        source "${CONFIG_FILE}"
+      else
+        echo "ERROR: The configuration file ${CONFIG_FILE} specified by --config-file does not exist. Terminating."
+        exit 1
+      fi
+    ;;
+    -l | --log )
+      export ERR_FILE="$2"
+      shift 2
+    ;;
+    -v | --version )
+      echo "proxysql_galera_checker version 1.4.9"
+      exit 0
+    ;;
+    -h | --help )
+      usage
+      exit 0
+    ;;
+  esac
+done
+
+if [[ -z $CONFIG_FILE ]]; then
+  # Reading default variables from default configuration file location.
+  if [ -e "/etc/proxysql-admin.cnf" ]; then
+    # Loading default configuration from /etc/proxysql-admin.cnf
+    check_permission  "/etc/proxysql-admin.cnf"
+    source /etc/proxysql-admin.cnf
+    CONFIG_FILE="/etc/proxysql-admin.cnf"
+  else
+    echo "ERROR! Default configuration file (/etc/proxysql-admin.cnf) does not exist. Terminating!"
+	exit 1
+  fi
+fi
+# DEFAULTS
+if [[ -z $WRITE_HOSTGROUP_ID ]]; then
+  WRITE_HOSTGROUP_ID="1"
+fi
+if [[ -z $READ_HOSTGROUP_ID ]]; then
+  HOSTGROUP_READER_ID="-1"
+fi
+if [[ -z $ERR_FILE ]]; then
+  ERR_FILE="/dev/null"
+fi
+
 echoit(){
   echo "[$(date +%Y-%m-%d\ %H:%M:%S)] $1" >> $ERR_FILE
 }
-if [ -f /etc/proxysql-admin.cnf ]; then
-  source /etc/proxysql-admin.cnf
-else
-  echoit "Assert! proxysql-admin configuration file :/etc/proxysql-admin.cnf does not exists, Terminating!" 
-  exit 1
-fi
 
 if [[ -z "$PROXYSQL_DATADIR" ]]; then
   PROXYSQL_DATADIR='/var/lib/proxysql'
@@ -22,8 +117,6 @@ fi
 #Timeout exists for instances where mysqld/proxysql may be hung
 TIMEOUT=5
 
-WRITE_HOSTGROUP_ID="${1:-0}"
-READ_HOSTGROUP_ID="${2:-0}"
 SLAVEREAD_HOSTGROUP_ID=$READ_HOSTGROUP_ID
 if [ $SLAVEREAD_HOSTGROUP_ID -eq $WRITE_HOSTGROUP_ID ];then
   let SLAVEREAD_HOSTGROUP_ID+=1
