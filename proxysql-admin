@@ -417,6 +417,15 @@ fi
 
 export PIDFILE="/tmp/cluster-proxysql-monitor.pid"
 
+#Check proxysql running status
+check_proxysql(){
+  check_proxysql=$(mysql -u${PROXYSQL_USERNAME} -p${PROXYSQL_PASSWORD} -h${PROXYSQL_HOSTNAME} -P${PROXYSQL_PORT} --protocol=tcp -Bse 'SELECT @@admin-version;' 2>/dev/null)
+  if [ -z $check_proxysql ]; then
+    echo "ProxySQL is not running, please check the error log at $PROXYSQL_DATADIR/proxysql.log"
+    exit 1
+  fi
+}
+
 proxysql_exec() {
   query=$1
   args=$2
@@ -458,13 +467,6 @@ check_cmd(){
   MPID=$1
   ERROR_MSG=$2
   if [ "${MPID}" -ne 0 ]; then echo -e "\nERROR: $ERROR_MSG. Terminating!"; exit 1; fi
-}
-
-check_proxysql(){
-  if ! pidof proxysql >/dev/null ; then
-    echo "ProxySQL is not running, please check the error log at $PROXYSQL_DATADIR/proxysql.log"
-    exit 1
-  fi
 }
 
 CLUSTER_NAME=$(mysql_exec "select @@wsrep_cluster_name;")
@@ -558,10 +560,7 @@ enable_proxysql(){
     PROXYSQL_NODE_MONITOR=$(which proxysql_node_monitor)
   fi
   # Check for existing proxysql process
-  if ! pidof proxysql >/dev/null ; then
-    echo "ProxySQL is not running; please start the proxysql service"
-    exit 1
-  fi
+  check_proxysql
   proxysql_connection_check
 
   # Checking an existing host priority file if its there
