@@ -66,11 +66,11 @@ do
   case "$arg" in
     -- ) shift; break;;
     -w | --write-hg )
-      export HOSTGROUP_WRITER_ID="$2"
+      export WRITE_HG="$2"
       shift 2
     ;;
     -r | --read-hg )
-      export HOSTGROUP_READER_ID="$2"
+      export READ_HG="$2"
       shift 2
     ;;
     --config-file )
@@ -137,10 +137,19 @@ TIMEOUT=5
 # DEFAULTS
 if [[ -z $HOSTGROUP_WRITER_ID ]]; then
   HOSTGROUP_WRITER_ID="1"
+else
+  if [[ ! -z $WRITE_HG ]]; then
+    HOSTGROUP_WRITER_ID=$WRITE_HG
+  fi
 fi
 if [[ -z $HOSTGROUP_READER_ID ]]; then
   HOSTGROUP_READER_ID="-1"
+else
+  if [[ ! -z $READ_HG ]]; then
+    HOSTGROUP_READER_ID=$READ_HG
+  fi
 fi
+
 if [[ -z $NUMBER_WRITERS ]]; then
   NUMBER_WRITERS=0
 fi
