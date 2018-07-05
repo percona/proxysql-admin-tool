@@ -783,7 +783,7 @@ enable_proxysql(){
   else
     NUMBER_WRITERS=0
   fi
-  proxysql_exec "INSERT INTO SCHEDULER (active,interval_ms,filename,arg1,arg2,arg3,arg4,arg5,comment) VALUES (1,$NODE_CHECK_INTERVAL,'$PROXYSQL_GALERA_CHECK','--write-hg=$WRITE_HOSTGROUP_ID','--read-hg=$READ_HOSTGROUP_ID','--config-file=$CONFIG_FILE','--writer-count=$NUMBER_WRITERS','--log=$PROXYSQL_DATADIR/${CLUSTER_NAME}_proxysql_galera_check.log','$CLUSTER_NAME');"
+  proxysql_exec "INSERT INTO SCHEDULER (active,interval_ms,filename,arg1,comment) VALUES (1,$NODE_CHECK_INTERVAL,'$PROXYSQL_GALERA_CHECK','--config-file=$CONFIG_FILE --write-hg=$WRITE_HOSTGROUP_ID --read-hg=$READ_HOSTGROUP_ID --writer-count=$NUMBER_WRITERS --log=$PROXYSQL_DATADIR/${CLUSTER_NAME}_proxysql_galera_check.log','$CLUSTER_NAME');"
   check_cmd $? "Failed to add the Percona XtraDB Cluster monitoring scheduler in ProxySQL. Please check username, password and other options for connecting to ProxySQL database"
   
   proxysql_exec "LOAD SCHEDULER TO RUNTIME;SAVE SCHEDULER TO DISK;"
