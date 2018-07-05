@@ -225,7 +225,7 @@ else
   RELOAD_CHECK_FILE="${PROXYSQL_DATADIR}/${CLUSTER_NAME}_reload"
 fi
 
-if [[ ! -z $P_MODE ]] then
+if [[ ! -z $P_MODE ]] ; then
   MODE=$P_MODE
 else
   if [[ ! -f ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_mode ]] ; then

@@ -153,7 +153,7 @@ if [ $debug -eq 1 ];then echoit "DEBUG MODE: $MODE" ;fi
 if [ $debug -eq 1 ];then echoit "DEBUG check mode name from proxysql data directory " ;fi
 CLUSTER_NAME=$(proxysql_exec "select comment from scheduler where arg1 LIKE '%--write-hg=$WRITE_HOSTGROUP_ID%'")
 
-if [[ ! -z $P_MODE ]] then
+if [[ ! -z $P_MODE ]] ; then
   MODE=$P_MODE
 elif [[ -z $CLUSTER_NAME ]]; then
   if [[ -f ${PROXYSQL_DATADIR}/mode ]] ; then
