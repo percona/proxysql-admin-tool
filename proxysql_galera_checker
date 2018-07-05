@@ -135,19 +135,16 @@ fi
 #Timeout exists for instances where mysqld/proxysql may be hung
 TIMEOUT=5
 # DEFAULTS
-if [[ -z $HOSTGROUP_WRITER_ID ]]; then
+if [[ ! -z $WRITE_HG ]]; then
+  HOSTGROUP_WRITER_ID=$WRITE_HG
+elif [[ -z $HOSTGROUP_WRITER_ID ]]; then
   HOSTGROUP_WRITER_ID="1"
-else
-  if [[ ! -z $WRITE_HG ]]; then
-    HOSTGROUP_WRITER_ID=$WRITE_HG
-  fi
 fi
-if [[ -z $HOSTGROUP_READER_ID ]]; then
+
+if [[ ! -z $READ_HG ]]; then
+  HOSTGROUP_READER_ID=$READ_HG
+elif [[ -z $HOSTGROUP_READER_ID ]]; then
   HOSTGROUP_READER_ID="-1"
-else
-  if [[ ! -z $READ_HG ]]; then
-    HOSTGROUP_READER_ID=$READ_HG
-  fi
 fi
 
 if [[ -z $NUMBER_WRITERS ]]; then
