@@ -12,6 +12,7 @@ usage () {
   echo "  -l, --log=PATH                      Specify proxysql_galera_checker log file."
   echo "  -n, --writer-count=<NUMBER>         Maximum number of write hostgroup_id node that can be marked ONLINE"
   echo "                                      When 0 (default), all nodes can be marked ONLINE"
+  echo "  -p, --priority=<HOST_LIST>          Can accept comma delimited list of write nodes priority"
   echo "  -m, --mode=[loadbal|singlewrite]    ProxySQL read/write configuration mode, currently supporting: 'loadbal' and 'singlewrite' (the default) modes"  
   echo "  -h, --help                          Display script usage information"
   echo "  -v, --version                       Print version info"
@@ -51,7 +52,7 @@ fi
 # Check if we have a functional getopt(1)
 if ! getopt --test
   then
-  go_out="$(getopt --options=w:r:c:l:n:m:vh --longoptions=write-hg:,read-hg:,config-file:,log:,writer-count:,mode:,version,help \
+  go_out="$(getopt --options=w:r:c:l:n:m:p:vh --longoptions=write-hg:,read-hg:,config-file:,log:,writer-count:,mode:,priority:,version,help \
   --name="$(basename "$0")" -- "$@")"
   test $? -eq 0 || exit 1
   eval set -- "$go_out"
@@ -96,6 +97,10 @@ do
     ;;
     -n | --writer-count )
       export NUMBER_WRITERS="$2"
+      shift 2
+    ;;
+    -p | --priority )
+      P_PRIORITY="$2"
       shift 2
     ;;
     -m | --mode )
@@ -291,15 +296,21 @@ fi
 
 echo "0" > ${RELOAD_CHECK_FILE}
 
+# Priority check
+PRIORITY=""
+if [[ ! -z "$P_PRIORITY" ]] ; then
+    PRIORITY="--priority=$P_PRIORITY"
+fi
+
 #Running proxysql_node_monitor script.
 if [[ ! -f /usr/bin/proxysql_node_monitor ]] ;then
   echoit "ERROR! Could not run /usr/bin/proxysql_node_monitor. Monitoring script does not exists in default location. Terminating"
   exit 1
 else
   if [[ -z $CLUSTER_NAME ]]; then
-    /usr/bin/proxysql_node_monitor --config-file=$CONFIG_FILE --write-hg=$HOSTGROUP_WRITER_ID --read-hg=$HOSTGROUP_READER_ID --mode=$MODE --log=${PROXYSQL_DATADIR}/proxysql_node_monitor.log
+    /usr/bin/proxysql_node_monitor --config-file=$CONFIG_FILE --write-hg=$HOSTGROUP_WRITER_ID --read-hg=$HOSTGROUP_READER_ID --mode=$MODE $PRIORITY --log=${PROXYSQL_DATADIR}/proxysql_node_monitor.log
   else
-    /usr/bin/proxysql_node_monitor --config-file=$CONFIG_FILE --write-hg=$HOSTGROUP_WRITER_ID --read-hg=$HOSTGROUP_READER_ID --mode=$MODE --log=${PROXYSQL_DATADIR}/${CLUSTER_NAME}_proxysql_node_monitor.log
+    /usr/bin/proxysql_node_monitor --config-file=$CONFIG_FILE --write-hg=$HOSTGROUP_WRITER_ID --read-hg=$HOSTGROUP_READER_ID --mode=$MODE $PRIORITY --log=${PROXYSQL_DATADIR}/${CLUSTER_NAME}_proxysql_node_monitor.log
   fi
 fi
 

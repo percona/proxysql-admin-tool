@@ -12,6 +12,7 @@ usage () {
   echo "  -w, --write-hg=<NUMBER>             Specify ProxySQL write hostgroup."
   echo "  -r, --read-hg=<NUMBER>              Specify ProxySQL read hostgroup."
   echo "  -m, --mode=[loadbal|singlewrite]    ProxySQL read/write configuration mode, currently supporting: 'loadbal' and 'singlewrite' (the default) modes"
+  echo "  -p, --priority=<HOST_LIST>          Can accept comma delimited list of write nodes priority"
   echo "  -c, --config-file=PATH              Specify ProxySQL-admin configuration file."
   echo "  -l, --log=PATH                      Specify proxysql_node_monitor log file."
   echo "  -h, --help                          Display script usage information"
@@ -30,7 +31,7 @@ check_permission(){
 # Check if we have a functional getopt(1)
 if ! getopt --test
   then
-  go_out="$(getopt --options=w:r:c:l:vh --longoptions=write-hg:,read-hg:,mode:,config-file:,log:,version,help \
+  go_out="$(getopt --options=w:r:c:l:m:p:vh --longoptions=write-hg:,read-hg:,mode:,priority:,config-file:,log:,version,help \
   --name="$(basename "$0")" -- "$@")"
   test $? -eq 0 || exit 1
   eval set -- "$go_out"
@@ -61,6 +62,10 @@ do
       echo "  Please choose any of these modes: loadbal, singlewrite"
       exit 1
     fi
+    ;;
+    -p | --priority )
+      P_PRIORITY="$2"
+      shift 2
     ;;
     --config-file )
       CONFIG_FILE="$2"
@@ -374,8 +379,10 @@ mode_change_check(){
   if [[ ! -f $HOST_PRIORITY_FILE ]]; then
     HOST_PRIORITY_FILE=${PROXYSQL_DATADIR}/${CLUSTER_NAME}_host_priority
   fi
-
-  if [ -f $HOST_PRIORITY_FILE ];then
+  
+  if [[ ! -z "$P_PRIORITY" ]] ; then
+    IFS=',' read -r -a priority_hosts <<< "$P_PRIORITY"
+  elif [ -f $HOST_PRIORITY_FILE ];then
     # Get the list of hosts from the host_priority file ignoring blanks and any lines that start with '#'
     priority_hosts=(`cat $HOST_PRIORITY_FILE | grep ^[^#]`)
   fi
