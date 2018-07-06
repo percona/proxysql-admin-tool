@@ -9,12 +9,14 @@ usage () {
   echo "  proxysql_node_monitor --write-hg=10 --read-hg=11 --config-file=/etc/proxysql-admin.cnf --log=/var/lib/proxysql/pxc_test_proxysql_galera_check.log"
   echo ""
   echo "Options:"
-  echo "  -w, --write-hg=<NUMBER>     Specify ProxySQL write hostgroup."
-  echo "  -r, --read-hg=<NUMBER>      Specify ProxySQL read hostgroup."
-  echo "  -c, --config-file=PATH      Specify ProxySQL-admin configuration file."
-  echo "  -l, --log=PATH              Specify proxysql_node_monitor log file."
-  echo "  -h, --help                  Display script usage information"
-  echo "  -v, --version               Print version info"
+  echo "  -w, --write-hg=<NUMBER>             Specify ProxySQL write hostgroup."
+  echo "  -r, --read-hg=<NUMBER>              Specify ProxySQL read hostgroup."
+  echo "  -m, --mode=[loadbal|singlewrite]    ProxySQL read/write configuration mode, currently supporting: 'loadbal' and 'singlewrite' (the default) modes"
+  echo "  -p, --priority=<HOST_LIST>          Can accept comma delimited list of write nodes priority"
+  echo "  -c, --config-file=PATH              Specify ProxySQL-admin configuration file."
+  echo "  -l, --log=PATH                      Specify proxysql_node_monitor log file."
+  echo "  -h, --help                          Display script usage information"
+  echo "  -v, --version                       Print version info"
 }
 
 # Check user permission to needed file.
@@ -29,7 +31,7 @@ check_permission(){
 # Check if we have a functional getopt(1)
 if ! getopt --test
   then
-  go_out="$(getopt --options=w:r:c:l:vh --longoptions=write-hg:,read-hg:,config-file:,log:,version,help \
+  go_out="$(getopt --options=w:r:c:l:m:p:vh --longoptions=write-hg:,read-hg:,mode:,priority:,config-file:,log:,version,help \
   --name="$(basename "$0")" -- "$@")"
   test $? -eq 0 || exit 1
   eval set -- "$go_out"
@@ -50,6 +52,19 @@ do
     ;;
     -r | --read-hg )
       export READ_HG="$2"
+      shift 2
+    ;;
+    -m | --mode )
+    P_MODE="$2"
+    shift 2
+    if [ "$P_MODE" != "loadbal" ] && [ "$P_MODE" != "singlewrite" ]; then
+      echo "ERROR: Invalid --mode passed:"
+      echo "  Please choose any of these modes: loadbal, singlewrite"
+      exit 1
+    fi
+    ;;
+    -p | --priority )
+      P_PRIORITY="$2"
       shift 2
     ;;
     --config-file )
@@ -96,19 +111,16 @@ if [[ -z $CONFIG_FILE ]]; then
   fi
 fi
 # DEFAULTS
-if [[ -z $WRITE_HOSTGROUP_ID ]]; then
+if [[ ! -z $WRITE_HG ]]; then
+  WRITE_HOSTGROUP_ID=$WRITE_HG
+elif [[ -z $WRITE_HOSTGROUP_ID ]]; then
   WRITE_HOSTGROUP_ID="1"
-else
-  if [[ ! -z $WRITE_HG ]]; then
-    WRITE_HOSTGROUP_ID=$WRITE_HG
-  fi
 fi
-if [[ -z $READ_HOSTGROUP_ID ]]; then
+
+if [[ ! -z $READ_HG ]]; then
+  READ_HOSTGROUP_ID=$READ_HG
+elif [[ -z $READ_HOSTGROUP_ID ]]; then
   READ_HOSTGROUP_ID="-1"
-else
-  if [[ ! -z $READ_HG ]]; then
-    READ_HOSTGROUP_ID=$READ_HG
-  fi
 fi
 
 if [[ -z $ERR_FILE ]]; then
@@ -144,8 +156,11 @@ proxysql_exec() {
 if [ $debug -eq 1 ];then echoit "DEBUG MODE: $MODE" ;fi
 
 if [ $debug -eq 1 ];then echoit "DEBUG check mode name from proxysql data directory " ;fi
-CLUSTER_NAME=$(proxysql_exec "select comment from scheduler where arg1 LIKE '%--write-hg=$WRITE_HOSTGROUP_ID'")
-if [[ -z $CLUSTER_NAME ]]; then
+CLUSTER_NAME=$(proxysql_exec "select comment from scheduler where arg1 LIKE '%--write-hg=$WRITE_HOSTGROUP_ID%'")
+
+if [[ ! -z $P_MODE ]] ; then
+  MODE=$P_MODE
+elif [[ -z $CLUSTER_NAME ]]; then
   if [[ -f ${PROXYSQL_DATADIR}/mode ]] ; then
     MODE=$(cat ${PROXYSQL_DATADIR}/mode)
   fi
@@ -364,8 +379,10 @@ mode_change_check(){
   if [[ ! -f $HOST_PRIORITY_FILE ]]; then
     HOST_PRIORITY_FILE=${PROXYSQL_DATADIR}/${CLUSTER_NAME}_host_priority
   fi
-
-  if [ -f $HOST_PRIORITY_FILE ];then
+  
+  if [[ ! -z "$P_PRIORITY" ]] ; then
+    IFS=',' read -r -a priority_hosts <<< "$P_PRIORITY"
+  elif [ -f $HOST_PRIORITY_FILE ];then
     # Get the list of hosts from the host_priority file ignoring blanks and any lines that start with '#'
     priority_hosts=(`cat $HOST_PRIORITY_FILE | grep ^[^#]`)
   fi
