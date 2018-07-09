@@ -37,6 +37,8 @@ Options:
                                      If this is used make sure 'read_only=1' is in the slave's my.cnf
   --adduser                          Adds the Percona XtraDB Cluster application user to the ProxySQL database
   --syncusers                        Sync user accounts currently configured in MySQL to ProxySQL (deletes ProxySQL users not in MySQL)
+  --sync-multi-cluster-users         Sync user accounts currently configured in MySQL to ProxySQL (Don't deletes ProxySQL users not in MySQL)
+
   --version, -v                      Print version info
 ```
 Pre-requisites 
@@ -287,7 +289,11 @@ mysql>
 
 ```
 
-__v) --quick-demo__
+__v) --sync-multi-cluster-users__
+                         
+This option works in the same way as --syncusers but it does not delete ProxySQL users not present in MySQL. It's indicated to be used when syncing proxysql instances that manage multiple clusters.
+
+__vi) --quick-demo__
 
 This option is used to setup dummy proxysql configuration.
 
@@ -348,7 +354,7 @@ mysql>
  
 ```
 
-__vi) --include-slaves=host_name:port__
+__vii) --include-slaves=host_name:port__
 
 This option will help us to include specified slave node(s) to ProxySQL database. These nodes will go into the reader hostgroup and will only be put into the writer hostgroup if all cluster nodes are down.  Slaves must be read only.  Can accept comma delimited list. If this is used make sure 'read_only=1' is in the slave's my.cnf.
 

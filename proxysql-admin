@@ -71,13 +71,14 @@ usage () {
   echo "                                     If this is used make sure 'read_only=1' is in the slave's my.cnf"
   echo "  --adduser                          Adds the Percona XtraDB Cluster application user to the ProxySQL database"
   echo "  --syncusers                        Sync user accounts currently configured in MySQL to ProxySQL (deletes ProxySQL users not in MySQL)"
+  echo "  --sync-multi-cluster-users         Sync user accounts currently configured in MySQL to ProxySQL (Don't deletes ProxySQL users not in MySQL) "
   echo "  --version, -v                      Print version info"
 }
 
 # Check if we have a functional getopt(1)
 if ! getopt --test
   then
-  go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,include-slaves:,without-check-monitor-user,without-cluster-app-user,enable,disable,adduser,syncusers,version,help \
+  go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,include-slaves:,without-check-monitor-user,without-cluster-app-user,enable,disable,adduser,syncusers,sync-multi-cluster-users,version,help \
   --name="$(basename "$0")" -- "$@")"
   test $? -eq 0 || exit 1
   eval set -- "$go_out"
@@ -221,6 +222,9 @@ do
     --syncusers )
     shift
     SYNCUSERS=1
+    ;;
+    --sync-multi-cluster-users )
+    SYNCMULTICLUSTERUSERS=1
     ;;
     -d | --disable )
     shift
@@ -934,29 +938,31 @@ syncusers() {
     fi
   done
 
-  # TEST FOR USERS THAT EXIST IN PROXYSQL BUT NOT IN MYSQL HERE AND REMOVE
-  # Again get all users
-  proxysql_users=$(get_proxysql_users)
-  for proxysql_user in $proxysql_users;do
-    match=0
-    for mysql_user in $mysql_users;do
-      if [ "$proxysql_user" == "$mysql_user" ];then
-        match=1
+  if [ "$SYNCUSERS" == 1 ] ; then
+    # TEST FOR USERS THAT EXIST IN PROXYSQL BUT NOT IN MYSQL HERE AND REMOVE
+    # Again get all users
+    proxysql_users=$(get_proxysql_users)
+    for proxysql_user in $proxysql_users;do
+      match=0
+      for mysql_user in $mysql_users;do
+        if [ "$proxysql_user" == "$mysql_user" ];then
+          match=1
+        fi
+      done
+      if [ "$match" == 0 ];then
+        # Delete the ProxySQL user
+        user=`echo $proxysql_user | cut -d, -f1`
+        echo -e "\nRemoving $proxysql_user from ProxySQL"
+        proxysql_exec "DELETE FROM mysql_users WHERE username='${user}'"  
+  	    check_cmd $? "Failed to delete the user ($user) from ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
       fi
     done
-    if [ "$match" == 0 ];then
-      # Delete the ProxySQL user
-      user=`echo $proxysql_user | cut -d, -f1`
-      echo -e "\nRemoving $proxysql_user from ProxySQL"
-      proxysql_exec "DELETE FROM mysql_users WHERE username='${user}'"
-	  check_cmd $? "Failed to delete the user ($user) from ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
-    fi
-  done
+  fi
 
   proxysql_exec "SAVE MYSQL USERS TO DISK;LOAD MYSQL USERS TO RUNTIME;" 
 }
 
-if [ "$ENABLE" == 1 ] || [ "$DISABLE" == 1 ] || [ "$ADDUSER" == 1 ] || [ "$SYNCUSERS" == 1 ]; then
+if [ "$ENABLE" == 1 ] || [ "$DISABLE" == 1 ] || [ "$ADDUSER" == 1 ] || [ "$SYNCUSERS" == 1 ] || [ "$SYNCMULTICLUSTERUSERS" == 1 ]; then
   if [ "$ENABLE" == 1 ];then
     if [ -z "$QUICK_DEMO" ]; then
       echo -e "\nThis script will assist with configuring ProxySQL (currently only Percona XtraDB cluster in combination with ProxySQL is supported)"
@@ -981,7 +987,7 @@ if [ "$ENABLE" == 1 ] || [ "$DISABLE" == 1 ] || [ "$ADDUSER" == 1 ] || [ "$SYNCU
     adduser
     echo -e "\nAdded Percona XtraDB Cluster application user to the ProxySQL database!"
   fi
-  if [ "$SYNCUSERS" == 1 ];then
+  if [ "$SYNCUSERS" == 1 ] || [ "$SYNCMULTICLUSTERUSERS" == 1 ] ;then
     # Check for existing proxysql process
     syncusers
     echo -e "\nSynced Percona XtraDB Cluster users to the ProxySQL database!"
