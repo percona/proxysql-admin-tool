@@ -71,7 +71,7 @@ usage () {
   echo "                                     If this is used make sure 'read_only=1' is in the slave's my.cnf"
   echo "  --adduser                          Adds the Percona XtraDB Cluster application user to the ProxySQL database"
   echo "  --syncusers                        Sync user accounts currently configured in MySQL to ProxySQL (deletes ProxySQL users not in MySQL)"
-  echo "  --sync-multi-cluster-users         Sync user accounts currently configured in MySQL to ProxySQL (Don't deletes ProxySQL users not in MySQL) "
+  echo "  --sync-multi-cluster-users         Sync user accounts currently configured in MySQL to ProxySQL (Don't delete ProxySQL users not in MySQL) "
   echo "  --version, -v                      Print version info"
 }
 
