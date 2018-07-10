@@ -38,7 +38,61 @@ check_permission(){
     exit 1
   fi
 }
+# upgrade scheduler from old layout to new layout
+upgrade_scheduler(){
+  if [[ -f /etc/proxysql-admin.cnf ]]; then
+    source /etc/proxysql-admin.cnf
+  else
+    echo "Assert! proxysql-admin configuration file :/etc/proxysql-admin.cnf does not exists, Terminating!"
+    exit 1
+  fi
 
+  execute()
+  {
+  local query="$1"
+  printf "%s\n" \
+      "[client]" \
+      "user='${PROXYSQL_USERNAME}'" \
+      "password='${PROXYSQL_PASSWORD}'" \
+      "host=${PROXYSQL_HOSTNAME}" \
+      "port=${PROXYSQL_PORT}"  \
+      | timeout 2 mysql --defaults-file=/dev/stdin --protocol=tcp -Nse "${query}"
+  if [ "$?" == "124" ]; then
+    echo "PROXYSQL-ADMIN TIMEOUT ERROR: Connection terminated due to timeout."
+  fi
+  }
+
+  SCHED=$(execute "SELECT * FROM scheduler")
+  for i in "${SCHED[@]}"; do
+    ID=$(echo "$i" | awk '{print $1}')
+    S_WRITE_HG=$(echo "$i" | awk '{print $5}')
+    S_READ_HG=$(echo "$i" | awk '{print $6}')
+    S_NUMBER_OF_WRITES=$(echo "$i" | awk '{print $7}')
+    S_LOG=$(echo "$i" | awk '{print $9}')
+    S_CLUSTER_NAME=$(echo "$i" | awk '{print $10}')
+    if [[ -z $S_CLUSTER_NAME ]]; then
+      if [[ -f ${PROXYSQL_DATADIR}/mode ]] ; then
+        S_MODE=$(cat ${PROXYSQL_DATADIR}/mode)
+      fi
+    else
+      if [[ -f ${PROXYSQL_DATADIR}/${S_CLUSTER_NAME}_mode ]] ; then
+        S_MODE=$(cat ${PROXYSQL_DATADIR}/${S_CLUSTER_NAME}_mode)
+      fi
+    fi
+    if [ -f $HOST_PRIORITY_FILE ];then
+      # Get the list of hosts from the host_priority file ignoring blanks and any lines that start with '#'
+      p_priority_hosts=(`cat $HOST_PRIORITY_FILE | grep ^[^#] | sed ':a;N;$!ba;s/\n/,/g'`)
+    fi
+    S_HOST_PRIORITY=''
+    if [[ ! -z $p_priority_hosts ]] ; then
+        S_HOST_PRIORITY="--priority=$p_priority_hosts"
+    fi
+    if [[ ! -z $S_WRITE_HG ]] && [[ ! -z $S_READ_HG ]] && [[ ! -z $S_NUMBER_OF_WRITES ]] && [[ ! -z $S_LOG ]]; then
+      execute "UPDATE scheduler SET arg1='--config-file=/etc/proxysql-admin.cnf --write-hg=$S_WRITE_HG --read-hg=$S_READ_HG --writer-count=$S_NUMBER_OF_WRITES $S_HOST_PRIORITY --mode=$S_MODE --log=$S_LOG', arg2=NULL, arg3=NULL, arg4=NULL, arg5=NULL WHERE id=$ID"
+      execute "LOAD SCHEDULER TO RUNTIME; SAVE SCHEDULER TO DISK;"
+    fi
+  done
+}
 # ProxySQL has only 5 slots for args and will send each argN 
 # between double quotes. We configure all parameters on arg1 field, so we 
 # don't get limited by 5 arguntes only. Below set will reshuffle parameters.
@@ -47,6 +101,10 @@ check_permission(){
 # $2 = --two=2
 if [ "$#" -eq 1 ]; then
     set -- $1
+else
+    echo "Old config detected...trying to upgrade More than one parameter"
+    upgrade_scheduler
+    exit 1;
 fi
 
 # Check if we have a functional getopt(1)
