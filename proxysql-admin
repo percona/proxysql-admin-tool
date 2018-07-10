@@ -241,6 +241,8 @@ do
     ;;
     --write-node )
 #    if [ `grep -o ',' <<< $2 | wc -l` -gt 0 ];then
+      # TODO Validate input
+      P_HOST_PRIORITY=$2
       WRITE_NODES=`echo "$2" | sed 's/,/ /g'`
       WRITE_NODE=`echo "$WRITE_NODES" | cut -d' ' -f1`
       enable_priority=1
@@ -417,6 +419,15 @@ fi
 
 export PIDFILE="/tmp/cluster-proxysql-monitor.pid"
 
+#Check proxysql running status
+check_proxysql(){
+  check_proxysql=$(mysql -u${PROXYSQL_USERNAME} -p${PROXYSQL_PASSWORD} -h${PROXYSQL_HOSTNAME} -P${PROXYSQL_PORT} --protocol=tcp -Bse 'SELECT @@admin-version;' 2>/dev/null)
+  if [ -z $check_proxysql ]; then
+    echo "ProxySQL is not running, please check the error log at $PROXYSQL_DATADIR/proxysql.log"
+    exit 1
+  fi
+}
+
 proxysql_exec() {
   query=$1
   args=$2
@@ -460,17 +471,7 @@ check_cmd(){
   if [ "${MPID}" -ne 0 ]; then echo -e "\nERROR: $ERROR_MSG. Terminating!"; exit 1; fi
 }
 
-check_proxysql(){
-  if ! pidof proxysql >/dev/null ; then
-    echo "ProxySQL is not running, please check the error log at $PROXYSQL_DATADIR/proxysql.log"
-    exit 1
-  fi
-}
-
 CLUSTER_NAME=$(mysql_exec "select @@wsrep_cluster_name;")
-rm -rf ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_mode
-echo "$MODE" > ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_mode
-HOST_PRIORITY_FILE=${PROXYSQL_DATADIR}/${CLUSTER_NAME}_host_priority
 
 user_input_check(){
   USER_CATEGORY=$1
@@ -558,29 +559,9 @@ enable_proxysql(){
     PROXYSQL_NODE_MONITOR=$(which proxysql_node_monitor)
   fi
   # Check for existing proxysql process
-  if ! pidof proxysql >/dev/null ; then
-    echo "ProxySQL is not running; please start the proxysql service"
-    exit 1
-  fi
+  check_proxysql
   proxysql_connection_check
-
-  # Checking an existing host priority file if its there
-  if [ -f $HOST_PRIORITY_FILE ]; then
-    echo ""
-    read -p "Host priority file ($HOST_PRIORITY_FILE) is already present. Would you like to replace with the new file [y/n] ? " check_param
-    case $check_param in
-      y|Y)
-        rm -f $HOST_PRIORITY_FILE
-      ;;
-      n|N)
-        echo -e "\nHost priority file is not deleted. Please make sure you have properly configured $HOST_PRIORITY_FILE"
-      ;;
-      *)
-        echo "Please type [y/n]! Terminating."
-        exit 1
-      ;;
-    esac
-  fi
+  
   #modifying proxysql-admin.cnf file with command line proxysql user credentials if you dont use --config-file option.
   #if [ -z "${CONFIG_FILE}" ]; then 
   #  sed -i "s|[ \t]*PROXYSQL_USERNAME[ \t]*=.*$| PROXYSQL_USERNAME=\"${PROXYSQL_USERNAME}\"|" /etc/proxysql-admin.cnf
@@ -729,17 +710,13 @@ enable_proxysql(){
     fi
 
     # Create the host priority file if multiple write nodes were specified
-    if [ -n $enable_priority ];then
-      # Create empty priority config file
-      echo '# ProxySQL Host Priority File' > $HOST_PRIORITY_FILE
-      echo '# Specify nodes in order from highest priority to lowest' >> $HOST_PRIORITY_FILE
-      check_cmd $? "Failed to create the host priority file, verify the directory permissions: $HOST_PRIORITY_FILE"
-      # Add the specified hosts to the file
+    HOST_PRIORITY=""
+    if [ -n "$enable_priority" ];then
       echo -e "\nConfiguring $MODE mode with the following nodes designated as priority order:"
-      for i in $WRITE_NODES;do
-        echo $i >> $HOST_PRIORITY_FILE
-        echo " $i"
-      done
+        for i in $WRITE_NODES;do
+          echo " $i"
+        done
+      HOST_PRIORITY="--priority=$P_HOST_PRIORITY"
     fi
 
     for i in "${wsrep_address[@]}"; do	
@@ -784,7 +761,7 @@ enable_proxysql(){
   else
     NUMBER_WRITERS=0
   fi
-  proxysql_exec "INSERT  INTO SCHEDULER (active,interval_ms,filename,arg1,arg2,arg3,arg4,arg5,comment) VALUES (1,$NODE_CHECK_INTERVAL,'$PROXYSQL_GALERA_CHECK',$WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID,$NUMBER_WRITERS,1,'$PROXYSQL_DATADIR/${CLUSTER_NAME}_proxysql_galera_check.log','$CLUSTER_NAME');"
+  proxysql_exec "INSERT INTO SCHEDULER (active,interval_ms,filename,arg1,comment) VALUES (1,$NODE_CHECK_INTERVAL,'$PROXYSQL_GALERA_CHECK','--config-file=$CONFIG_FILE --write-hg=$WRITE_HOSTGROUP_ID --read-hg=$READ_HOSTGROUP_ID --writer-count=$NUMBER_WRITERS --mode=$MODE $HOST_PRIORITY --log=$PROXYSQL_DATADIR/${CLUSTER_NAME}_proxysql_galera_check.log','$CLUSTER_NAME');"
   check_cmd $? "Failed to add the Percona XtraDB Cluster monitoring scheduler in ProxySQL. Please check username, password and other options for connecting to ProxySQL database"
   
   proxysql_exec "LOAD SCHEDULER TO RUNTIME;SAVE SCHEDULER TO DISK;"
