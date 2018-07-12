@@ -264,11 +264,20 @@ MYSQL_PASSWORD=$(echo $MYSQL_CREDENTIALS | awk '{print $2}')
 AVAILABLE_HOST=$(proxysql_exec "SELECT hostname,port FROM mysql_servers where hostgroup_id in ($HOSTGROUP_WRITER_ID, $HOSTGROUP_READER_ID) and status='ONLINE' limit 1")
 server=$(echo $AVAILABLE_HOST | awk '{print $1}')
 port=$(echo $AVAILABLE_HOST | awk '{print $2}')
-CONNECTION_MSG=$( { printf "[client]\nuser=${MYSQL_USERNAME}\npassword=\"${MYSQL_PASSWORD}\"\nhost=${server}\nport=${port}\n" | mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "select @@port" >/dev/null; }  2>&1 )
-if [[ ! -z $CONNECTION_MSG ]]; then
-  echoit "$CONNECTION_MSG"
-  echoit "ProxySQL monitor credentials do not match with Percona XtraDB Cluster! Terminating."
-  exit 1
+
+# Check connection status to PXC nodes using monitor credentials.
+CHECK_MONITOR_USER=0
+for i in "${CLUSTER_HOSTS[@]}"; do
+  CLUSTER_HOSTNAME=$(echo $i | cut -d':' -f1)
+  CLUSTER_PORT=$(echo $i | cut -d':' -f2)
+  CHECK_SERVER_PORT=$( { printf "[client]\nuser=${MYSQL_USERNAME}\npassword=\"${MYSQL_PASSWORD}\"\nhost=${CLUSTER_HOSTNAME}\nport=${CLUSTER_PORT}\n" | mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "select @@port" 2>/dev/null; }  2>&1 )
+  if [[ -n $CHECK_SERVER_PORT ]]; then
+    CHECK_MONITOR_USER=1
+    break
+  fi  
+done
+if [[ $CHECK_MONITOR_USER -ne 1 ]]; then
+  echoit "Could not establish connection to PXC nodes using ProxySQL monitor credentials. Please check credentials or PXC running status." 
 fi
 
 CLUSTER_NAME=$(proxysql_exec "select comment from scheduler where arg1 LIKE '%--write-hg=$HOSTGROUP_WRITER_ID%'")
