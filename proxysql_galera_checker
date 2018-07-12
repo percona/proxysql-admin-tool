@@ -267,6 +267,7 @@ port=$(echo $AVAILABLE_HOST | awk '{print $2}')
 
 # Check connection status to PXC nodes using monitor credentials.
 CHECK_MONITOR_USER=0
+CLUSTER_HOSTS=($(proxysql_exec "SELECT hostname || ':' || port FROM mysql_servers WHERE comment<>'SLAVEREAD' and hostgroup_id in ($HOSTGROUP_WRITER_ID, $HOSTGROUP_READER_ID)"))
 for i in "${CLUSTER_HOSTS[@]}"; do
   CLUSTER_HOSTNAME=$(echo $i | cut -d':' -f1)
   CLUSTER_PORT=$(echo $i | cut -d':' -f2)
