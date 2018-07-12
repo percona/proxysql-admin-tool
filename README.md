@@ -12,6 +12,7 @@ Usage: [ options ]
 Options:
   --config-file                      Read login credentials from a configuration file (overrides any login credentials specified on the command line)
   --quick-demo                       Setup a quick demo with no authentication
+  --proxysql-datadir=<datadir>       Specify proxysql data directory location
   --proxysql-username=user_name      Username for connecting to the ProxySQL service
   --proxysql-password[=password]     Password for connecting to the ProxySQL service
   --proxysql-port=port_num           Port Nr. for connecting to the ProxySQL service
@@ -42,6 +43,36 @@ Pre-requisites
 --------------
 * ProxySQL and Cluster should be up and running.
 * For security purposes, please ensure to change the default user settings in the ProxySQL configuration file.
+* _ProxySQL configuration file(/etc/proxysql-admin.cnf)_
+```bash
+  # proxysql admin interface credentials.
+  export PROXYSQL_DATADIR='/var/lib/proxysql'
+  export PROXYSQL_USERNAME='admin'
+  export PROXYSQL_PASSWORD='admin'
+  export PROXYSQL_HOSTNAME='localhost'
+  export PROXYSQL_PORT='6032'
+
+  # PXC admin credentials for connecting to pxc-cluster-node.
+  export CLUSTER_USERNAME='admin'
+  export CLUSTER_PASSWORD='admin'
+  export CLUSTER_HOSTNAME='localhost'
+  export CLUSTER_PORT='3306'
+
+  # proxysql monitoring user. proxysql admin script will create this user in pxc to monitor pxc-nodes.
+  export MONITOR_USERNAME='monitor'
+  export MONITOR_PASSWORD='monit0r'
+
+  # Application user to connect to pxc-node through proxysql
+  export CLUSTER_APP_USERNAME='proxysql_user'
+  export CLUSTER_APP_PASSWORD='passw0rd'
+
+  # ProxySQL read/write hostgroup 
+  export WRITE_HOSTGROUP_ID='10'
+  export READ_HOSTGROUP_ID='11'
+
+  # ProxySQL read/write configuration mode.
+  export MODE="singlewrite"
+```
 
 It is recommend you use _--config-file_ to run this proxysql-admin script.
 
@@ -54,6 +85,17 @@ This script will accept two different options to configure Cluster nodes
  ___scheduler___ script info :
   * __proxysql_galera_checker__ : will check desynced nodes, and temporarily deactivate them. This will also call __proxysql_node_monitor__ script to check cluster node membership, and re-configure ProxySQL if cluster membership changes occur
 
+```
+Note:
+         As proxysql_galera_check runs in regular intervals, there is the possibility of a race 
+      condition in certain circumstances, for example starting this script twice or more at the 
+      same time. To avoid such situations from occuring, a Galera process identifier check file
+      was added, which will prevent duplicate  script execution in most cases. Still, it may be 
+      possible in some rare cases to circumvent this check if you execute more then one copy of 
+      proxysql_galera_check  simultaneously.  Please  note that  running  more then one copy of 
+      proxysql_galera_check in the same runtime environment at the same  time is not supported,
+      and may lead to undefined behavior.
+```
   It will also add two new users into the Percona XtraDB Cluster with the USAGE privilege; one is for monitoring cluster nodes through ProxySQL, and another is for connecting to Cluster node via the ProxySQL console. 
   
   Note: Please make sure to use super user credentials from Percona XtraDB Cluster to setup the default users.
@@ -114,13 +156,14 @@ $
 ```
 
 ___Extra options___
+-------------------
 
 __i) --mode__
 
 This option allows you to setup read/write mode for cluster nodes in ProxySQL database based on the hostgroup. For now, the only supported modes are _loadbal_ and _singlewrite_. _singlewrite_ is the default mode, and it will configure Percona Cluster to only accept writes on one single node only. All other remaining nodes will be read-only and accept only read statements. 
 
 With --write-node option we can control a priority order of what host is most desired to be the writer at any given time.
-When used the feature will create the config file which is by default "/var/lib/proxysql/host_priority.conf", this is configurable in proxysql-admin.cnf. Servers can be specified comma delimited - 10.0.0.51:3306, 10.0.0.52:3306 - The 51 node will always be in the writer hostgroup if it is ONLINE, if it is OFFLINE the 52 node will go into the writer hostgroup, and if it goes down a node from the remaining nodes will be randomly chosen for the writer hostgroup.
+When used the feature will create the config file which is by default stored as `${CLUSTER_NAME}_host_priority` under your `$PROXYSQL_DATADIR` folder. Servers can be specified comma delimited - 10.0.0.51:3306, 10.0.0.52:3306 - The 51 node will always be in the writer hostgroup if it is ONLINE, if it is OFFLINE the 52 node will go into the writer hostgroup, and if it goes down a node from the remaining nodes will be randomly chosen for the writer hostgroup.
 This new config file will be deleted when --disable is used. This will ensure a specified writer-node will always be the writer node while it is ONLINE.
 
 The mode _loadbal_ on the other hand is a load balanced set of evenly weighted read/write nodes.
@@ -310,3 +353,13 @@ __vi) --include-slaves=host_name:port__
 This option will help us to include specified slave node(s) to ProxySQL database. These nodes will go into the reader hostgroup and will only be put into the writer hostgroup if all cluster nodes are down.  Slaves must be read only.  Can accept comma delimited list. If this is used make sure 'read_only=1' is in the slave's my.cnf.
 
 PS : With _loadbal_ mode slave hosts only accepts read/write requests when all cluster nodes are down.
+
+## ProxySQL Status
+
+Simple script to dump ProxySQL config and stats
+
+__Usage:__
+
+```
+proxysql-status admin admin 127.0.0.1 6032
+```
