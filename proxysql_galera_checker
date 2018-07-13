@@ -281,14 +281,14 @@ if [[ $CHECK_MONITOR_USER -ne 1 ]]; then
   echoit "Could not establish connection to PXC nodes using ProxySQL monitor credentials. Please check credentials or PXC running status." 
 fi
 
-CLUSTER_NAME=$(proxysql_exec "select comment from scheduler where arg1 LIKE '%--write-hg=$HOSTGROUP_WRITER_ID%'")
+CLUSTER_NAME=$(proxysql_exec "select comment from scheduler where arg1 LIKE '%--write-hg=$HOSTGROUP_WRITER_ID %'")
 if [[ -z $CLUSTER_NAME ]]; then
   CLUSTER_NAME=$(mysql_exec "select @@wsrep_cluster_name" 2>>${ERR_FILE}| tail -1 2>>${ERR_FILE})
   if [[ ! -z $CLUSTER_NAME ]]; then
-    ARG1=$(proxysql_exec "select arg1 from scheduler where arg1 LIKE '%--write-hg=$HOSTGROUP_WRITER_ID%'")
+    ARG1=$(proxysql_exec "select arg1 from scheduler where arg1 LIKE '%--write-hg=$HOSTGROUP_WRITER_ID %'")
     MY_PATH=$(echo ${PROXYSQL_DATADIR}/${CLUSTER_NAME}_proxysql_galera_check.log | sed  's#\/#\\\/#g')
     ARG1=$(echo $ARG1 | sed "s/--log=.*/--log=$MY_PATH/g")
-    proxysql_exec "update scheduler set comment='$CLUSTER_NAME',arg1='$ARG1' where arg1 LIKE '%--write-hg=$HOSTGROUP_WRITER_ID%';load scheduler to runtime;"
+    proxysql_exec "update scheduler set comment='$CLUSTER_NAME',arg1='$ARG1' where arg1 LIKE '%--write-hg=$HOSTGROUP_WRITER_ID %';load scheduler to runtime;"
   fi
 fi
 
