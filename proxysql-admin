@@ -873,7 +873,7 @@ syncusers() {
   }
   # Get current ProxySQL users and filter out header row
   get_proxysql_users() {
-    local proxysql_users=$(proxysql_exec "SELECT username,password FROM mysql_users where password!=''" | sed 's/\t/,/g' | egrep -v "username,password" | sort | uniq )
+    local proxysql_users=$(proxysql_exec "SELECT username,password FROM mysql_users where password!='' and default_hostgroup=$WRITE_HOSTGROUP_ID" | sed 's/\t/,/g' | egrep -v "username,password" | sort | uniq )
     check_cmd $? "Failed to load user list from ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
     echo "$proxysql_users"
   }
@@ -897,7 +897,7 @@ syncusers() {
         if [ "$?" == 0 ];then
           # Remove the user
           echo "Deleting existing user: $user"
-          proxysql_exec "DELETE FROM mysql_users WHERE username='${user}'"
+          proxysql_exec "DELETE FROM mysql_users WHERE username='${user}' and default_hostgroup=$WRITE_HOSTGROUP_ID"
 		  check_cmd $? "Failed to delete the user ($user) from ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
         fi
       done
@@ -905,8 +905,14 @@ syncusers() {
 	  if [[ "$is_proxysql_admin_user" == "1" ]];then
         echo -e "\nNote : '$user' is in proxysql admin user list, cannot not add this user to proxysql database( For more info https://github.com/sysown/proxysql/issues/709)"
 	  else
-        proxysql_exec "INSERT INTO mysql_users (username, password, active, default_hostgroup) VALUES ('${user}', '${password}', 1, $WRITE_HOSTGROUP_ID)"
-	    check_cmd $? "Failed to add the user ($user) from Percona XtraDB Cluster to ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
+        check_user=$(proxysql_exec "SELECT username from mysql_users where username='${user}'")
+		if [[ -z $check_user ]]; then
+          proxysql_exec "INSERT INTO mysql_users (username, password, active, default_hostgroup) VALUES ('${user}', '${password}', 1, $WRITE_HOSTGROUP_ID)"
+	      check_cmd $? "Failed to add the user ($user) from Percona XtraDB Cluster to ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
+        else
+          echo "Cannot add the user (${user}). The user (${user}) already exists in ProxySQL database with different hostgroup."
+		  check_user=""
+		fi
 	  fi
     fi
   done
@@ -925,7 +931,7 @@ syncusers() {
       # Delete the ProxySQL user
       user=`echo $proxysql_user | cut -d, -f1`
       echo -e "\nRemoving $proxysql_user from ProxySQL"
-      proxysql_exec "DELETE FROM mysql_users WHERE username='${user}'"
+      proxysql_exec "DELETE FROM mysql_users WHERE username='${user}' and default_hostgroup=$WRITE_HOSTGROUP_ID"
 	  check_cmd $? "Failed to delete the user ($user) from ProxySQL database. Please check username, password and other options for connecting to ProxySQL database"
     fi
   done
