@@ -3,7 +3,7 @@
 # Version 1.0
 ###############################################################################################
 
-# This program is copyright 2016-2017 Percona LLC and/or its affiliates.
+# This program is copyright 2016-2018 Percona LLC and/or its affiliates.
 #
 # THIS PROGRAM IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR IMPLIED
 # WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
@@ -335,7 +335,7 @@ if [ -z "$QUICK_DEMO" ]; then
   fi
 
   if [[ -z "$CLUSTER_PORT" ]]; then
-    CLUSTER_PORT="localhost"
+    CLUSTER_PORT="3306"
   fi
 else
   read -r -p "Do you want to use the default ProxySQL credentials (admin:admin:6032:127.0.0.1) [y/n] ? " check_param
@@ -423,15 +423,6 @@ elif [ $MODE == "singlewrite" ]; then
 fi
 
 export PIDFILE="/tmp/cluster-proxysql-monitor.pid"
-
-#Check proxysql running status
-check_proxysql(){
-  check_proxysql=$(mysql -u${PROXYSQL_USERNAME} -p${PROXYSQL_PASSWORD} -h${PROXYSQL_HOSTNAME} -P${PROXYSQL_PORT} --protocol=tcp -Bse 'SELECT @@admin-version;' 2>/dev/null)
-  if [ -z $check_proxysql ]; then
-    echo "ProxySQL is not running, please check the error log at $PROXYSQL_DATADIR/proxysql.log"
-    exit 1
-  fi
-}
 
 proxysql_exec() {
   query=$1
@@ -564,7 +555,6 @@ enable_proxysql(){
     PROXYSQL_NODE_MONITOR=$(which proxysql_node_monitor)
   fi
   # Check for existing proxysql process
-  check_proxysql
   proxysql_connection_check
   
   #modifying proxysql-admin.cnf file with command line proxysql user credentials if you dont use --config-file option.
