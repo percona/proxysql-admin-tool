@@ -26,6 +26,7 @@ Options:
   --without-cluster-app-user         Configure Percona XtraDB Cluster without application user
   --monitor-username=user_name       Username for monitoring Percona XtraDB Cluster nodes through ProxySQL
   --monitor-password[=password]      Password for monitoring Percona XtraDB Cluster nodes through ProxySQL
+  --without-check-monitor-user       Configure ProxySQL without checking/attempting to create monitor user
   --enable, -e                       Auto-configure Percona XtraDB Cluster nodes into ProxySQL
   --disable, -d                      Remove any Percona XtraDB Cluster configurations from ProxySQL
   --node-check-interval=3000         Interval for monitoring node checker script (in milliseconds)
@@ -289,7 +290,7 @@ mysql>
 ```
 __v) --sync-multi-cluster-users__
 
-This option works in the same way as --syncusers but it does not delete ProxySQL users not present in MySQL. It's indicated to be used when syncing proxysql instances that manage multiple clusters.
+This option works in the same way as `--syncusers` but it does not delete ProxySQL users not present in MySQL. It's indicated to be used when syncing proxysql instances that manage multiple clusters.
 
 __vi) --quick-demo__
 
