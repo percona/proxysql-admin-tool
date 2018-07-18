@@ -908,7 +908,7 @@ syncusers() {
       done
       proxysql_admin_user_check $user
 	  if [[ "$is_proxysql_admin_user" == "1" ]];then
-        echo -e "\nNote : '$user' is in proxysql admin user list, cannot not add this user to proxysql database( For more info https://github.com/sysown/proxysql/issues/709)"
+        echo -e "\nNote : '$user' is in proxysql admin user list, cannot add this user to proxysql database( For more info https://github.com/sysown/proxysql/issues/709)"
 	  else
         check_user=$(proxysql_exec "SELECT username from mysql_users where username='${user}'")
 		if [[ -z $check_user ]]; then
