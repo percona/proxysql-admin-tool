@@ -437,6 +437,12 @@ mysql_exec() {
       mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "${query}" 2>/dev/null
 }
 
+mysql_monitor_exec() {
+  query=$1
+  printf "[client]\nuser=${MONITOR_USERNAME}\npassword=\"${MONITOR_PASSWORD}\"\nhost=${CLUSTER_HOSTNAME}\nport=${CLUSTER_PORT}\n" | \
+      mysql --defaults-file=/dev/stdin --protocol=tcp -Bse "${query}" 2>/dev/null
+}
+
 slave_exec() {
   query=$1
   printf "[client]\nuser=${CLUSTER_USERNAME}\npassword=\"${CLUSTER_PASSWORD}\"\nhost=${SLAVE_HOSTNAME}\nport=${SLAVE_PORT}\n" | \
@@ -595,22 +601,26 @@ enable_proxysql(){
         check_param="n"
     else
         echo ""
-        read -p "The monitoring user is already present in Percona XtraDB Cluster. Would you like to proceed with the existing username and password [y/n] ? " check_param
+        read -p "The monitoring user is already present in Percona XtraDB Cluster. Would you like to enter it's password [y/n] ? " check_param
     fi
     case $check_param in
       y|Y)
         if [ -z "$QUICK_DEMO" ]; then
           read -r -s -p  "Please enter the password you have assigned to monitoring user '$MONITOR_USERNAME': " MONITOR_PASSWORD
+          mysql_exec "SELECT 1" > /dev/null
+          check_cmd $?  "Failed to connect to Percona XtraDB Cluster using monitor credentials. Please check MONITOR_USERNAME and MONITOR_PASSWORD"
           proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
           check_cmd $?  "Failed to set the mysql-monitor variables in ProxySQL. Please check username, password and other options for connecting to ProxySQL database"
           proxysql_exec "LOAD MYSQL VARIABLES TO RUNTIME;SAVE MYSQL VARIABLES TO DISK;"
         fi
       ;;
       n|N)
+        mysql_exec "SELECT 1" > /dev/null
+        check_cmd $?  "Failed to connect to Percona XtraDB Cluster using monitor credentials. Please check MONITOR_USERNAME and MONITOR_PASSWORD"
         proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
         check_cmd $?  "Failed to set the mysql-monitor variables in ProxySQL. Please check username, password and other options for connecting to ProxySQL database"
         proxysql_exec "LOAD MYSQL VARIABLES TO RUNTIME;SAVE MYSQL VARIABLES TO DISK;"
-        echo -e "\nUser '${BD}$MONITOR_USERNAME'@'$USER_HOST_RANGE${NBD}' has been updated in ProxySQL database. Please make sure the credentials are the same in Percona XtraDB Cluster"
+        echo -e "\nUser '${BD}$MONITOR_USERNAME'@'$USER_HOST_RANGE${NBD}' has been updated in ProxySQL database."
       ;;
       *)
         echo "Please type [y/n]! Terminating."
