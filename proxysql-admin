@@ -607,7 +607,7 @@ enable_proxysql(){
       y|Y)
         if [ -z "$QUICK_DEMO" ]; then
           read -r -s -p  "Please enter the password you have assigned to monitoring user '$MONITOR_USERNAME': " MONITOR_PASSWORD
-          mysql_exec "SELECT 1" > /dev/null
+          mysql_monitor_exec "SELECT 1" > /dev/null
           check_cmd $?  "Failed to connect to Percona XtraDB Cluster using monitor credentials. Please check MONITOR_USERNAME and MONITOR_PASSWORD"
           proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
           check_cmd $?  "Failed to set the mysql-monitor variables in ProxySQL. Please check username, password and other options for connecting to ProxySQL database"
@@ -615,7 +615,7 @@ enable_proxysql(){
         fi
       ;;
       n|N)
-        mysql_exec "SELECT 1" > /dev/null
+        mysql_monitor_exec "SELECT 1" > /dev/null
         check_cmd $?  "Failed to connect to Percona XtraDB Cluster using monitor credentials. Please check MONITOR_USERNAME and MONITOR_PASSWORD"
         proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
         check_cmd $?  "Failed to set the mysql-monitor variables in ProxySQL. Please check username, password and other options for connecting to ProxySQL database"
