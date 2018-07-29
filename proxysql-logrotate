@@ -4,6 +4,7 @@
         daily
         notifempty
         compress
+	delaycompress
         create 0600 proxysql proxysql
         rotate 15
 	postrotate
