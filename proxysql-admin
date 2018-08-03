@@ -752,7 +752,6 @@ function enable_proxysql() {
   readonly cluster_name
   debug $LINENO "PXC cluster name is : $cluster_name"
 
-
   local check_hgs
   check_hgs=$(proxysql_exec "SELECT hostgroup_id FROM mysql_servers where hostgroup_id in ($READ_HOSTGROUP_ID,$WRITE_HOSTGROUP_ID)")
   if [[ ! -z "$check_hgs" ]]; then
@@ -1374,7 +1373,6 @@ function parse_args() {
   # Load the config file before reading in the command-line options
   #
   if ! echo "$go_out" | grep -q 'quick-demo'; then
-
     # Is there a config-file option in the command-line?
     if echo "$go_out" | grep -q "config-file"; then
       arg_array=( "$@" )
