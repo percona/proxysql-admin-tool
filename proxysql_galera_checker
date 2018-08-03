@@ -622,7 +622,6 @@ function check_is_galera_checker_running() {
   fi
 }
 
-
 function cleanup_handler() {
   if [[ -n CHECKER_PIDFILE ]]; then
     rm -f $CHECKER_PIDFILE
@@ -728,6 +727,83 @@ function main() {
     fi
   fi
 
+  # Priority check
+  local priority=""
+  if [[ ! -z "$P_PRIORITY" ]] ; then
+      priority="--priority=$P_PRIORITY"
+  fi
+
+  # Running proxysql_node_monitor script.
+  # First try the same directory as this script
+  local monitor_dir
+  monitor_dir=$(cd $(dirname $0) && pwd)
+
+  if [[ ! -f $monitor_dir/proxysql_node_monitor ]]; then
+    # Cannot find it in same directory, try default location
+    monitor_dir="/usr/bin"
+    if [[ ! -f $monitor_dir/proxysql_node_monitor ]]; then
+      log "" "ERROR! Could not find proxysql_node_monitor. Terminating"
+      exit 1
+    fi
+  fi
+
+  # Run the monitor script
+  local proxysql_monitor_log
+  if [[ -z $cluster_name ]]; then
+    proxysql_monitor_log="${PROXYSQL_DATADIR}/proxysql_node_monitor.log"
+  else
+    proxysql_monitor_log="${PROXYSQL_DATADIR}/${cluster_name}_proxysql_node_monitor.log"
+  fi
+
+=======
+  # Check connection status to PXC nodes using monitor credentials.
+  local check_monitor_user=0
+  local cluster_hosts
+  cluster_hosts=$(proxysql_exec $LINENO -Ns "SELECT hostname || ':' || port FROM mysql_servers WHERE comment<>'SLAVEREAD' and hostgroup_id in ($HOSTGROUP_WRITER_ID, $HOSTGROUP_READER_ID)")
+  if [[ -n $cluster_hosts ]]; then
+    cluster_hosts=($(echo $cluster_hosts))
+  fi
+  for i in "${cluster_hosts[@]}"; do
+    local cluster_hostname=$(echo $i | cut -d':' -f1)
+    local cluster_port=$(echo $i | cut -d':' -f2)
+    local check_server_port
+    check_server_port=$( mysql_exec "$LINENO" "$cluster_hostname" "$cluster_port" -Bs \
+                            "select @@port")
+    if [[ -n $check_server_port ]]; then
+      check_monitor_user=1
+      break
+    fi
+  done
+  if [[ $check_monitor_user -ne 1 ]]; then
+    log "" "Could not establish connection to PXC nodes using ProxySQL monitor credentials. Please check credentials or PXC running status."
+  fi
+
+  local mode=$MODE
+  if [[ ! -z $P_MODE ]] ; then
+    mode=$P_MODE
+  else
+    local proxysql_mode_file
+    if [[ -z $cluster_name ]]; then
+      proxysql_mode_file="${PROXYSQL_DATADIR}/mode"
+    else
+      proxysql_mode_file="${PROXYSQL_DATADIR}/${cluster_name}_mode"
+    fi
+
+    if [[ ! -f ${proxysql_mode_file} ]]; then
+      local mode_check
+      mode_check=$(proxysql_exec $LINENO -Ns "SELECT comment from mysql_servers where comment='WRITE' and hostgroup_id in ($HOSTGROUP_WRITER_ID, $HOSTGROUP_READER_ID)")
+      if [[ "$mode_check" == "WRITE" ]]; then
+        echo "singlewrite" > ${proxysql_mode_file}
+      else
+        echo "loadbal" > ${proxysql_mode_file}
+      fi
+    fi
+
+    if [[ -r $proxysql_mode_file ]]; then
+      mode=$(cat ${proxysql_mode_file})
+    fi
+  fi
+
   local reload_check_file
   if [[ -z $cluster_name ]]; then
     reload_check_file="${PROXYSQL_DATADIR}/reload"
@@ -764,6 +840,7 @@ function main() {
     proxysql_monitor_log="${PROXYSQL_DATADIR}/${cluster_name}_proxysql_node_monitor.log"
   fi
 
+>>>>>>> PSQLADM-72: Code review/cleanup
   local more_monitor_options=""
   if [[ $DEBUG -ne 0 ]]; then
     more_monitor_options+=" --debug "
