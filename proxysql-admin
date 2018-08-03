@@ -330,10 +330,10 @@ function exec_sql() {
       done
     fi
   fi
-
   printf "${retoutput//%/%%}"
   return $retvalue
 }
+
 
 # Executes a SQL query on proxysql
 #
