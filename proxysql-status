@@ -1,46 +1,217 @@
-#!/bin/bash
-
-USER=$1
-PASSWORD=$2
-HOST=$3
-PORT=$4
-
-echo "............ DUMPING MAIN DATABASE ............"
-TABLES=`mysql -u $USER -p$PASSWORD -h $HOST -P $PORT --protocol=tcp -BNe "SHOW TABLES" 2> /dev/null`
-for table in $TABLES
-do
-	echo "***** DUMPING $table *****"
-	mysql -u $USER -p$PASSWORD -h $HOST -P $PORT --protocol=tcp -te "SELECT * FROM $table" 2> /dev/null
-	echo "***** END OF DUMPING $table *****"
-done
-echo "............ END OF DUMPING MAIN DATABASE ............"
+#!/bin/bash -u
 
 
-echo "............ DUMPING STATS DATABASE ............"
-TABLES=`mysql -u $USER -p$PASSWORD -h $HOST -P $PORT --protocol=tcp -BNe "SHOW TABLES FROM stats" 2> /dev/null`
-for table in $TABLES
-do
-	echo "***** DUMPING stats.$table *****"
-	mysql -u $USER -p$PASSWORD -h $HOST -P $PORT --protocol=tcp -te "SELECT * FROM $table" stats 2> /dev/null
-	echo "***** END OF DUMPING stats.$table *****"
-done
-echo "............ END OF DUMPING STATS DATABASE ............"
+function usage() {
+    local path=$0
+    cat << EOF
+Usage example:
+  $ ${path##*/} [options] [<USER> <PASSWORD> <HOST> <PORT>]
+
+  Options:
+    --files                 : display contents of proxysql-admin related files
+    --main                  : display main tables (both on-disk and runtime)
+    --monitor               : display monitor tables
+    --runtime               : display runtime-related data
+                              (implies --main)
+    --stats                 : display stats tables
+    --table=<table_name>    : display only tables that contain the table name
+                              (note: this is a case-sensitive match)
+
+  The default is to display all tables and files.
+
+  If no credentials are specified the credentials in /etc/proxysql-admin.cnf
+  are used.
+EOF
+}
+
+#
+# Executes an SQL query
+#
+# Globals:
+#   USER
+#   PASSWORD
+#   HOST
+#   PORT
+#
+# Arguments:
+#   1: arguments to be passed to mysql
+#   2: the query
+#
+function mysql_exec() {
+  local args=$1
+  local query=$2
+  local retvalue
+  local retoutput
+
+  retoutput=$(printf "[client]\nuser=${USER}\npassword=\"${PASSWORD}\"\nhost=${HOST}\nport=${PORT}"  \
+      | mysql --defaults-file=/dev/stdin --protocol=tcp \
+            ${args} -e "${query}")
+  retvalue=$?
+
+  if [[ -n $retoutput ]]; then
+    retoutput+="\n"
+  fi
+  printf "${retoutput//%/%%}"
+  return $retvalue
+}
 
 
-echo "............ DUMPING MONITOR DATABASE ............"
-TABLES=`mysql -u $USER -p$PASSWORD -h $HOST -P $PORT --protocol=tcp -BNe "SHOW TABLES FROM monitor" 2> /dev/null`
-for table in $TABLES
-do
-	echo "***** DUMPING monitor.$table *****"
-	mysql -u $USER -p$PASSWORD -h $HOST -P $PORT --protocol=tcp -te "SELECT * FROM $table" monitor 2> /dev/null
-	echo "***** END OF DUMPING monitor.$table *****"
-done
-echo "............ END OF DUMPING MONITOR DATABASE ............"
+declare USER
+declare PASSWORD
+declare HOST
+declare PORT
+declare RUNTIME_OPTION=""
+declare DUMP_ALL=1
+declare DUMP_MAIN=0
+declare DUMP_STATS=0
+declare DUMP_MONITOR=0
+declare DUMP_FILES=0
+declare TABLE_FILTER=""
 
-echo "............ DUMPING HOST PRIORITY FILE ............"
-cat /var/lib/proxysql/host_priority.conf
-echo "............ END OF DUMPING HOST PRIORITY FILE ............"
 
-echo "............ DUMPING PROXYSQL ADMIN CNF FILE ............"
-cat /etc/proxysql-admin.cnf
-echo "............ END OF DUMPING PROXYSQL ADMIN CNF FILE ............"
+function parse_args() {
+    local go_out=""
+
+   # TODO: kennt, what happens if we don't have a functional getopt()?
+    # Check if we have a functional getopt(1)
+    if ! getopt --test; then
+        go_out="$(getopt --options=h --longoptions=runtime,main,stats,monitor,files,table:,help \
+        --name="$(basename "$0")" -- "$@")"
+        if [[ $? -ne 0 ]]; then
+            # no place to send output
+            echo "Script error: getopt() failed" >&2
+            exit 1
+        fi
+        eval set -- "$go_out"
+    fi
+
+    for arg
+    do
+        case "$arg" in
+            -- ) shift; break;;
+            --runtime )
+                shift
+                RUNTIME_OPTION=" LIKE 'runtime_%'"
+                DUMP_ALL=0
+                DUMP_MAIN=1
+                ;;
+            --main )
+                shift
+                DUMP_ALL=0
+                DUMP_MAIN=1
+                ;;
+            --stats )
+                shift
+                DUMP_ALL=0
+                DUMP_STATS=1
+                ;;
+            --monitor )
+                shift
+                DUMP_ALL=0
+                DUMP_MONITOR=1
+                ;;
+            --files )
+                shift
+                DUMP_ALL=0
+                DUMP_FILES=1
+                ;;
+            --table )
+                TABLE_FILTER=$2
+                shift 2
+                ;;
+            -h | --help )
+                usage
+                exit 1
+                break;;
+        esac
+    done
+
+    if [[ $# -eq 0 ]]; then
+        if [[ ! -r /etc/proxysql-admin.cnf ]]; then
+            echo "Cannot find /etc/proxysql-admin.cnf."
+            exit 1
+        fi
+        source /etc/proxysql-admin.cnf
+        USER=$PROXYSQL_USERNAME
+        PASSWORD=$PROXYSQL_PASSWORD
+        HOST=$PROXYSQL_HOSTNAME
+        PORT=$PROXYSQL_PORT
+    elif [[ $# -eq 4 ]]; then
+        USER=$1
+        PASSWORD=$2
+        HOST=$3
+        PORT=$4
+    else
+        echo -e "ERROR: Incorrect usage\n"
+        usage
+        exit 1
+    fi
+}
+
+
+parse_args "$@"
+
+if [[ $DUMP_ALL -eq 1 || $DUMP_MAIN -eq 1 ]]; then
+    echo "............ DUMPING MAIN DATABASE ............"
+    TABLES=$(mysql_exec -BN "SHOW TABLES $RUNTIME_OPTION" 2>/dev/null)
+    for table in $TABLES
+    do
+        if [[ -n $TABLE_FILTER && $table != *${TABLE_FILTER}* ]]; then
+            continue
+        fi
+        echo "***** DUMPING $table *****"
+        mysql_exec -t "SELECT * FROM $table"
+        echo "***** END OF DUMPING $table *****"
+        echo ""
+    done
+    echo "............ END OF DUMPING MAIN DATABASE ............"
+    echo ""
+fi
+
+if [[ $DUMP_ALL -eq 1 || $DUMP_STATS -eq 1 ]]; then
+    echo "............ DUMPING STATS DATABASE ............"
+    TABLES=$(mysql_exec -BN "SHOW TABLES FROM stats" 2> /dev/null)
+    for table in $TABLES
+    do
+        if [[ -n $TABLE_FILTER && $table != *${TABLE_FILTER}* ]]; then
+            continue
+        fi
+        echo "***** DUMPING stats.$table *****"
+        mysql_exec "-t --database=stats" "SELECT * FROM $table" 2> /dev/null
+        echo "***** END OF DUMPING stats.$table *****"
+        echo ""
+    done
+    echo "............ END OF DUMPING STATS DATABASE ............"
+    echo ""
+fi
+
+if [[ $DUMP_ALL -eq 1 || $DUMP_MONITOR -eq 1 ]]; then
+    echo "............ DUMPING MONITOR DATABASE ............"
+    TABLES=$(mysql_exec -BN "SHOW TABLES FROM monitor" 2> /dev/null)
+    for table in $TABLES
+    do
+        if [[ -n $TABLE_FILTER && $table != *${TABLE_FILTER}* ]]; then
+            continue
+        fi
+        echo "***** DUMPING monitor.$table *****"
+        mysql_exec "-t --database=monitor" "SELECT * FROM $table" 2> /dev/null
+        echo "***** END OF DUMPING monitor.$table *****"
+        echo ""
+    done
+    echo "............ END OF DUMPING MONITOR DATABASE ............"
+    echo ""
+fi
+
+if [[ $DUMP_ALL -eq 1 || $DUMP_FILES -eq 1 ]]; then
+    if [[ -z $TABLE_FILTER ]]; then
+        echo "............ DUMPING HOST PRIORITY FILE ............"
+        cat /var/lib/proxysql/host_priority.conf 2>&1
+        echo "............ END OF DUMPING HOST PRIORITY FILE ............"
+        echo ""
+
+        echo "............ DUMPING PROXYSQL ADMIN CNF FILE ............"
+        cat /etc/proxysql-admin.cnf 2>&1
+        echo "............ END OF DUMPING PROXYSQL ADMIN CNF FILE ............"
+        echo ""
+    fi
+fi
