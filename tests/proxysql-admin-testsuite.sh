@@ -4,6 +4,7 @@
 
 # User Configurable Variables
 if [[ $# -eq 0 ]]; then
+  path=$0
   cat << EOF
 No valid parameters were passed. Need relative workdir setting. Retry.
 
@@ -15,6 +16,7 @@ This test script expects a certain directory layout for the workdir.
   <workdir>/
       proxysql-admin
       proxysql_galera_checker
+      proxysql_node_monitor
       Percona-XtraDB-Cluster-XXX.tar.gz
       proxysql-1.4.XXX/
         etc/
@@ -27,13 +29,17 @@ EOF
   exit 1
 fi
 
-WORKDIR=$1
+WORKDIR=$(cd $1 && pwd)
 
 SCRIPT_DIR=$(cd `dirname $0` && pwd)
 PXC_START_TIMEOUT=30
 SUSER=root
 SPASS=
 OS_USER=$(whoami)
+
+# Used by the async slaves
+REPL_USER="repl_user"
+REPL_PASSWORD="pass1234"
 
 ROOT_FS=$WORKDIR
 
@@ -71,6 +77,13 @@ if [[ ! -r $WORKDIR/proxysql-admin ]]; then
   exit 1
 fi
 echo "....Found proxysql-admin in $WORKDIR/"
+
+echo "Looking for proxysql-admin.cnf..."
+if [[ ! -r $PROXYSQL_BASE/etc/proxysql-admin.cnf ]]; then
+  echo ERROR! Cannot find $PROXYSQL_BASE/etc/proxysql-admin.cnf
+  exit 1
+fi
+echo "....Found proxysql-admin.cnf in $PROXYSQL_BASE/etc/proxysql-admin.cnf"
 
 
 #Check PXC binary tar ball
@@ -124,18 +137,20 @@ ln -s "$PROXYSQL_BASE" "$WORKDIR/proxysql-bin"
 
 echo "Initializing PXC..."
 if [ "$(${PXC_BASEDIR}/bin/mysqld --version | grep -oe '5\.[567]' | head -n1)" == "5.7" ]; then
+  MYSQL_VERSION="5.7"
   MID="${PXC_BASEDIR}/bin/mysqld --no-defaults --initialize-insecure --basedir=${PXC_BASEDIR}"
 elif [ "$(${PXC_BASEDIR}/bin/mysqld --version | grep -oe '5\.[567]' | head -n1)" == "5.6" ]; then
+  MYSQL_VERSION="5.6"
   MID="${PXC_BASEDIR}/scripts/mysql_install_db --no-defaults --basedir=${PXC_BASEDIR}"
 fi
 echo "....PXC initialized"
 
 function start_pxc_node(){
-  local CLUSTER_NAME=$1
-  local BASEPORT=$2
+  local cluster_name=$1
+  local baseport=$2
   local NODES=3
-  local ADDR="127.0.0.1"
-  local WSREP_CLUSTER_NAME="--wsrep_cluster_name=$CLUSTER_NAME"
+  local addr="127.0.0.1"
+  local WSREP_CLUSTER_NAME="--wsrep_cluster_name=$cluster_name"
   # Creating default my.cnf file
 
   pushd "$PXC_BASEDIR" > /dev/null
@@ -147,21 +162,39 @@ function start_pxc_node(){
   echo "innodb_autoinc_lock_mode=2" >> my.cnf
   echo "innodb_locks_unsafe_for_binlog=1" >> my.cnf
   echo "wsrep-provider=${PXC_BASEDIR}/lib/libgalera_smm.so" >> my.cnf
-  echo "wsrep_node_incoming_address=$ADDR" >> my.cnf
+  echo "wsrep_node_incoming_address=$addr" >> my.cnf
   echo "wsrep_sst_method=rsync" >> my.cnf
   echo "wsrep_sst_auth=$SUSER:$SPASS" >> my.cnf
-  echo "wsrep_node_address=$ADDR" >> my.cnf
+  echo "wsrep_node_address=$addr" >> my.cnf
   echo "core-file" >> my.cnf
   echo "log-output=none" >> my.cnf
   echo "server-id=1" >> my.cnf
-  echo "wsrep_slave_threads=2" >> my.cnf
-  echo "pxc_maint_transition_period=1" >> my.cnf
+  echo "skip-slave-start" >> my.cnf
+  echo "master-info-repository=TABLE" >> my.cnf
+  echo "relay-log-info-repository=TABLE" >> my.cnf
+  echo "gtid-mode=ON" >> my.cnf
+  echo "enforce-gtid-consistency" >> my.cnf
+  echo "log-slave-updates" >> my.cnf
+  echo "log-bin" >> my.cnf
+  if [[ $MYSQL_VERSION != "5.6" ]]; then
+    echo "wsrep_slave_threads=2" >> my.cnf
+    echo "pxc_maint_transition_period=1" >> my.cnf
+  fi
 
-  for i in `seq 1 $NODES`;do
-    RBASE1="$(( BASEPORT + (10 * $i ) ))"
-    LADDR1="$ADDR:$(( RBASE1 + 1 ))"
-    WSREP_CLUSTER="$LADDR1,${WSREP_CLUSTER}"
-    node="${PXC_BASEDIR}/${CLUSTER_NAME}${i}"
+  WSREP_CLUSTER=""
+  for i in `seq 1 $NODES`; do
+    rbase1="$(( baseport + (10 * $i ) ))"
+    LADDR1="$addr:$(( rbase1 + 1 ))"
+    WSREP_CLUSTER+="${LADDR1},"
+  done
+  # remove trailing comma
+  WSREP_CLUSTER=${WSREP_CLUSTER%,}
+  WSREP_CLUSTER_ADD="--wsrep_cluster_address=gcomm://$WSREP_CLUSTER"
+
+  for i in `seq 1 $NODES`; do
+    rbase1="$(( baseport + (10 * $i ) ))"
+    LADDR1="$addr:$(( rbase1 + 1 ))"
+    node="${PXC_BASEDIR}/${cluster_name}${i}"
 
     # clear the datadir
     rm -rf "$node"
@@ -169,28 +202,31 @@ function start_pxc_node(){
     if [ "$(${PXC_BASEDIR}/bin/mysqld --version | grep -oe '5\.[567]' | head -n1 )" != "5.7" ]; then
       mkdir -p $node
       if  [ ! "$(ls -A $node)" ]; then
-        ${MID} --datadir=$node  > $WORKDIR/logs/startup_node${CLUSTER_NAME}${i}.err 2>&1 || exit 1;
+        ${MID} --datadir=$node  > $WORKDIR/logs/startup_node${cluster_name}${i}.err 2>&1 || exit 1;
       fi
     fi
     if [ ! -d $node ]; then
-      ${MID} --datadir=$node  > $WORKDIR/logs/startup_node${CLUSTER_NAME}${i}.err 2>&1 || exit 1;
+      ${MID} --datadir=$node  > $WORKDIR/logs/startup_node${cluster_name}${i}.err 2>&1 || exit 1;
     fi
+
     if [ $i -eq 1 ]; then
-      WSREP_CLUSTER_ADD="--wsrep_cluster_address=gcomm:// "
+      WSREP_NEW_CLUSTER=" --wsrep-new-cluster "
     else
-      WSREP_CLUSTER_ADD="--wsrep_cluster_address=gcomm://$WSREP_CLUSTER"
+      WSREP_NEW_CLUSTER=""
     fi
 
     ${PXC_BASEDIR}/bin/mysqld --defaults-file=${PXC_BASEDIR}/my.cnf \
       --datadir=$node \
       $WSREP_CLUSTER_ADD  \
       --wsrep_provider_options=gmcast.listen_addr=tcp://$LADDR1 \
-      --log-error=$WORKDIR/logs/${CLUSTER_NAME}${i}.err \
-      --socket=/tmp/${CLUSTER_NAME}${i}.sock --port=$RBASE1 $WSREP_CLUSTER_NAME > $WORKDIR/logs/${CLUSTER_NAME}${i}.err 2>&1 &
+      --log-error=$WORKDIR/logs/${cluster_name}${i}.err \
+      --socket=/tmp/${cluster_name}${i}.sock \
+      --port=$rbase1 $WSREP_CLUSTER_NAME \
+      $WSREP_NEW_CLUSTER > $WORKDIR/logs/${cluster_name}${i}.err 2>&1 &
     for X in $(seq 0 ${PXC_START_TIMEOUT}); do
       sleep 1
-      if ${PXC_BASEDIR}/bin/mysqladmin -uroot -S/tmp/${CLUSTER_NAME}${i}.sock ping > /dev/null 2>&1; then
-        echo "Started PXC ${CLUSTER_NAME}${i}. BasePort: $RBASE1  Socket: /tmp/${CLUSTER_NAME}${i}.sock"
+      if ${PXC_BASEDIR}/bin/mysqladmin -uroot -S/tmp/${cluster_name}${i}.sock ping > /dev/null 2>&1; then
+        echo "Started PXC ${cluster_name}${i}. BasePort: $rbase1  Socket: /tmp/${cluster_name}${i}.sock"
         break
       fi
     done
@@ -199,23 +235,118 @@ function start_pxc_node(){
   popd > /dev/null
 }
 
+
+function start_async_slave() {
+  local cluster_name=$1
+  local baseport=$2
+  # Creating default my.cnf file
+
+  pushd "$PXC_BASEDIR" > /dev/null
+
+  cd $PXC_BASEDIR
+  echo "[mysqld]" > my-slave.cnf
+  echo "basedir=${PXC_BASEDIR}" >> my-slave.cnf
+  echo "innodb_file_per_table" >> my-slave.cnf
+  echo "innodb_autoinc_lock_mode=2" >> my-slave.cnf
+  echo "innodb_locks_unsafe_for_binlog=1" >> my-slave.cnf
+  echo "core-file" >> my-slave.cnf
+  echo "log-output=none" >> my-slave.cnf
+  echo "server-id=$baseport" >> my-slave.cnf
+  echo "skip-slave-start" >> my-slave.cnf
+  echo "master-info-repository=TABLE" >> my-slave.cnf
+  echo "relay-log-info-repository=TABLE" >> my-slave.cnf
+  echo "gtid-mode=ON" >> my-slave.cnf
+  echo "enforce-gtid-consistency" >> my-slave.cnf
+  echo "log-slave-updates" >> my-slave.cnf
+  echo "log-bin" >> my-slave.cnf
+
+  # This is a requirement for proxysql-admin
+  echo "read-only=1" >> my-slave.cnf
+
+  local rbase1="${baseport}"
+  local node="${PXC_BASEDIR}/${cluster_name}_slave"
+
+  # clear the datadir
+  rm -rf "$node"
+
+  if [ "$(${PXC_BASEDIR}/bin/mysqld --version | grep -oe '5\.[567]' | head -n1 )" != "5.7" ]; then
+    mkdir -p $node
+    if  [ ! "$(ls -A $node)" ]; then
+      ${MID} --datadir=$node  > $WORKDIR/logs/startup_node${cluster_name}_slave.err 2>&1 || exit 1;
+    fi
+  fi
+  if [ ! -d $node ]; then
+    ${MID} --datadir=$node  > $WORKDIR/logs/startup_node${cluster_name}_slave.err 2>&1 || exit 1;
+  fi
+
+  ${PXC_BASEDIR}/bin/mysqld --defaults-file=${PXC_BASEDIR}/my-slave.cnf \
+      --datadir=$node \
+      --log-error=$WORKDIR/logs/${cluster_name}_slave.err \
+      --socket=/tmp/${cluster_name}_slave.sock \
+      --port=$rbase1 \
+      > $WORKDIR/logs/${cluster_name}_slave.err 2>&1 &
+  for X in $(seq 0 ${PXC_START_TIMEOUT}); do
+    sleep 1
+    if ${PXC_BASEDIR}/bin/mysqladmin -uroot -S/tmp/${cluster_name}_slave.sock ping > /dev/null 2>&1; then
+      echo "Started PXC ${cluster_name}_slave. BasePort: $rbase1  Socket: /tmp/${cluster_name}_slave.sock"
+      break
+    fi
+  done
+
+  popd > /dev/null
+}
+
+
+
 echo "Starting cluster one..."
 WSREP_CLUSTER=""
 NODES=0
 start_pxc_node cluster_one 4100
-echo "....Cluster one started"
+echo "....cluster one started"
 
-echo "Starting cluster two..."
-WSREP_CLUSTER=""
-NODES=0
-start_pxc_node cluster_two 4200
-echo "....Cluster two started"
+echo "Starting cluster one async slave..."
+start_async_slave cluster_one 4190
+echo "....cluster one async slave started"
 
-echo "Granting admin privileges on test clusters..."
-${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock -e"GRANT ALL ON *.* TO admin@'%' identified by 'admin';flush privileges;"
-${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock -e"GRANT ALL ON *.* TO admin@'%' identified by 'admin';flush privileges;"
+# Create the needed accounts on the master
+echo "Creating accounts on the cluster"
+if [[ $MYSQL_VERSION == "5.6" ]]; then
+  ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock <<EOF
+GRANT ALL ON *.* TO admin@'%' identified by 'admin' WITH GRANT OPTION;
+GRANT ALL ON *.* TO admin@'localhost' identified by 'admin' WITH GRANT OPTION;
+GRANT SELECT ON SYS.* TO monitor@'localhost' identified by 'monit0r';
+CREATE USER '${REPL_USER}'@'%' IDENTIFIED BY '${REPL_PASSWORD}';
+GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'%';
+FLUSH PRIVILEGES;
+EOF
+else
+  ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock <<EOF
+GRANT ALL ON *.* TO admin@'%' identified by 'admin' WITH GRANT OPTION;
+CREATE USER '${REPL_USER}'@'%' IDENTIFIED BY '${REPL_PASSWORD}';
+GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'%';
+FLUSH PRIVILEGES;
+EOF
+fi
 
-echo "Copying over proxysql-admin.cnf files..."
+# Setup the slave (note that slave is not started automatically)
+echo "Setting up slave for async replication"
+
+if [[ $MYSQL_VERSION == "5.6" ]]; then
+  ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_one_slave.sock -uroot <<EOF
+GRANT ALL ON *.* TO admin@'%' identified by 'admin' WITH GRANT OPTION;
+GRANT ALL ON *.* TO admin@'localhost' identified by 'admin' WITH GRANT OPTION;
+CHANGE MASTER TO MASTER_HOST='127.0.0.1', MASTER_PORT=4110, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1;
+FLUSH PRIVILEGES;
+EOF
+else
+  ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_one_slave.sock -uroot <<EOF
+GRANT ALL ON *.* TO admin@'%' identified by 'admin' WITH GRANT OPTION;
+CHANGE MASTER TO MASTER_HOST='127.0.0.1', MASTER_PORT=4110, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1 FOR CHANNEL 'master-a';
+FLUSH PRIVILEGES;
+EOF
+fi
+
+echo "Copying over proxysql-admin.cnf files to /etc"
 if [[ ! -r $PROXYSQL_BASE/etc/proxysql-admin.cnf ]]; then
   echo ERROR! Cannot find $PROXYSQL_BASE/etc/proxysql-admin.cnf
   exit 2
@@ -235,54 +366,156 @@ if [[ ! -e $(sudo which bats 2> /dev/null) ]] ;then
   popd
 fi
 
+echo ""
+echo "================================================================"
 echo "proxysql-admin generic bats test log"
 sudo WORKDIR=$WORKDIR TERM=xterm bats \
       $SCRIPT_DIR/generic-test.bats
-
+echo "================================================================"
 echo ""
-echo "proxysql-admin testsuite bats test log for cluster_one"
-CLUSTER_ONE_PORT=$(${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock -Bse"select @@port")
+
+test_suites=()
+test_suites+=("proxysql-admin-testsuite.bats")
+test_suites+=("writer-is-reader-testsuite.bats")
+test_suites+=("host-priority-testsuite.bats")
+test_suites+=("desynced-host-testsuite.bats")
+test_suites+=("async-slave-testsuite.bats")
+test_suites+=("loadbal-testsuite.bats")
+
+CLUSTER_ONE_PORT=$(${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock -Bs -e "select @@port")
 sudo sed -i "0,/^[ \t]*export CLUSTER_PORT[ \t]*=.*$/s|^[ \t]*export CLUSTER_PORT[ \t]*=.*$|export CLUSTER_PORT=\"$CLUSTER_ONE_PORT\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_one\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$|export WRITE_HOSTGROUP_ID=\"10\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$|export READ_HOSTGROUP_ID=\"11\"|" /etc/proxysql-admin.cnf
-sudo WORKDIR=$WORKDIR TERM=xterm bats \
-      $SCRIPT_DIR/proxysql-admin-testsuite.bats
+
+for test_file in ${test_suites[@]}; do
+  echo "cluster_one : $test_file"
+  sudo WORKDIR=$WORKDIR TERM=xterm bats \
+        $SCRIPT_DIR/$test_file
+  if [[ $? -ne 0 ]]; then
+    ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=127.0.0.1 --port=6032 \
+      -e "select hostgroup_id,hostname,port,status,comment from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
+    echo "********************************"
+    echo "* $test_file failed, the servers (ProxySQL+PXC)will be left running"
+    echo "* for debugging purposes."
+    echo "********************************"
+    exit 1
+  fi
+  echo "================================================================"
+  echo ""
+done
+echo ""
+
+#echo "killing proxysql and mysqld"
+#pkill -9 proxysql; pkill -9 mysqld
+exit 1
+
+
+echo "Starting cluster two..."
+WSREP_CLUSTER=""
+NODES=0
+start_pxc_node cluster_two 4200
+echo "....cluster two started"
+
+echo "Starting cluster two async slave..."
+start_async_slave cluster_two 4290
+echo "....cluster two async slave started"
+
+echo "Creating accounts on the cluster"
+if [[ $MYSQL_VERSION == "5.6" ]]; then
+  ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock <<EOF
+GRANT ALL ON *.* TO admin@'%' identified by 'admin' WITH GRANT OPTION;
+GRANT ALL ON *.* TO admin@'localhost' identified by 'admin' WITH GRANT OPTION;
+GRANT SELECT ON SYS.* TO monitor@'localhost' identified by 'monit0r';
+CREATE USER '${REPL_USER}'@'%' IDENTIFIED BY '${REPL_PASSWORD}';
+GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'%';
+FLUSH PRIVILEGES;
+EOF
+else
+  ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock <<EOF
+GRANT ALL ON *.* TO admin@'%' identified by 'admin' WITH GRANT OPTION;
+CREATE USER '${REPL_USER}'@'%' IDENTIFIED BY '${REPL_PASSWORD}';
+GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'%';
+FLUSH PRIVILEGES;
+EOF
+fi
+
+# Setup the slave (note that slave is not started automatically)
+echo "Setting up slave for async replication"
+if [[ $MYSQL_VERSION == "5.6" ]]; then
+  ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_two_slave.sock -uroot <<EOF
+GRANT ALL ON *.* TO admin@'%' identified by 'admin' WITH GRANT OPTION;
+GRANT ALL ON *.* TO admin@'localhost' identified by 'admin' WITH GRANT OPTION;
+CHANGE MASTER TO MASTER_HOST='127.0.0.1', MASTER_PORT=4210, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1;
+FLUSH PRIVILEGES;
+EOF
+else
+  ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_two_slave.sock -uroot <<EOF
+GRANT ALL ON *.* TO admin@'%' identified by 'admin' WITH GRANT OPTION;
+CHANGE MASTER TO MASTER_HOST='127.0.0.1', MASTER_PORT=4210, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1 FOR CHANNEL 'master-a';
+FLUSH PRIVILEGES;
+EOF
+fi
 
 echo ""
-echo "proxysql-admin testsuite bats test log for cluster_two"
-CLUSTER_TWO_PORT=$(${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock -Bse"select @@port")
+CLUSTER_TWO_PORT=$(${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock -Bs -e "select @@port")
 sudo sed -i "0,/^[ \t]*export CLUSTER_PORT[ \t]*=.*$/s|^[ \t]*export CLUSTER_PORT[ \t]*=.*$|export CLUSTER_PORT=\"$CLUSTER_TWO_PORT\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_two\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$|export WRITE_HOSTGROUP_ID=\"20\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$|export READ_HOSTGROUP_ID=\"21\"|" /etc/proxysql-admin.cnf
-sudo WORKDIR=$WORKDIR TERM=xterm bats \
-      $SCRIPT_DIR/proxysql-admin-testsuite.bats
+echo "================================================================"
+echo ""
+
+for test_file in ${test_suites[@]}; do
+  echo "cluster_two : $test_file"
+
+  sudo WORKDIR=$WORKDIR TERM=xterm bats \
+        $SCRIPT_DIR/$test_file
+  if [[ $? -ne 0 ]]; then
+    ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=127.0.0.1 --port=6032 \
+      -e "select hostgroup_id,hostname,port,status,comment from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
+    echo "********************************"
+    echo "* $test_file failed, the servers (ProxySQL+PXC)will be left running"
+    echo "* for debugging purposes."
+    echo "********************************"
+    exit 1
+  fi
+  echo "================================================================"
+  echo ""
+done
+echo ""
 
 
-if [[ -e /tmp/cluster_one1.sock ]]; then
-  echo "Shutting down cluster_one1"
-  ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one1.sock  -u root shutdown
-fi
-if [[ -e /tmp/cluster_one2.sock ]]; then
-  echo "Shutting down cluster_one2"
-  ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one2.sock  -u root shutdown
+if [[ -e /tmp/cluster_one_slave.sock ]]; then
+  echo "Shutting down cluster_one_slave"
+  ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one_slave.sock  -u root shutdown
 fi
 if [[ -e /tmp/cluster_one3.sock ]]; then
   echo "Shutting down cluster_one3"
   ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one3.sock  -u root shutdown
 fi
+if [[ -e /tmp/cluster_one2.sock ]]; then
+  echo "Shutting down cluster_one2"
+  ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one2.sock  -u root shutdown
+fi
+if [[ -e /tmp/cluster_one1.sock ]]; then
+  echo "Shutting down cluster_one1"
+  ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one1.sock  -u root shutdown
+fi
 
-
-if [[ -e /tmp/cluster_two1.sock ]]; then
-  echo "Shutting down cluster_two1"
-  ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_two1.sock  -u root shutdown
+if [[ -e /tmp/cluster_two_slave.sock ]]; then
+  echo "Shutting down cluster_two_slave"
+  ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_two_slave.sock  -u root shutdown
+fi
+if [[ -e /tmp/cluster_two3.sock ]]; then
+  echo "Shutting down cluster_two3"
+  ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_two3.sock  -u root shutdown
 fi
 if [[ -e /tmp/cluster_two2.sock ]]; then
   echo "Shutting down cluster_two2"
   ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_two2.sock  -u root shutdown
 fi
-if [[ -e /tmp/cluster_two3.sock ]]; then
-  echo "Shutting down cluster_two3"
-  ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_two3.sock  -u root shutdown
+if [[ -e /tmp/cluster_two1.sock ]]; then
+  echo "Shutting down cluster_two1"
+  ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_two1.sock  -u root shutdown
 fi

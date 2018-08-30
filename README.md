@@ -10,7 +10,8 @@ proxysql-admin usage info
 ```bash
 Usage: [ options ]
 Options:
-  --config-file                      Read login credentials from a configuration file (overrides any login credentials specified on the command line)
+  --config-file                      Read login credentials from a configuration file
+                                     (command line credentials override any configuration file credentials)
   --quick-demo                       Setup a quick demo with no authentication
   --proxysql-datadir=<datadir>       Specify proxysql data directory location
   --proxysql-username=user_name      Username for connecting to the ProxySQL service

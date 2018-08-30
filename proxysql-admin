@@ -56,6 +56,7 @@ declare  -i DEBUG=0
 # Global variables used by the script
 #
 declare    CONFIG_FILE="/etc/proxysql-admin.cnf"
+declare    PROXYSQL_DATADIR=""
 
 declare    PROXYSQL_USERNAME=""
 declare    PROXYSQL_PASSWORD=""
@@ -93,7 +94,7 @@ declare -i SYNCMULTICLUSTERUSERS=0
 declare -i WITHOUT_CHECK_MONITOR_USER=0
 declare -i WITHOUT_CLUSTER_APP_USER=0
 
-declare    PROXYSQL_DATADIR="/var/lib/proxysql"
+declare    WRITER_IS_READER="ondemand"
 
 #-------------------------------------------------------------------------------
 #
@@ -181,6 +182,11 @@ Options:
                                      the writer hostgroup if all cluster nodes are down.
                                      Slaves must be read only.  Can accept a comma delimited list.
                                      If this is used make sure 'read_only=1' is in the slave's my.cnf
+  --writer-is-reader=<value>         Defines if the writer node also accepts writes.
+                                     Possible values are 'always', 'never', and 'ondemand'.
+                                     'ondemand' means that the writer node only accepts reads
+                                     if there are no other readers.
+                                     (default: 'ondemand')
 
 These options are the possible operations for proxysql-admin.
 One of the options below must be provided.
@@ -314,7 +320,7 @@ function exec_sql() {
   if [[ $DEBUG -eq 1 ]]; then
     local number_of_newlines=0
     if [[ -n $retoutput ]]; then
-      number_of_newlines=$(printf "${retoutput//%/%%}" | wc -l)
+      number_of_newlines=$(printf "%s" "${retoutput}" | wc -l)
     fi
 
     if [[  $retvalue -ne 0 ]]; then
@@ -325,15 +331,15 @@ function exec_sql() {
       debug "" "--> query returned $retvalue : ${retoutput}"
     else
       debug "" "--> query returned $retvalue : <data follows>"
-      printf "${retoutput//%/%%}\n" | while IFS= read -r line; do
+      printf "%s" "${retoutput}\n" | while IFS= read -r line; do
         debug "" "----> $line"
       done
     fi
   fi
-
-  printf "${retoutput//%/%%}"
+  printf "%s" "${retoutput}"
   return $retvalue
 }
+
 
 # Executes a SQL query on proxysql
 #
@@ -408,7 +414,7 @@ function mysql_exec() {
 #
 function slave_exec() {
   local query=$1
-  local args
+  local args=""
 
   if [[ $# -ge 2 ]]; then
     args=$2
@@ -437,7 +443,7 @@ function proxysql_connection_check() {
   check_cmd $? $LINENO "ProxySQL connection check failed."\
                        "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
                        "\n-- Please check the ProxySQL connection parameters and status."
-  debug $LINENO "proxysql connection check succeeded"
+  debug $LINENO "ProxySQL connection check succeeded"
 }
 
 
@@ -579,12 +585,12 @@ function user_input_check() {
       read -r ${user_category}_USERNAME
     done
   else
-    if [[ $QUICK_DEMO -ne 1 ]]; then
+    if [[ $QUICK_DEMO -eq 0 ]]; then
       echo -e "${user_description} name as per command line/config-file is ${BD}$(eval "echo \$${user_category}_USERNAME")${NBD}"
     fi
   fi
   if [[ -z $password ]]; then
-    if [[ $QUICK_DEMO -ne 1 ]]; then
+    if [[ $QUICK_DEMO -eq 0 ]]; then
       read -r -s -p  "Enter ${user_description} password: " ${user_category}_PASSWORD
       while [[ -z "${user_category}_PASSWORD" ]]
       do
@@ -625,7 +631,7 @@ function user_input_check() {
 
         proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO
     
-        if [[ $QUICK_DEMO -eq 1 ]]; then
+        if [[ $QUICK_DEMO -eq 0 ]]; then
           echo -e "\nPercona XtraDB Cluster application user '${BD}$username'@'$USER_HOST_RANGE${NBD}' has been added with ${BD}ALL${NBD} privileges, ${BD}this user is created for testing purposes${NBD}"
         else
           echo -e "\nPercona XtraDB Cluster application user '${BD}$username'@'$USER_HOST_RANGE${NBD}' has been added with the USAGE privilege, please make sure to the grant appropriate privileges"
@@ -705,13 +711,13 @@ function proxysql_load_to_runtime_save_to_disk() {
 #   MODE
 #   WRITE_NODE
 #   WRITE_NODES
-#   P_HOST_PRIORITy
-#   HOST_PRIORIty
+#   P_HOST_PRIORITY
 #
 # Arguments:
 #   None
 #
 function enable_proxysql() {
+  local host_priority=""
   debug $LINENO "enable_proxysql ( $(dump_arguments "$@") )"
   # Checking proxysql binary location
   if [[ ! -e $(which proxysql 2> /dev/null) ]]; then
@@ -751,7 +757,6 @@ function enable_proxysql() {
                        "\n-- Please check the PXC connection parameters and status."
   readonly cluster_name
   debug $LINENO "PXC cluster name is : $cluster_name"
-
 
   local check_hgs
   check_hgs=$(proxysql_exec "SELECT hostgroup_id FROM mysql_servers where hostgroup_id in ($READ_HOSTGROUP_ID,$WRITE_HOSTGROUP_ID)")
@@ -803,7 +808,7 @@ function enable_proxysql() {
     fi
     case $check_param in
       y|Y)
-        if [[ $QUICK_DEMO -ne 1 ]]; then
+        if [[ $QUICK_DEMO -eq 0 ]]; then
           read -r -s -p  "Please enter the password you have assigned to the monitoring user '$MONITOR_USERNAME': " MONITOR_PASSWORD
           echo ""
           proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
@@ -912,7 +917,7 @@ function enable_proxysql() {
     proxysql_exec "DELETE FROM mysql_query_rules WHERE destination_hostgroup in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID)"
     check_cmd $? $LINENO "Failed to delete the existing query rules for hostgroup: ${WRITE_HOSTGROUP_ID},${READ_HOSTGROUP_ID}"\
                          "\n-- Please check the ProxySQL connection parameters and status."
-    if [[ $QUICK_DEMO -ne 1 ]]; then
+    if [[ $QUICK_DEMO -eq 0 ]]; then
       local writer_ws_ip
       local writer_ws_port
 
@@ -957,13 +962,13 @@ function enable_proxysql() {
     fi
 
     # Create the host priority file if multiple write nodes were specified
-    HOST_PRIORITY=""
+    host_priority=""
     if [ -n "$ENABLE_PRIORITY" ];then
       echo -e "\nConfiguring $MODE mode with the following nodes designated as priority order:"
         for i in $WRITE_NODES;do
           echo " $i"
         done
-      HOST_PRIORITY="--priority=$P_HOST_PRIORITY"
+      host_priority="--priority=$P_HOST_PRIORITY"
     fi
 
     for i in "${wsrep_address[@]}"; do  
@@ -1017,7 +1022,7 @@ function enable_proxysql() {
   else
     number_writers=0
   fi
-  proxysql_exec "INSERT INTO SCHEDULER (active,interval_ms,filename,arg1,comment) VALUES (1,$NODE_CHECK_INTERVAL,'$proxysql_galera_check','--config-file=$CONFIG_FILE --write-hg=$WRITE_HOSTGROUP_ID --read-hg=$READ_HOSTGROUP_ID --writer-count=$number_writers --mode=$MODE $HOST_PRIORITY --log=$PROXYSQL_DATADIR/${cluster_name}_proxysql_galera_check.log','$cluster_name');"
+  proxysql_exec "INSERT INTO SCHEDULER (active,interval_ms,filename,arg1,comment) VALUES (1,$NODE_CHECK_INTERVAL,'$proxysql_galera_check','--config-file=$CONFIG_FILE --writer-is-reader=$WRITER_IS_READER --write-hg=$WRITE_HOSTGROUP_ID --read-hg=$READ_HOSTGROUP_ID --writer-count=$number_writers --mode=$MODE $host_priority --log=$PROXYSQL_DATADIR/${cluster_name}_proxysql_galera_check.log','$cluster_name');"
   check_cmd $? $LINENO "Failed to add the PXC monitoring scheduler in ProxySQL."\
                        "\n-- Please check the ProxySQL connection parameters and status."
 
@@ -1351,7 +1356,7 @@ function parse_args() {
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,include-slaves:,without-check-monitor-user,without-cluster-app-user,enable,disable,adduser,syncusers,sync-multi-cluster-users,version,debug,help \
+    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,include-slaves:,without-check-monitor-user,without-cluster-app-user,writer-is-reader:,enable,disable,adduser,syncusers,sync-multi-cluster-users,version,debug,help \
     --name="$(basename "$0")" -- "$@")"
     check_cmd $? $LINENO "Script error: getopt() failed with arguments: $@"
     eval set -- "$go_out"
@@ -1374,7 +1379,6 @@ function parse_args() {
   # Load the config file before reading in the command-line options
   #
   if ! echo "$go_out" | grep -q 'quick-demo'; then
-
     # Is there a config-file option in the command-line?
     if echo "$go_out" | grep -q "config-file"; then
       arg_array=( "$@" )
@@ -1500,6 +1504,10 @@ function parse_args() {
         shift
         WITHOUT_CLUSTER_APP_USER=1
         ;;
+      --writer-is-reader )
+        WRITER_IS_READER="$2"
+        shift 2
+        ;;
       -e | --enable )
         shift
         ENABLE=1
@@ -1565,10 +1573,21 @@ function parse_args() {
   done
 
   # Check user permission to proxysql datadir
+  if [[ -z $PROXYSQL_DATADIR ]]; then
+    if [[ -d /var/lib/proxysql ]]; then
+      PROXYSQL_DATADIR="/var/lib/proxysql"
+    elif [[ -d /usr/share/proxysql ]]; then
+      PROXYSQL_DATADIR="/usr/share/proxysql"
+    else
+      debug "" "Cannot find the ProyxSQL datadir"
+      exit 1
+    fi
+  fi
   check_permission -d $LINENO $PROXYSQL_DATADIR "ProxySQL datadir"
   check_permission -w $LINENO $PROXYSQL_DATADIR
   readonly PROXYSQL_DATADIR
 
+  debug "" "ProxySQL datadir: $PROXYSQL_DATADIR"
 
   if [[ $QUICK_DEMO -eq 1 ]]; then
     echo -e "\nThis script will assist with configuring ProxySQL for use with"
@@ -1603,7 +1622,7 @@ function parse_args() {
   fi
 
   # Check the options gathered from the command line
-  if [[ $QUICK_DEMO -ne 1 ]]; then
+  if [[ $QUICK_DEMO -eq 0 ]]; then
     if [[ -z "$PROXYSQL_USERNAME" ]];then
       error "" "The ProxySQL username (--proxysql-username) is required!"
       exit 1
@@ -1658,7 +1677,7 @@ function parse_args() {
   readonly CLUSTER_PORT
   readonly CLUSTER_HOSTNAME
 
-  if [ "$MODE" != "loadbal" ] && [ "$MODE" != "singlewrite" ]; then
+  if [[ ! $MODE =~ ^(loadbal|singlewrite)$ ]]; then
     error "" "Invalid --mode passed: '$MODE'"
     echo "Please choose one of these modes: loadbal, singlewrite"
     exit 1
@@ -1668,10 +1687,17 @@ function parse_args() {
 
   if [ $MODE == "loadbal" ]; then
     SLAVEREAD_HOSTGROUP_ID=$READ_HOSTGROUP_ID
-    READ_HOSTGROUP_ID=$WRITE_HOSTGROUP_ID
+    READ_HOSTGROUP_ID=-1
   elif [ $MODE == "singlewrite" ]; then
     SLAVEREAD_HOSTGROUP_ID=$READ_HOSTGROUP_ID
   fi
+
+  if [[ ! $WRITER_IS_READER =~ ^(always|never|ondemand)$ ]]; then
+    error "" "Invalid --writer-is-reader option: '$WRITER_IS_READER'"
+    echo "Please choose one of these values: always, never, or ondemand"
+    exit 1
+  fi
+
   readonly WRITE_HOSTGROUP_ID
   readonly READ_HOSTGROUP_ID
   readonly SLAVEREAD_HOSTGROUP_ID
@@ -1690,6 +1716,7 @@ function parse_args() {
 
   readonly WITHOUT_CHECK_MONITOR_USER
   readonly WITHOUT_CLUSTER_APP_USER
+  readonly WRITER_IS_READER
 }
 
 # Main function
@@ -1712,7 +1739,7 @@ function main() {
 
   if [[ $ENABLE -eq 1 ]]; then
 
-    if [[ $QUICK_DEMO -ne 1 ]]; then
+    if [[ $QUICK_DEMO -eq 0 ]]; then
       echo -e "\nThis script will assist with configuring ProxySQL for use with"
       echo -e "Percona XtraDB Cluster (currently only PXC in combination"
       echo -e "with ProxySQL is supported)"
