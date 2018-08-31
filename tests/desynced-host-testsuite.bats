@@ -28,10 +28,11 @@ declare WEIGHTS=()
 
 load test-common
 
-wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
+WSREP_CLUSTER_NAME=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
+MYSQL_VERSION=$(cluster_exec "select @@version")
 
 # Note: 4110/4210  is left as an unprioritized node
-if [[ $wsrep_cluster_name == "cluster_one" ]]; then
+if [[ $WSREP_CLUSTER_NAME == "cluster_one" ]]; then
   PORT_1=4130
   PORT_2=4120
   PORT_NOPRIO=4110
@@ -114,13 +115,13 @@ function verify_initial_state() {
 }
 
 
-@test "run proxysql-admin -d ($wsrep_cluster_name)" {
+@test "run proxysql-admin -d ($WSREP_CLUSTER_NAME)" {
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
   echo "$output" >&2
   [ "$status" -eq  0 ]
 }
 
-@test "run proxysql-admin -e ($wsrep_cluster_name)" {
+@test "run proxysql-admin -e ($WSREP_CLUSTER_NAME)" {
   echo "priority_list is $PRIORITY_LIST" >& 2
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --writer-is-reader=ondemand <<< 'n'
   [ "$status" -eq  0 ]
@@ -136,7 +137,7 @@ function verify_initial_state() {
 }
 
 
-@test "desync node activation ($wsrep_cluster_name)" {
+@test "desync node activation ($WSREP_CLUSTER_NAME)" {
   #skip
   # PREPARE for the test
   # ========================================================
@@ -463,7 +464,7 @@ function verify_initial_state() {
 }
 
 
-@test "desync a writer node ($wsrep_cluster_name)" {
+@test "desync a writer node ($WSREP_CLUSTER_NAME)" {
   #skip
   # PREPARE for the test
   # ========================================================
@@ -579,8 +580,10 @@ function verify_initial_state() {
 }
 
 
-@test "desync node activation (nodes are disabled) ($wsrep_cluster_name)" {
+@test "desync node activation (nodes are disabled) ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
+
   # PREPARE for the test
   # ========================================================
   test_preparation

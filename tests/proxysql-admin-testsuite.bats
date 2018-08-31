@@ -20,46 +20,46 @@ declare WEIGHTS=()
 
 load test-common
 
-wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
+WSREP_CLUSTER_NAME=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 
-@test "run proxysql-admin -d ($wsrep_cluster_name)" {
+@test "run proxysql-admin -d ($WSREP_CLUSTER_NAME)" {
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin -d
   echo "$output"
   [ "$status" -eq  0 ]
 }
 
-@test "run proxysql-admin -e ($wsrep_cluster_name)" {
+@test "run proxysql-admin -e ($WSREP_CLUSTER_NAME)" {
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin -e --writer-is-reader=never <<< 'n'
   echo "$output"
   [ "$status" -eq  0 ]
 }
 
-@test "run the check for cluster size ($wsrep_cluster_name)" {
+@test "run the check for cluster size ($WSREP_CLUSTER_NAME)" {
   #get values from PXC and ProxySQL side
   wsrep_cluster_count=$(cluster_exec "show status like 'wsrep_cluster_size'" | awk '{print $2}')
   proxysql_cluster_count=$(proxysql_exec "select count(*) from mysql_servers where hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID) " | awk '{print $0}')
   [ "$wsrep_cluster_count" -eq "$proxysql_cluster_count" ]
 }
 
-@test "run the check for --node-check-interval ($wsrep_cluster_name)" {
+@test "run the check for --node-check-interval ($WSREP_CLUSTER_NAME)" {
   wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name")
   report_interval=$(proxysql_exec "select interval_ms from scheduler where comment='$wsrep_cluster_name'" | awk '{print $0}')
   [ "$report_interval" -eq 3000 ]
 }
 
-@test "run the check for --adduser ($wsrep_cluster_name)" {
+@test "run the check for --adduser ($WSREP_CLUSTER_NAME)" {
   run_add_command=$(printf "proxysql_test_user1\ntest_user\ny" | sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --adduser)
   run_check_user_command=$(proxysql_exec "select 1 from mysql_users where username='proxysql_test_user1'" | awk '{print $0}')
   [ "$run_check_user_command" -eq 1 ]
 }
 
-@test "run proxysql-admin --syncusers ($wsrep_cluster_name)" {
+@test "run proxysql-admin --syncusers ($WSREP_CLUSTER_NAME)" {
 run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers
 echo "$output"
     [ "$status" -eq  0 ]
 }
 
-@test "run the check for --syncusers ($wsrep_cluster_name)" {
+@test "run the check for --syncusers ($WSREP_CLUSTER_NAME)" {
 
   local mysql_version=$(cluster_exec "select @@version")
   local pass_field
@@ -73,7 +73,7 @@ echo "$output"
   # HACK: this mismatch occurs because we're running the tests for cluster_two
   # right after the test for cluster_one (multi-cluster scenario), so the
   # user counts will be off (because user cluster_one will still be in proxysql users).
-  if [[ $wsrep_cluster_name == "cluster_two" ]]; then
+  if [[ $WSREP_CLUSTER_NAME == "cluster_two" ]]; then
     proxysql_user_count=$(proxysql_exec "select count(*) from mysql_users where username not in ('cluster_one')" | awk '{print $0}')
   else
     proxysql_user_count=$(proxysql_exec "select count(*) from mysql_users" | awk '{print $0}')
@@ -82,7 +82,7 @@ echo "$output"
   [ "$cluster_user_count" -eq "$proxysql_user_count" ]
 }
 
-@test "run the check for updating runtime_mysql_servers table ($wsrep_cluster_name)" {
+@test "run the check for updating runtime_mysql_servers table ($WSREP_CLUSTER_NAME)" {
   #skip
   # check initial writer info
   first_writer_port=$(proxysql_exec "select port from mysql_servers where hostgroup_id='$WRITE_HOSTGROUP_ID';" 2>/dev/null)
@@ -125,7 +125,7 @@ echo "$output"
   # bring the node up
   # remove the "--wsrep-new-cluster" from the command-line (no bootstrap)
   first_writer_start_cmd=$(echo "$first_writer_start_cmd" | sed "s/\-\-wsrep-new-cluster//g")
-  nohup $first_writer_start_cmd --user=$first_writer_start_user 3>- &
+  nohup $first_writer_start_cmd --user=$first_writer_start_user 3>&- &
   sleep 15
   nr_nodes=$(proxysql_exec "select count(*) from mysql_servers where status='ONLINE' and hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID);" 2>/dev/null)
   [ "$nr_nodes" = "3" ]
@@ -136,7 +136,7 @@ echo "$output"
   [ "$(echo \"$mysql_servers\"|md5sum)" = "$(echo \"$runtime_mysql_servers\"|md5sum)" ]
 }
 
-@test "run the check for --quick-demo ($wsrep_cluster_name)" {
+@test "run the check for --quick-demo ($WSREP_CLUSTER_NAME)" {
   #skip
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin  --enable --quick-demo <<< n
   [ "$status" -eq 0 ]

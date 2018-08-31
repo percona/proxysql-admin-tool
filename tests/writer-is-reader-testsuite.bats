@@ -29,8 +29,11 @@ declare WEIGHTS=()
 declare GALERA_CHECKER
 declare GALERA_CHECKER_ARGS
 
+
 load test-common
 
+WSREP_CLUSTER_NAME=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
+MYSQL_VERSION=$(cluster_exec "select @@version")
 
 function test_preparation() {
   local sched_id
@@ -123,23 +126,20 @@ function verify_initial_state() {
   fi
 }
 
-
-wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
-
-@test "run proxysql-admin -d ($wsrep_cluster_name)" {
+@test "run proxysql-admin -d ($WSREP_CLUSTER_NAME)" {
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin -d
   echo "$output"
   [ "$status" -eq  0 ]
 }
 
-@test "run proxysql-admin -e ($wsrep_cluster_name)" {
+@test "run proxysql-admin -e ($WSREP_CLUSTER_NAME)" {
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin -e --writer-is-reader=never <<< 'n'
   echo "$output"
   [ "$status" -eq  0 ]
 }
 
 
-@test "run proxysql_galera_checker ($wsrep_cluster_name)" {
+@test "run proxysql_galera_checker ($WSREP_CLUSTER_NAME)" {
   #skip
 
   # SETUP (determine some of the parameters, such as READ/WRITE nodes)
@@ -166,7 +166,7 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=never stop/start a reader ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=never stop/start a reader ($WSREP_CLUSTER_NAME)" {
   #skip
 
   # SYNC up with the runtime
@@ -307,7 +307,7 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=never stop/start a writer ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=never stop/start a writer ($WSREP_CLUSTER_NAME)" {
   #skip
 
   # SYNC up with the runtime
@@ -460,8 +460,9 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=never disable/enable a reader ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=never disable/enable a reader ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
 
   # SYNC up with the runtime
   # (For a consistent starting point)
@@ -576,8 +577,9 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=never disable/enable a writer ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=never disable/enable a writer ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
 
   # SYNC up with the runtime
   # (For a consistent starting point)
@@ -721,7 +723,7 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=never stopping all readers ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=never stopping all readers ($WSREP_CLUSTER_NAME)" {
   #skip
 
   # SYNC up with the runtime
@@ -879,8 +881,9 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=never disabling all readers ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=never disabling all readers ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
 
   # SYNC up with the runtime
   # (For a consistent starting point)
@@ -1023,8 +1026,9 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=never mix stop/disable ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=never mix stop/disable ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
 
   # SYNC up with the runtime
   # (For a consistent starting point)
@@ -1156,7 +1160,7 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=always stop/start a reader ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=always stop/start a reader ($WSREP_CLUSTER_NAME)" {
   #skip
 
   # SYNC up with the runtime
@@ -1329,7 +1333,7 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=always stop/start a writer ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=always stop/start a writer ($WSREP_CLUSTER_NAME)" {
   #skip
 
   # SYNC up with the runtime
@@ -1495,8 +1499,9 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=always disable/enable a reader ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=always disable/enable a reader ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
 
   # SYNC up with the runtime
   # (For a consistent starting point)
@@ -1619,8 +1624,9 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=always disable/enable a writer ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=always disable/enable a writer ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
 
   # SYNC up with the runtime
   # (For a consistent starting point)
@@ -1786,7 +1792,7 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=always stopping all readers ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=always stopping all readers ($WSREP_CLUSTER_NAME)" {
   #skip
 
   # SYNC up with the runtime
@@ -1969,8 +1975,9 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=always disabling all readers ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=always disabling all readers ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
 
   # SYNC up with the runtime
   # (For a consistent starting point)
@@ -2136,8 +2143,9 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=always mix stop/disable  ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=always mix stop/disable  ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
 
   # SYNC up with the runtime
   # (For a consistent starting point)
@@ -2287,7 +2295,7 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=ondemand stop/start a reader ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=ondemand stop/start a reader ($WSREP_CLUSTER_NAME)" {
   #skip
 
   # SYNC up with the runtime
@@ -2460,7 +2468,7 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=ondemand stop/start a writer ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=ondemand stop/start a writer ($WSREP_CLUSTER_NAME)" {
   #skip
 
   # SYNC up with the runtime
@@ -2629,8 +2637,9 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=ondemand disable/enable a reader ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=ondemand disable/enable a reader ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
 
   # SYNC up with the runtime
   # (For a consistent starting point)
@@ -2752,8 +2761,9 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=ondemand stop/start a writer ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=ondemand disable/enable a writer ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
 
   # SYNC up with the runtime
   # (For a consistent starting point)
@@ -2921,7 +2931,7 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=ondemand stopping all readers ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=ondemand stopping all readers ($WSREP_CLUSTER_NAME)" {
   #skip
 
   # SYNC up with the runtime
@@ -3110,8 +3120,9 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=ondemand disabling all readers ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=ondemand disabling all readers ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
 
   # SYNC up with the runtime
   # (For a consistent starting point)
@@ -3283,8 +3294,9 @@ wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 
-@test "test --writer-is-reader=ondemand mix stop/disable ($wsrep_cluster_name)" {
+@test "test --writer-is-reader=ondemand mix stop/disable ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
 
   # SYNC up with the runtime
   # (For a consistent starting point)

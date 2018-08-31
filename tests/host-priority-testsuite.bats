@@ -25,10 +25,12 @@ declare STATUS=()
 
 load test-common
 
-wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
+WSREP_CLUSTER_NAME=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
+MYSQL_VERSION=$(cluster_exec "select @@version")
+
 
 # Note: 4110/4210  is left as an unprioritized node
-if [[ $wsrep_cluster_name == "cluster_one" ]]; then
+if [[ $WSREP_CLUSTER_NAME == "cluster_one" ]]; then
   PORT_1=4130
   PORT_2=4120
   PORT_NOPRIO=4110
@@ -131,13 +133,13 @@ function verify_initial_state() {
 }
 
 
-@test "run proxysql-admin -d ($wsrep_cluster_name)" {
+@test "run proxysql-admin -d ($WSREP_CLUSTER_NAME)" {
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
   echo "$output" >&2
   [ "$status" -eq  0 ]
 }
 
-@test "run proxysql-admin -e ($wsrep_cluster_name)" {
+@test "run proxysql-admin -e ($WSREP_CLUSTER_NAME)" {
   echo "priority_list is $PRIORITY_LIST" >& 2
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --writer-is-reader=ondemand --write-node=$PRIORITY_LIST <<< 'n'
   [ "$status" -eq  0 ]
@@ -153,7 +155,7 @@ function verify_initial_state() {
 }
 
 
-@test "host-priority testing stopping (noprio 1 2) ($wsrep_cluster_name)" {
+@test "host-priority testing stopping (noprio 1 2) ($WSREP_CLUSTER_NAME)" {
   #skip
   # PREPARE for the test
   # ========================================================
@@ -341,7 +343,7 @@ function verify_initial_state() {
 }
 
 
-@test "host-priority testing stopping (noprio 2 1) ($wsrep_cluster_name)" {
+@test "host-priority testing stopping (noprio 2 1) ($WSREP_CLUSTER_NAME)" {
   #skip
   # PREPARE for the test
   # ========================================================
@@ -564,7 +566,7 @@ function verify_initial_state() {
 }
 
 
-@test "host-priority testing stopping (1 noprio 2) ($wsrep_cluster_name)" {
+@test "host-priority testing stopping (1 noprio 2) ($WSREP_CLUSTER_NAME)" {
   #skip
   # PREPARE for the test
   # ========================================================
@@ -750,7 +752,7 @@ function verify_initial_state() {
 }
 
 
-@test "host-priority testing stopping (1 2 noprio) ($wsrep_cluster_name)" {
+@test "host-priority testing stopping (1 2 noprio) ($WSREP_CLUSTER_NAME)" {
   #skip
   # PREPARE for the test
   # ========================================================
@@ -906,7 +908,7 @@ function verify_initial_state() {
 }
 
 
-@test "host-priority testing stopping (2 noprio 1) ($wsrep_cluster_name)" {
+@test "host-priority testing stopping (2 noprio 1) ($WSREP_CLUSTER_NAME)" {
   #skip
   # PREPARE for the test
   # ========================================================
@@ -1096,7 +1098,7 @@ function verify_initial_state() {
 }
 
 
-@test "host-priority testing stopping (2 1 noprio) ($wsrep_cluster_name)" {
+@test "host-priority testing stopping (2 1 noprio) ($WSREP_CLUSTER_NAME)" {
   #skip
   # PREPARE for the test
   # ========================================================
@@ -1256,8 +1258,10 @@ function verify_initial_state() {
 }
 
 
-@test "host-priority testing disabling (noprio 1 2) ($wsrep_cluster_name)" {
+@test "host-priority testing disabling (noprio 1 2) ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
+
   # PREPARE for the test
   # ========================================================
   test_preparation
@@ -1424,8 +1428,10 @@ function verify_initial_state() {
 }
 
 
-@test "host-priority testing disabling (noprio 2 1) ($wsrep_cluster_name)" {
+@test "host-priority testing disabling (noprio 2 1) ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
+
   # PREPARE for the test
   # ========================================================
   test_preparation
@@ -1618,8 +1624,10 @@ function verify_initial_state() {
 }
 
 
-@test "host-priority testing disabling (1 noprio 2) ($wsrep_cluster_name)" {
+@test "host-priority testing disabling (1 noprio 2) ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
+
   # PREPARE for the test
   # ========================================================
   test_preparation
@@ -1803,8 +1811,10 @@ function verify_initial_state() {
 }
 
 
-@test "host-priority testing disabling (1 2 noprio) ($wsrep_cluster_name)" {
+@test "host-priority testing disabling (1 2 noprio) ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
+
   # PREPARE for the test
   # ========================================================
   test_preparation
@@ -1962,8 +1972,10 @@ function verify_initial_state() {
 }
 
 
-@test "host-priority testing disabling (2 noprio 1) ($wsrep_cluster_name)" {
+@test "host-priority testing disabling (2 noprio 1) ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
+
   # PREPARE for the test
   # ========================================================
   test_preparation
@@ -2129,8 +2141,10 @@ function verify_initial_state() {
 }
 
 
-@test "host-priority testing disabling (2 1 noprio) ($wsrep_cluster_name)" {
+@test "host-priority testing disabling (2 1 noprio) ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
+
   # PREPARE for the test
   # ========================================================
   test_preparation
@@ -2301,7 +2315,7 @@ function verify_initial_state() {
 }
 
 
-@test "priority-list has no active nodes ($wsrep_cluster_name)" {
+@test "priority-list has no active nodes and stop writer ($WSREP_CLUSTER_NAME)" {
   #skip
   # PREPARE for the test
   # ========================================================
@@ -2419,6 +2433,58 @@ function verify_initial_state() {
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
+}
+
+
+@test "priority-list has no active nodes and stop reader ($WSREP_CLUSTER_NAME)" {
+  #skip
+  # PREPARE for the test
+  # ========================================================
+  test_preparation
+  verify_initial_state
+
+  # Store some special variables
+  host=${write_host[0]}
+
+  local new_priority_list="127.0.0.1:9000,127.0.0.1:9001"
+
+  # Swap the old priority list for the new priority list in the
+  # galera_checker
+  GALERA_CHECKER=$(proxysql_exec "SELECT filename FROM scheduler WHERE id=$SCHEDULER_ID")
+  GALERA_CHECKER_ARGS=$(proxysql_exec "SELECT arg1 FROM scheduler WHERE id=$SCHEDULER_ID")
+  GALERA_CHECKER_ARGS=$(echo "$GALERA_CHECKER_ARGS" | sed "s/${PRIORITY_LIST}/${new_priority_list}/g")
+
+  echo $GALERA_CHECKER_ARGS >&2
+
+  # Run the checker, no change
+  run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
+  [ "$status" -eq 0 ]
+
+  retrieve_reader_info
+  retrieve_writer_info
+
+  [ "${#read_host[@]}" -eq 3 ]
+  [ "${#write_host[@]}" -eq 1 ]
+
+  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${read_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${read_status[1]}" = "ONLINE" ]
+  [ "${read_status[2]}" = "ONLINE" ]
+
+  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${read_port[0]}" -eq "$PORT_1" ]
+  [ "${read_port[1]}" -eq "$PORT_NOPRIO" ]
+  [ "${read_port[2]}" -eq "$PORT_2" ]
+
+  [ "${write_comment[0]}" = "WRITE" ]
+  [ "${read_comment[0]}" = "READ" ]
+  [ "${read_comment[1]}" = "READ" ]
+  [ "${read_comment[2]}" = "READ" ]
+
+  [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${read_weight[0]}" -eq 1000 ]
+  [ "${read_weight[1]}" -eq 1000 ]
+  [ "${read_weight[2]}" -eq 1000 ]
 
   # TEST stop reader node
   # ========================================================
@@ -2526,7 +2592,60 @@ function verify_initial_state() {
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
+}
 
+
+@test "priority-list has no active nodes and disable writer ($WSREP_CLUSTER_NAME)" {
+  #skip
+  require_pxc_maint_mode
+
+  # PREPARE for the test
+  # ========================================================
+  test_preparation
+  verify_initial_state
+
+  # Store some special variables
+  host=${write_host[0]}
+
+  local new_priority_list="127.0.0.1:9000,127.0.0.1:9001"
+
+  # Swap the old priority list for the new priority list in the
+  # galera_checker
+  GALERA_CHECKER=$(proxysql_exec "SELECT filename FROM scheduler WHERE id=$SCHEDULER_ID")
+  GALERA_CHECKER_ARGS=$(proxysql_exec "SELECT arg1 FROM scheduler WHERE id=$SCHEDULER_ID")
+  GALERA_CHECKER_ARGS=$(echo "$GALERA_CHECKER_ARGS" | sed "s/${PRIORITY_LIST}/${new_priority_list}/g")
+
+  echo $GALERA_CHECKER_ARGS >&2
+
+  # Run the checker, no change
+  run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
+  [ "$status" -eq 0 ]
+
+  retrieve_reader_info
+  retrieve_writer_info
+
+  [ "${#read_host[@]}" -eq 3 ]
+  [ "${#write_host[@]}" -eq 1 ]
+
+  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${read_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${read_status[1]}" = "ONLINE" ]
+  [ "${read_status[2]}" = "ONLINE" ]
+
+  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${read_port[0]}" -eq "$PORT_1" ]
+  [ "${read_port[1]}" -eq "$PORT_NOPRIO" ]
+  [ "${read_port[2]}" -eq "$PORT_2" ]
+
+  [ "${write_comment[0]}" = "WRITE" ]
+  [ "${read_comment[0]}" = "READ" ]
+  [ "${read_comment[1]}" = "READ" ]
+  [ "${read_comment[2]}" = "READ" ]
+
+  [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${read_weight[0]}" -eq 1000 ]
+  [ "${read_weight[1]}" -eq 1000 ]
+  [ "${read_weight[2]}" -eq 1000 ]
 
   # TEST disable writer node (pxc_maint_mode)
   # ========================================================
@@ -2631,7 +2750,60 @@ function verify_initial_state() {
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
+}
 
+
+@test "priority-list has no active nodes and disable reader ($WSREP_CLUSTER_NAME)" {
+  #skip
+  require_pxc_maint_mode
+
+  # PREPARE for the test
+  # ========================================================
+  test_preparation
+  verify_initial_state
+
+  # Store some special variables
+  host=${write_host[0]}
+
+  local new_priority_list="127.0.0.1:9000,127.0.0.1:9001"
+
+  # Swap the old priority list for the new priority list in the
+  # galera_checker
+  GALERA_CHECKER=$(proxysql_exec "SELECT filename FROM scheduler WHERE id=$SCHEDULER_ID")
+  GALERA_CHECKER_ARGS=$(proxysql_exec "SELECT arg1 FROM scheduler WHERE id=$SCHEDULER_ID")
+  GALERA_CHECKER_ARGS=$(echo "$GALERA_CHECKER_ARGS" | sed "s/${PRIORITY_LIST}/${new_priority_list}/g")
+
+  echo $GALERA_CHECKER_ARGS >&2
+
+  # Run the checker, no change
+  run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
+  [ "$status" -eq 0 ]
+
+  retrieve_reader_info
+  retrieve_writer_info
+
+  [ "${#read_host[@]}" -eq 3 ]
+  [ "${#write_host[@]}" -eq 1 ]
+
+  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${read_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${read_status[1]}" = "ONLINE" ]
+  [ "${read_status[2]}" = "ONLINE" ]
+
+  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${read_port[0]}" -eq "$PORT_1" ]
+  [ "${read_port[1]}" -eq "$PORT_NOPRIO" ]
+  [ "${read_port[2]}" -eq "$PORT_2" ]
+
+  [ "${write_comment[0]}" = "WRITE" ]
+  [ "${read_comment[0]}" = "READ" ]
+  [ "${read_comment[1]}" = "READ" ]
+  [ "${read_comment[2]}" = "READ" ]
+
+  [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${read_weight[0]}" -eq 1000 ]
+  [ "${read_weight[1]}" -eq 1000 ]
+  [ "${read_weight[2]}" -eq 1000 ]
 
   # TEST disable reader node (pxc_maint_mode)
   # ========================================================
@@ -2744,7 +2916,7 @@ function verify_initial_state() {
 }
 
 
-@test "match the priority-list in the middle of the list ($wsrep_cluster_name)" {
+@test "match the priority-list in the middle of the list ($WSREP_CLUSTER_NAME)" {
   #skip
   # PREPARE for the test
   # ========================================================

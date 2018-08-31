@@ -32,10 +32,11 @@ declare slave_comment
 
 load test-common
 
-wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
+WSREP_CLUSTER_NAME=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
+MYSQL_VERSION=$(cluster_exec "select @@version")
 
 # Note: 4110/4210  is left as an unprioritized node
-if [[ $wsrep_cluster_name == "cluster_one" ]]; then
+if [[ $WSREP_CLUSTER_NAME == "cluster_one" ]]; then
   PORT_1=4110
   PORT_2=4120
   PORT_3=4130
@@ -66,7 +67,7 @@ function test_preparation() {
   # ========================================================
 
   # Ensure that we do not have any leftovers from a previous run
-  proxysql_exec "DELETE FROM runtime_mysql_servers WHERE hostgroup_id IN ($WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID) AND status='OFFLINE_HARD'"
+  #proxysql_exec "DELETE FROM runtime_mysql_servers WHERE hostgroup_id IN ($WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID) AND status='OFFLINE_HARD'"
   proxysql_exec "SAVE mysql servers FROM RUNTIME" >/dev/null
 
   # SETUP (determine some of the parameters)
@@ -88,7 +89,6 @@ function test_preparation() {
 #   None
 #
 function verify_initial_state() {
-
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   echo "$GALERA_CHECKER_ARGS" >&2
   [ "$status" -eq 0 ]
@@ -131,13 +131,13 @@ function verify_initial_state() {
 }
 
 
-@test "run proxysql-admin -d ($wsrep_cluster_name)" {
+@test "run proxysql-admin -d ($WSREP_CLUSTER_NAME)" {
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
   echo "$output" >&2
   [ "$status" -eq  0 ]
 }
 
-@test "run proxysql-admin -e ($wsrep_cluster_name)" {
+@test "run proxysql-admin -e ($WSREP_CLUSTER_NAME)" {
   echo "$LINENO Starting the slave on port:$PORT_SLAVE1" >&2
   run mysql_exec "$CLUSTER_HOSTNAME" "$PORT_SLAVE1" "START SLAVE"
   [ "$status" -eq 0 ]
@@ -164,7 +164,7 @@ function verify_initial_state() {
   [ "$status" -eq  0 ]
 }
 
-@test "stopping and restarting the slave ($wsrep_cluster_name)" {
+@test "stopping and restarting the slave ($WSREP_CLUSTER_NAME)" {
   #skip
   # PREPARE for the test
   # ========================================================
@@ -265,7 +265,7 @@ function verify_initial_state() {
 
 }
 
-@test "stopping and starting the slave threads ($wsrep_cluster_name)" {
+@test "stopping and starting the slave threads ($WSREP_CLUSTER_NAME)" {
   #skip
   # PREPARE for the test
   # ========================================================
@@ -453,7 +453,7 @@ function verify_initial_state() {
 }
 
 
-@test "slave activation after stopping the entire cluster ($wsrep_cluster_name)" {
+@test "slave activation after stopping the entire cluster ($WSREP_CLUSTER_NAME)" {
   #skip
   # PREPARE for the test
   # ========================================================
@@ -860,8 +860,10 @@ function verify_initial_state() {
 }
 
 
-@test "slave activation after disabling the entire cluster ($wsrep_cluster_name)" {
+@test "slave activation after disabling the entire cluster ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
+
   # PREPARE for the test
   # ========================================================
   test_preparation

@@ -27,10 +27,11 @@ declare WEIGHTS=()
 
 load test-common
 
-wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
+WSREP_CLUSTER_NAME=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
+MYSQL_VERSION=$(cluster_exec "select @@version")
 
 # Note: 4110/4210  is left as an unprioritized node
-if [[ $wsrep_cluster_name == "cluster_one" ]]; then
+if [[ $WSREP_CLUSTER_NAME == "cluster_one" ]]; then
   PORT_1=4110
   PORT_2=4120
   PORT_3=4130
@@ -54,7 +55,7 @@ function test_preparation() {
   # SYNC up with the runtime
   # (For a consistent starting point)
   # ========================================================
-  #proxysql_exec "DELETE FROM runtime_mysql_servers WHERE hostgroup_id IN ($WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID) AND status='OFFLINE_HARD'"
+  proxysql_exec "DELETE FROM runtime_mysql_servers WHERE hostgroup_id IN ($WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID) AND status='OFFLINE_HARD'"
   proxysql_exec "SAVE mysql servers FROM RUNTIME"
 
   # SETUP (determine some of the parameters)
@@ -109,13 +110,13 @@ function verify_initial_state() {
 }
 
 
-@test "run proxysql-admin -d ($wsrep_cluster_name)" {
+@test "run proxysql-admin -d ($WSREP_CLUSTER_NAME)" {
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
   echo "$output" >&2
   [ "$status" -eq  0 ]
 }
 
-@test "run proxysql-admin -e ($wsrep_cluster_name)" {
+@test "run proxysql-admin -e ($WSREP_CLUSTER_NAME)" {
 
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --mode=loadbal --writer-is-reader=ondemand <<< 'n'
   [ "$status" -eq  0 ]
@@ -132,7 +133,7 @@ function verify_initial_state() {
 }
 
 
-@test "loadbal - shutdown and startup a server ($wsrep_cluster_name)" {
+@test "shutdown and startup a server ($WSREP_CLUSTER_NAME)" {
   #skip
 
   test_preparation
@@ -246,8 +247,9 @@ function verify_initial_state() {
   [ "${write_weight[2]}" -eq 1000 ]
 }
 
-@test "loadbal - disabling/enabling a server (pxc_maint_mode) ($wsrep_cluster_name)" {
+@test "disabling/enabling a server (pxc_maint_mode) ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
 
   test_preparation
   verify_initial_state
@@ -355,7 +357,7 @@ function verify_initial_state() {
 }
 
 
-@test "loadbal - shutdown and startup the entire cluster ($wsrep_cluster_name)" {
+@test "shutdown and startup the entire cluster ($WSREP_CLUSTER_NAME)" {
   #skip
 
   test_preparation
@@ -527,8 +529,9 @@ function verify_initial_state() {
 
 }
 
-@test "loadbal - disabling/enabling the entire cluster ($wsrep_cluster_name)" {
+@test "disabling/enabling the entire cluster ($WSREP_CLUSTER_NAME)" {
   #skip
+  require_pxc_maint_mode
 
   test_preparation
   verify_initial_state
