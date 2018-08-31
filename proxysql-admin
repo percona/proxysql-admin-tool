@@ -886,6 +886,8 @@ function enable_proxysql() {
       fi
     done
 
+    # TODO: kennt, shouldn't this be on the slave node?
+    # since that is where we will be querying for the slave status
     # GRANT REPLICATION CLIENT permissions to the monitoring user account
     echo -e "\nGranting 'REPLICATION CLIENT' privilege to $MONITOR_USERNAME@$USER_HOST_RANGE"
     mysql_exec "GRANT REPLICATION CLIENT ON *.* TO '$MONITOR_USERNAME'@'$USER_HOST_RANGE';"

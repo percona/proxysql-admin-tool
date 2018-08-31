@@ -29,6 +29,19 @@ EOF
   exit 1
 fi
 
+#
+# List of test suites that will be run
+# It is assumed that these files are in the proxysql-admin/tests directory
+#
+TEST_SUITES=()
+TEST_SUITES+=("proxysql-admin-testsuite.bats")
+TEST_SUITES+=("writer-is-reader-testsuite.bats")
+TEST_SUITES+=("host-priority-testsuite.bats")
+TEST_SUITES+=("desynced-host-testsuite.bats")
+TEST_SUITES+=("async-slave-testsuite.bats")
+TEST_SUITES+=("loadbal-testsuite.bats")
+
+
 WORKDIR=$(cd $1 && pwd)
 
 SCRIPT_DIR=$(cd `dirname $0` && pwd)
@@ -312,11 +325,10 @@ echo "....cluster one async slave started"
 echo "Creating accounts on the cluster"
 if [[ $MYSQL_VERSION == "5.6" ]]; then
   ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock <<EOF
-GRANT ALL ON *.* TO admin@'%' identified by 'admin' WITH GRANT OPTION;
 GRANT ALL ON *.* TO admin@'localhost' identified by 'admin' WITH GRANT OPTION;
 GRANT SELECT ON SYS.* TO monitor@'localhost' identified by 'monit0r';
-CREATE USER '${REPL_USER}'@'%' IDENTIFIED BY '${REPL_PASSWORD}';
-GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'%';
+CREATE USER '${REPL_USER}'@'localhost' IDENTIFIED BY '${REPL_PASSWORD}';
+GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'localhost';
 FLUSH PRIVILEGES;
 EOF
 else
@@ -333,8 +345,8 @@ echo "Setting up slave for async replication"
 
 if [[ $MYSQL_VERSION == "5.6" ]]; then
   ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_one_slave.sock -uroot <<EOF
-GRANT ALL ON *.* TO admin@'%' identified by 'admin' WITH GRANT OPTION;
 GRANT ALL ON *.* TO admin@'localhost' identified by 'admin' WITH GRANT OPTION;
+GRANT REPLICATION CLIENT ON *.* TO 'monitor'@'localhost' IDENTIFIED BY 'monit0r';
 CHANGE MASTER TO MASTER_HOST='127.0.0.1', MASTER_PORT=4110, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1;
 FLUSH PRIVILEGES;
 EOF
@@ -374,24 +386,27 @@ sudo WORKDIR=$WORKDIR TERM=xterm bats \
 echo "================================================================"
 echo ""
 
-test_suites=()
-test_suites+=("proxysql-admin-testsuite.bats")
-test_suites+=("writer-is-reader-testsuite.bats")
-test_suites+=("host-priority-testsuite.bats")
-test_suites+=("desynced-host-testsuite.bats")
-test_suites+=("async-slave-testsuite.bats")
-test_suites+=("loadbal-testsuite.bats")
-
 CLUSTER_ONE_PORT=$(${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock -Bs -e "select @@port")
 sudo sed -i "0,/^[ \t]*export CLUSTER_PORT[ \t]*=.*$/s|^[ \t]*export CLUSTER_PORT[ \t]*=.*$|export CLUSTER_PORT=\"$CLUSTER_ONE_PORT\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_one\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$|export WRITE_HOSTGROUP_ID=\"10\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$|export READ_HOSTGROUP_ID=\"11\"|" /etc/proxysql-admin.cnf
 
-for test_file in ${test_suites[@]}; do
+for test_file in ${TEST_SUITES[@]}; do
   echo "cluster_one : $test_file"
+  SECONDS=0
+
   sudo WORKDIR=$WORKDIR TERM=xterm bats \
         $SCRIPT_DIR/$test_file
+
+  if (( $SECONDS > 60 )) ; then
+    let "minutes=(SECONDS%3600)/60"
+    let "seconds=(SECONDS%3600)%60"
+    echo "Completed in $minutes minute(s) and $seconds second(s)"
+  else
+    echo "Completed in $SECONDS seconds"
+  fi
+
   if [[ $? -ne 0 ]]; then
     ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=127.0.0.1 --port=6032 \
       -e "select hostgroup_id,hostname,port,status,comment from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
@@ -408,7 +423,7 @@ echo ""
 
 #echo "killing proxysql and mysqld"
 #pkill -9 proxysql; pkill -9 mysqld
-exit 1
+#exit 1
 
 
 echo "Starting cluster two..."
@@ -424,11 +439,10 @@ echo "....cluster two async slave started"
 echo "Creating accounts on the cluster"
 if [[ $MYSQL_VERSION == "5.6" ]]; then
   ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock <<EOF
-GRANT ALL ON *.* TO admin@'%' identified by 'admin' WITH GRANT OPTION;
 GRANT ALL ON *.* TO admin@'localhost' identified by 'admin' WITH GRANT OPTION;
 GRANT SELECT ON SYS.* TO monitor@'localhost' identified by 'monit0r';
-CREATE USER '${REPL_USER}'@'%' IDENTIFIED BY '${REPL_PASSWORD}';
-GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'%';
+CREATE USER '${REPL_USER}'@'localhost' IDENTIFIED BY '${REPL_PASSWORD}';
+GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'localhost';
 FLUSH PRIVILEGES;
 EOF
 else
@@ -444,8 +458,8 @@ fi
 echo "Setting up slave for async replication"
 if [[ $MYSQL_VERSION == "5.6" ]]; then
   ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_two_slave.sock -uroot <<EOF
-GRANT ALL ON *.* TO admin@'%' identified by 'admin' WITH GRANT OPTION;
 GRANT ALL ON *.* TO admin@'localhost' identified by 'admin' WITH GRANT OPTION;
+GRANT REPLICATION CLIENT ON *.* TO 'monitor'@'localhost' IDENTIFIED BY 'monit0r';
 CHANGE MASTER TO MASTER_HOST='127.0.0.1', MASTER_PORT=4210, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1;
 FLUSH PRIVILEGES;
 EOF
@@ -466,11 +480,21 @@ sudo sed -i "0,/^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READ_H
 echo "================================================================"
 echo ""
 
-for test_file in ${test_suites[@]}; do
+for test_file in ${TEST_SUITES[@]}; do
   echo "cluster_two : $test_file"
+  SECONDS=0
 
   sudo WORKDIR=$WORKDIR TERM=xterm bats \
         $SCRIPT_DIR/$test_file
+
+  if (( $SECONDS > 60 )) ; then
+    let "minutes=(SECONDS%3600)/60"
+    let "seconds=(SECONDS%3600)%60"
+    echo "Completed in $minutes minute(s) and $seconds second(s)"
+  else
+    echo "Completed in $SECONDS seconds"
+  fi
+
   if [[ $? -ne 0 ]]; then
     ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=127.0.0.1 --port=6032 \
       -e "select hostgroup_id,hostname,port,status,comment from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null

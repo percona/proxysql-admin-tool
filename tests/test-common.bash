@@ -271,7 +271,7 @@ function restart_server() {
   if [[ ! $new_start_cmd =~ --user=$restart_user ]]; then
     options+="--user=$restart_user"
   fi
-  nohup $new_start_cmd $options 3>- &>/dev/null &
+  nohup $new_start_cmd $options 3>&- &>/dev/null &
 }
 
 function dump_nodes() {
@@ -288,4 +288,10 @@ function dump_runtime_nodes() {
   echo "$lineno Dumping runtime server info : $msg" >&2
   proxysql_exec "SELECT hostgroup_id,hostname,port,status,comment,weight FROM runtime_mysql_servers WHERE hostgroup_id IN ($WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID) ORDER BY hostgroup_id,status,hostname,port" >&2
   echo "" >&2
+}
+
+function require_pxc_maint_mode() {
+  if [[ $MYSQL_VERSION =~ ^5.5 || $MYSQL_VERSION =~ ^5.6 ]]; then
+    skip "requires pxc_maint_mode"
+  fi
 }
