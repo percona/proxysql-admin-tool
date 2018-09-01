@@ -163,6 +163,7 @@ function verify_initial_state() {
   verify_initial_state
 
   # Store some special variables
+  retrieve_writer_info
   host=${write_host[0]}
 
   # TEST order of node restoration: unlisted 1 2
@@ -351,6 +352,7 @@ function verify_initial_state() {
   verify_initial_state
 
   # Store some special variables
+  retrieve_writer_info
   host=${write_host[0]}
 
   # TEST order of node restoration: unlisted 2 1
@@ -574,6 +576,7 @@ function verify_initial_state() {
   verify_initial_state
 
   # Store some special variables
+  retrieve_writer_info
   host=${write_host[0]}
 
   # TEST order of node restoration: 1 unlisted 2
@@ -760,6 +763,7 @@ function verify_initial_state() {
   verify_initial_state
 
   # Store some special variables
+  retrieve_writer_info
   host=${write_host[0]}
 
   # TEST order of node restoration: 1 2 unlisted
@@ -916,6 +920,7 @@ function verify_initial_state() {
   verify_initial_state
 
   # Store some special variables
+  retrieve_writer_info
   host=${write_host[0]}
 
   # TEST order of node restoration: 2 unlisted 1
@@ -1106,6 +1111,7 @@ function verify_initial_state() {
   verify_initial_state
 
   # Store some special variables
+  retrieve_writer_info
   host=${write_host[0]}
 
   # TEST order of node restoration: 2 1 unlisted
@@ -1268,6 +1274,7 @@ function verify_initial_state() {
   verify_initial_state
 
   # Store some special variables
+  retrieve_writer_info
   host=${write_host[0]}
 
   # Redo the tests but use pxc_maint_mode instead of stopping the node
@@ -1438,6 +1445,7 @@ function verify_initial_state() {
   verify_initial_state
 
   # Store some special variables
+  retrieve_writer_info
   host=${write_host[0]}
 
   # TEST order of node restoration: unlisted 2 1 (pxc_maint_mode)
@@ -1634,6 +1642,7 @@ function verify_initial_state() {
   verify_initial_state
 
   # Store some special variables
+  retrieve_writer_info
   host=${write_host[0]}
 
   # TEST order of node restoration: 1 unlisted 2 (pxc_maint_mode)
@@ -1821,6 +1830,7 @@ function verify_initial_state() {
   verify_initial_state
 
   # Store some special variables
+  retrieve_writer_info
   host=${write_host[0]}
 
   # TEST order of node restoration: 1 2 unlisted (pxc_maint_mode)
@@ -1982,6 +1992,7 @@ function verify_initial_state() {
   verify_initial_state
 
   # Store some special variables
+  retrieve_writer_info
   host=${write_host[0]}
 
   # TEST order of node restoration: 2 unlisted 1 (pxc_maint_mode)
@@ -2151,6 +2162,7 @@ function verify_initial_state() {
   verify_initial_state
 
   # Store some special variables
+  retrieve_writer_info
   host=${write_host[0]}
 
   # TEST order of node restoration: 2 1 unlisted (pxc_maint_mode)
@@ -2323,6 +2335,7 @@ function verify_initial_state() {
   verify_initial_state
 
   # Store some special variables
+  retrieve_writer_info
   host=${write_host[0]}
 
   local new_priority_list="127.0.0.1:9000,127.0.0.1:9001"
@@ -2444,6 +2457,7 @@ function verify_initial_state() {
   verify_initial_state
 
   # Store some special variables
+  retrieve_writer_info
   host=${write_host[0]}
 
   local new_priority_list="127.0.0.1:9000,127.0.0.1:9001"
@@ -2605,7 +2619,9 @@ function verify_initial_state() {
   verify_initial_state
 
   # Store some special variables
+  retrieve_writer_info
   host=${write_host[0]}
+  writer_port=${write_port[0]}
 
   local new_priority_list="127.0.0.1:9000,127.0.0.1:9001"
 
@@ -2763,6 +2779,7 @@ function verify_initial_state() {
   verify_initial_state
 
   # Store some special variables
+  retrieve_writer_info
   host=${write_host[0]}
 
   local new_priority_list="127.0.0.1:9000,127.0.0.1:9001"
@@ -2924,6 +2941,7 @@ function verify_initial_state() {
   verify_initial_state
 
   # Store some special variables
+  retrieve_writer_info
   host=${write_host[0]}
 
   local new_priority_list="127.0.0.1:9000,127.0.0.1:${PORT_2},127.0.0.1:9001"
