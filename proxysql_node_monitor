@@ -26,6 +26,10 @@ readonly    PROXYSQL_ADMIN_VERSION="1.4.10"
 declare     CONFIG_FILE="/etc/proxysql-admin.cnf"
 declare     ERR_FILE="/dev/null"
 declare     RELOAD_CHECK_FILE=""
+
+# Set to send output here when DEBUG is set
+declare     DEBUG_ERR_FILE="/dev/null"
+
 declare -i  WRITE_HOSTGROUP_ID=1
 declare -i  READ_HOSTGROUP_ID=-1
 declare -i  SLAVEREAD_HOSTGROUP_ID
@@ -388,6 +392,7 @@ function update_cluster() {
   debug $LINENO "START update_cluster"
   local cluster_host=$1
   local cluster_port=$2
+  local host_info=""
   local current_hosts=""
   local is_current_hosts_empty=0
   local wsrep_address=""
@@ -399,12 +404,11 @@ function update_cluster() {
   local ws_comment
 
   # get all nodes from ProxySQL in use by hostgroups
-  current_hosts=$(proxysql_exec $LINENO "SELECT DISTINCT hostname,port FROM mysql_servers where status != 'OFFLINE_HARD' and hostgroup_id in ( $WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID, $SLAVEREAD_HOSTGROUP_ID )" | sed 's|\t|:|g' | tr '\n' ' ')
-  if [[ -n current_hosts ]]; then
-    current_hosts=($(echo $current_hosts))
-  fi
-  if [[ -z ${current_hosts[@]+"${current_hosts[@]}"} ]]; then
-    is_current_hosts_empty=1
+  host_info=$(proxysql_exec $LINENO "SELECT DISTINCT hostname || ':' || port,hostgroup_id,status FROM mysql_servers where status != 'OFFLINE_HARD' and hostgroup_id in ( $WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID, $SLAVEREAD_HOSTGROUP_ID )" | tr '\t' ' ')
+  if [[ -n host_info ]]; then
+    # Extract the hostname and port from the rows
+    # Creates a string of "host:port" separated by spaces
+    current_hosts=$(echo "$host_info" | cut -d' ' -f1 | tr '\n' ' ')
   fi
 
   if [[ -n $cluster_host && -n $cluster_port ]]; then
@@ -415,12 +419,9 @@ function update_cluster() {
     # Second, get the wsrep_incoming_addresses from the cluster
     wsrep_address=$(slave_exec $LINENO "${ws_ip}" "${ws_port}" \
           "SHOW STATUS LIKE 'wsrep_incoming_addresses'" | awk '{print $2}' | sed 's|,| |g')
-    if [[ -n $wsrep_address ]]; then
-      wsrep_address=($(echo $wsrep_address))
-    fi
   fi
 
-  if [[ -z $wsrep_address && $is_current_hosts_empty -eq 1 ]]; then
+  if [[ -z $wsrep_address && -z $current_hosts ]]; then
     debug $LINENO "Returning from update_cluster(), both PXC and ProxySQL have no active nodes"
     return
   fi
@@ -430,112 +431,124 @@ function update_cluster() {
   # If missing from ProxySQL, add to ProxySQL as a reader.
   #
   debug $LINENO "Looking for PXC nodes not in ProxySQL"
-  if [[ -n ${wsrep_address} ]]; then
-    for i in "${wsrep_address[@]}"; do
-      if [[ $is_current_hosts_empty -eq 1 || ! " ${current_hosts[@]} " =~ " ${i} " ]]; then
-        log $LINENO "Cluster node (${i}) does not exist in ProxySQL, adding as a $MODE_COMMENT node"
+  for i in ${wsrep_address}; do
+    # if we have a match, the the PXC node is in ProxySQL and we can skip
+    if [[ -n $current_hosts && " ${current_hosts} " =~ " ${i} " ]]; then
+      continue
+    fi
 
-        ws_ip=$(echo $i | cut -d':' -f1)
-        ws_port=$(echo $i | cut -d':' -f2)
+    log $LINENO "Cluster node (${i}) does not exist in ProxySQL, adding as a $MODE_COMMENT node"
 
-        # Add the node as a reader
-        local hostgroup
+    ws_ip=$(echo $i | cut -d':' -f1)
+    ws_port=$(echo $i | cut -d':' -f2)
 
-        # Before inserting, check if a previous READ entry exists (it may be in OFFLINE_HARD state)
-        hostgroup=$(proxysql_exec $LINENO "SELECT hostgroup_id FROM mysql_servers WHERE hostgroup_id=${DEFAULT_HOSTGROUP_ID} AND hostname='${ws_ip}' AND port=${ws_port}")
+    # Add the node as a reader
+    local hostgroup
 
-        if [[ -n $hostgroup ]]; then
-          # Update reader to OFFLINE_SOFT if new PXC node in ProxySQL
-          proxysql_exec $LINENO "UPDATE mysql_servers SET status='OFFLINE_SOFT',weight=1000,comment='$MODE_COMMENT' WHERE hostname='${ws_ip}' AND port=${ws_port} AND hostgroup_id=${hostgroup}"
-          check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster node $ws_ip:$ws_port (hostgroup $hostgroup) to ProxySQL database, Please check ProxySQL login credentials"
-          log_if_success $LINENO $? "Updated ${hostgroup}:${i} node in the ProxySQL database."
-        else
-          # Insert a reader if new PXC node not in ProxySQL
-          proxysql_exec $LINENO "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment) VALUES ('$ws_ip',$DEFAULT_HOSTGROUP_ID,$ws_port,1000,'$MODE_COMMENT');"
-          check_cmd $LINENO $? "Cannot add Percona XtraDB Cluster node $ws_ip:$ws_port (hostgroup $DEFAULT_HOSTGROUP_ID) to ProxySQL database, Please check ProxySQL login credentials"
-          log_if_success $LINENO $? "Added ${DEFAULT_HOSTGROUP_ID}:${i} node into ProxySQL database."
-        fi
+    # Before inserting, check if a previous READ entry exists (it may be in OFFLINE_HARD state)
+    hostgroup=$(proxysql_exec $LINENO "SELECT hostgroup_id FROM mysql_servers WHERE hostgroup_id=${DEFAULT_HOSTGROUP_ID} AND hostname='${ws_ip}' AND port=${ws_port}")
 
-        CHECK_STATUS=1
-      fi
-    done
-  fi
+    if [[ -n $hostgroup ]]; then
+      # Update reader to OFFLINE_SOFT if new PXC node in ProxySQL
+      proxysql_exec $LINENO "UPDATE mysql_servers SET status='OFFLINE_SOFT',weight=1000,comment='$MODE_COMMENT' WHERE hostname='${ws_ip}' AND port=${ws_port} AND hostgroup_id=${hostgroup}"
+      check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster node $ws_ip:$ws_port (hostgroup $hostgroup) to ProxySQL database, Please check ProxySQL login credentials"
+      log_if_success $LINENO $? "Updated ${hostgroup}:${i} node in the ProxySQL database."
+    else
+      # Insert a reader if new PXC node not in ProxySQL
+      proxysql_exec $LINENO "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment) VALUES ('$ws_ip',$DEFAULT_HOSTGROUP_ID,$ws_port,1000,'$MODE_COMMENT');"
+      check_cmd $LINENO $? "Cannot add Percona XtraDB Cluster node $ws_ip:$ws_port (hostgroup $DEFAULT_HOSTGROUP_ID) to ProxySQL database, Please check ProxySQL login credentials"
+      log_if_success $LINENO $? "Added ${DEFAULT_HOSTGROUP_ID}:${i} node into ProxySQL database."
+    fi
+
+    CHECK_STATUS=1
+  done
 
   #
   # Given the ProxySQL members, compare to WSREP
   # If not in WSREP, mark as OFFLINE_HARD
   #
   debug $LINENO "Looking for ProxySQL nodes not in PXC"
-  for i in "${current_hosts[@]}"; do
-    if [[ -z ${wsrep_address} || ! " ${wsrep_address[@]} " =~ " ${i} " ]]; then
-      debug $LINENO "ProxySQL host $i not found in cluster membership"
-      #
-      # The current host in current_hosts was not found in cluster membership,
-      # set it OFFLINE_SOFT unless its a slave node
-      #
-      ws_ip=$(echo $i | cut -d':' -f1)
-      ws_port=$(echo $i | cut -d':' -f2)
-
-      # This is supported by status, so OFFLINE should come before ONLINE
-      # Note that the status is in DESC order, so "ONLINE : OFFLINE_SOFT : OFFLINE_HARD"
-      # This is needed because there may be multiple entries
-      ws_hg_status=$(proxysql_exec $LINENO "SELECT hostgroup_id,status,comment from mysql_servers WHERE hostname='$ws_ip' and port=$ws_port ORDER BY status DESC LIMIT 1")
-      ws_hg_id=$(echo $ws_hg_status | cut -d' ' -f1)
-      ws_status=$(echo $ws_hg_status | cut -d' ' -f2)
-      ws_comment=$(echo $ws_hg_status | cut -d' ' -f3)
-
-      if [ "$ws_comment" == "SLAVEREAD" ]; then
-        # This update now happens in proxysql_galera_checker
-        continue
-      fi
-
-      if [ "$ws_status" == "OFFLINE_SOFT" ]; then
-        #
-        # If OFFLINE_SOFT, move to OFFLINE_HARD
-        #
-        log $LINENO "Cluster node ${ws_hg_id}:${i} does not exist in PXC! Changing status from OFFLINE_SOFT to OFFLINE_HARD"
-        proxysql_exec $LINENO "UPDATE mysql_servers set status='OFFLINE_HARD' WHERE hostname='$ws_ip' and port=$ws_port"
-        check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check ProxySQL login credentials"
-        CHECK_STATUS=1
-      elif [[ $ws_status == "ONLINE" ]]; then
-        #
-        # else if ONLINE, move to OFFLINE_SOFT
-        # It will take another iteration to get it to OFFLINE_HARD
-        #
-        log $LINENO "Cluster node ${ws_hg_id}:${i} does not exist in PXC! Changing status to OFFLINE_SOFT"
-        # Set all entries to OFFLINE_SOFT
-        proxysql_exec $LINENO "UPDATE mysql_servers set status='OFFLINE_SOFT' WHERE hostname='$ws_ip' and port=$ws_port"
-        check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check ProxySQL login credentials"
-        CHECK_STATUS=1
-      fi
-
-      node_status=$(proxysql_exec $LINENO "SELECT status from mysql_servers WHERE hostname='$ws_ip' and port=$ws_port ORDER BY status LIMIT 1")
-      log $LINENO "Non-PXC node (${i}) current status '$node_status' in ProxySQL database!"
+  for i in $current_hosts; do
+    # if we have a match, then the proxysql node is in PXC
+    # so we can skip it
+    if [[ -n ${wsrep_address} && " ${wsrep_address} " =~ " ${i} " ]]; then
+      continue
     fi
+
+    debug $LINENO "ProxySQL host $i not found in cluster membership"
+    #
+    # The current host in current_hosts was not found in cluster membership,
+    # set it OFFLINE_SOFT unless its a slave node
+    #
+    ws_ip=$(echo $i | cut -d':' -f1)
+    ws_port=$(echo $i | cut -d':' -f2)
+
+    # This is supported by status, so OFFLINE should come before ONLINE
+    # Note that the status is in DESC order, so "ONLINE : OFFLINE_SOFT : OFFLINE_HARD"
+    # This is needed because there may be multiple entries
+    ws_hg_status=$(proxysql_exec $LINENO "SELECT hostgroup_id,status,comment from mysql_servers WHERE hostname='$ws_ip' and port=$ws_port ORDER BY status DESC LIMIT 1")
+    ws_hg_id=$(echo $ws_hg_status | cut -d' ' -f1)
+    ws_status=$(echo $ws_hg_status | cut -d' ' -f2)
+    ws_comment=$(echo $ws_hg_status | cut -d' ' -f3)
+
+    if [ "$ws_comment" == "SLAVEREAD" ]; then
+      # This update now happens in proxysql_galera_checker
+      continue
+    fi
+
+    if [ "$ws_status" == "OFFLINE_SOFT" ]; then
+      #
+      # If OFFLINE_SOFT, move to OFFLINE_HARD
+      #
+      log $LINENO "Cluster node ${ws_hg_id}:${i} does not exist in PXC! Changing status from OFFLINE_SOFT to OFFLINE_HARD"
+      proxysql_exec $LINENO "UPDATE mysql_servers set status='OFFLINE_HARD' WHERE hostname='$ws_ip' and port=$ws_port"
+      check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check ProxySQL login credentials"
+      CHECK_STATUS=1
+    elif [[ $ws_status == "ONLINE" ]]; then
+      #
+      # else if ONLINE, move to OFFLINE_SOFT
+      # It will take another iteration to get it to OFFLINE_HARD
+      #
+      log $LINENO "Cluster node ${ws_hg_id}:${i} does not exist in PXC! Changing status to OFFLINE_SOFT"
+      # Set all entries to OFFLINE_SOFT
+      proxysql_exec $LINENO "UPDATE mysql_servers set status='OFFLINE_SOFT' WHERE hostname='$ws_ip' and port=$ws_port"
+      check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check ProxySQL login credentials"
+      CHECK_STATUS=1
+    fi
+
+    node_status=$(proxysql_exec $LINENO "SELECT status from mysql_servers WHERE hostname='$ws_ip' and port=$ws_port ORDER BY status LIMIT 1")
+    log $LINENO "Non-PXC node (${i}) current status '$node_status' in ProxySQL database!"
   done
 
   # Update the ProxySQL status for the new nodes
-  if [[ -n ${wsrep_address} ]]; then
-    for i in "${wsrep_address[@]}"; do
-      if [[ $is_current_hosts_empty -eq 1 || ! " ${current_hosts[@]} " =~ " ${i} " ]]; then
-        ws_ip=$(echo $i | cut -d':' -f1)
-        ws_port=$(echo $i | cut -d':' -f2)
-        ws_hg_status=$(echo `proxysql_exec $LINENO "SELECT hostgroup_id,status from mysql_servers WHERE hostname='$ws_ip' and port=$ws_port"`)
-        ws_hg_id=$(echo $ws_hg_status | cut -d' ' -f1)
-        ws_status=$(echo $ws_hg_status | cut -d' ' -f2)
+  for i in ${wsrep_address}; do
+    if [[ -n $current_hosts && " ${current_hosts} " =~ " ${i} " ]]; then
+      # Lookup the status in the host_info
+      local host
+      host=$(echo "$host_info" | grep "${i}" | head -1)
+      ws_ip=$(echo $i | cut -d':' -f1)
+      ws_port=$(echo $i | cut -d':' -f2)
+      ws_hg_id=$(echo $host | cut -d' ' -f2)
+      ws_status=$(echo $host | cut -d' ' -f3)
+      log "" "Cluster node (${ws_hg_id}:${i}) current status '$ws_status' in ProxySQL."
+    else
+      ws_ip=$(echo $i | cut -d':' -f1)
+      ws_port=$(echo $i | cut -d':' -f2)
+      ws_hg_status=$(echo `proxysql_exec $LINENO "SELECT hostgroup_id,status from mysql_servers WHERE hostname='$ws_ip' and port=$ws_port"`)
+      ws_hg_id=$(echo $ws_hg_status | cut -d' ' -f1)
+      ws_status=$(echo $ws_hg_status | cut -d' ' -f2)
 
-        log $LINENO "Cluster node (${ws_hg_id}:${i}) current status '$ws_status' in ProxySQL database!"
-        if [ "$ws_status" == "OFFLINE_HARD" ]; then
-          # The node was OFFLINE_HARD, but its now in the cluster list
-          # so lets make it OFFLINE_SOFT
-          proxysql_exec $LINENO "UPDATE mysql_servers set status = 'OFFLINE_SOFT', weight=1000 WHERE hostname='$ws_ip' and port=$ws_port;"
-          check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster node $i in the ProxySQL database, Please check the ProxySQL login credentials"
-          log_if_success $LINENO $? "${ws_hg_id}:${i} node set to OFFLINE_SOFT status to ProxySQL database."
-          CHECK_STATUS=1
-        fi
+      log $LINENO "Cluster node (${ws_hg_id}:${i}) current status '$ws_status' in ProxySQL database!"
+      if [ "$ws_status" == "OFFLINE_HARD" ]; then
+        # The node was OFFLINE_HARD, but its now in the cluster list
+        # so lets make it OFFLINE_SOFT
+        proxysql_exec $LINENO "UPDATE mysql_servers set status = 'OFFLINE_SOFT', weight=1000 WHERE hostname='$ws_ip' and port=$ws_port;"
+        check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster node $i in the ProxySQL database, Please check the ProxySQL login credentials"
+        log_if_success $LINENO $? "${ws_hg_id}:${i} node set to OFFLINE_SOFT status to ProxySQL database."
+        CHECK_STATUS=1
       fi
-    done
-  fi
+    fi
+  done
   debug $LINENO "END update_cluster"
 }
 
@@ -744,6 +757,10 @@ function parse_args() {
     esac
   done
 
+  if [[ $DEBUG -eq 1 ]]; then
+    DEBUG_ERR_FILE=$ERR_FILE
+  fi
+
   #Timeout exists for instances where mysqld/proxysql may be hung
   TIMEOUT=5
 
@@ -823,7 +840,7 @@ function find_online_cluster_host() {
   printf "$hosts" | while read server port || [[ -n $port ]]
   do
     debug $LINENO "Trying to contact $server:$port..."
-    slave_exec "$LINENO" "$server" "$port" "select @@port" &>/dev/null
+    slave_exec "$LINENO" "$server" "$port" "select @@port" 1>/dev/null 2>>${DEBUG_ERR_FILE}
     if [[ $? -eq 0 ]]; then
       printf "$server $port"
       return 0

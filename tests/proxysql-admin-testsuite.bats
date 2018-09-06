@@ -29,7 +29,7 @@ WSREP_CLUSTER_NAME=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 @test "run proxysql-admin -e ($WSREP_CLUSTER_NAME)" {
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin -e --writer-is-reader=never <<< 'n'
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin -e  <<< 'n'
   echo "$output"
   [ "$status" -eq  0 ]
 }

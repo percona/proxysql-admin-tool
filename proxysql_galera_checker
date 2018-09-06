@@ -35,6 +35,10 @@ declare     CONFIG_FILE="/etc/proxysql-admin.cnf"
 declare     HOST_PRIORITY_FILE=""
 declare     CHECKER_PIDFILE=""
 
+# Set to send output here when DEBUG is set
+declare     DEBUG_ERR_FILE="/dev/null"
+
+
 declare -i  HOSTGROUP_WRITER_ID=1
 declare -i  HOSTGROUP_READER_ID=-1
 declare -i  HOSTGROUP_SLAVEREADER_ID=-1
@@ -313,8 +317,7 @@ function exec_sql() {
 function proxysql_exec() {
   local lineno=$1
   local args=$2
-  shift 2
-  local query="$*"
+  local query="$3"
   local retoutput
 
   exec_sql "$lineno" "$PROXYSQL_USERNAME" "$PROXYSQL_PASSWORD" \
@@ -459,7 +462,7 @@ function change_server_status() {
     log "$lineno" "Adding server $hostgroup:$server:$port with status $status. Reason: $comment"
   else
     proxysql_exec $lineno -Ns "UPDATE mysql_servers
-          set status = '$status' WHERE hostgroup_id = $hostgroup AND hostname = '$server' AND port = $port;" 2>> ${ERR_FILE}
+          set status = '$status' WHERE hostgroup_id = $hostgroup AND hostname = '$server' AND port = $port;" 2>>${ERR_FILE}
     log "$lineno" "Changing server $hostgroup:$server:$port to status $status. Reason: $comment"
   fi
 }
@@ -587,17 +590,21 @@ function parse_args() {
     esac
   done
 
+  if [[ $DEBUG -eq 1 ]]; then
+    DEBUG_ERR_FILE=$ERR_FILE
+  fi
+
   #
   # Argument validation
   #
-  test $HOSTGROUP_WRITER_ID -ge 0 &> /dev/null
+  test $HOSTGROUP_WRITER_ID -ge 0 &>/dev/null
   if [[ $? -ne 0 ]]; then
     echo "ERROR: writer hostgroup_id is not an integer"
     usage
     exit 1
   fi
 
-  test $HOSTGROUP_READER_ID -ge -1 &> /dev/null
+  test $HOSTGROUP_READER_ID -ge -1 &>/dev/null
   if [[ $? -ne 0 ]]; then
     echo "ERROR: reader hostgroup_id is not an integer"
     usage
@@ -631,6 +638,7 @@ function parse_args() {
 
   readonly ERR_FILE
   readonly CONFIG_FILE
+  readonly DEBUG_ERR_FILE
 
   readonly HOSTGROUP_WRITER_ID
   readonly HOSTGROUP_READER_ID
@@ -671,7 +679,7 @@ function check_is_galera_checker_running() {
   if [[ -f $CHECKER_PIDFILE && -r $CHECKER_PIDFILE ]] ; then
     local GPID
     GPID=$(cat "$CHECKER_PIDFILE")
-    if ps -p $GPID -o args=ARGS | grep $ERR_FILE | grep -o proxysql_galera_check > /dev/null 2>&1 ; then
+    if ps -p $GPID -o args=ARGS | grep $ERR_FILE | grep -o proxysql_galera_check >/dev/null 2>&1 ; then
       ps -p $GPID > /dev/null 2>&1
       if [[ $? -eq 0 ]]; then
         log "$LINENO" "ProxySQL galera checker process already running."
@@ -811,7 +819,7 @@ function find_online_cluster_host() {
   printf "$hosts" | while read server port || [[ -n $port ]]
   do
     debug $LINENO "Trying to contact $server:$port..."
-    mysql_exec "$LINENO" "$server" "$port" -Bs "select @@port" &>/dev/null
+    mysql_exec "$LINENO" "$server" "$port" -Bs "select @@port" 1>/dev/null 2>>${DEBUG_ERR_FILE}
     if [[ $? -eq 0 ]]; then
       printf "$server $port"
       return 0
@@ -838,8 +846,7 @@ function ensure_one_writer_node() {
   log $LINENO "No ONLINE writers found, looking for readers to promote"
 
   # We are trying to find a reader node that can be promoted to
-  # a writer.  So do not choose nodes that do not have a
-  # writer entry.
+  # a writer.
   # So what we do is we ORDER BY writer.status ASC because
   # by accident ONLINE is last in the line
   local reader_proxysql_query="SELECT
@@ -860,7 +867,7 @@ function ensure_one_writer_node() {
              reader.port"
 
   local possible_hosts
-  possible_hosts=$(proxysql_exec $LINENO -Ns $reader_proxysql_query)
+  possible_hosts=$(proxysql_exec $LINENO -Ns "$reader_proxysql_query")
   if [[ -z $possible_hosts ]]; then
     log $LINENO "Cannot find a reader that can be promoted to a writer"
     return
@@ -874,7 +881,7 @@ function ensure_one_writer_node() {
     local wsrep_status
     local pxc_main_mode
     local result
-    result=$(mysql_exec $LINENO "$host" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>/dev/null)
+    result=$(mysql_exec $LINENO "$host" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
     wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
     pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
 
@@ -1122,7 +1129,7 @@ function update_writers() {
     local wsrep_status
     local pxc_main_mode
     local result
-    result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>/dev/null)
+    result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
     wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
     pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
 
@@ -1197,7 +1204,7 @@ function update_writers() {
     # wsrep:--  pxc:not ok  status:online
     elif [ "${pxc_main_mode}" != "DISABLED" -a "$stat" = "ONLINE" ]; then
       change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" $port "OFFLINE_SOFT" "" \
-                           "pxc_maint_mode is $pxc_main_mode" 2>> ${ERR_FILE}
+                           "pxc_maint_mode is $pxc_main_mode" 2>>${ERR_FILE}
       echo "1" > ${reload_check_file}
     # wsrep:not ok  pxc:--  status:offline soft
     elif [ "${wsrep_status}" != "4" -a "$stat" = "OFFLINE_SOFT" -a "$rdstat" != "PRIORITY_NODE" ]; then
@@ -1391,7 +1398,7 @@ function update_readers() {
     local wsrep_status
     local pxc_main_mode
     local result
-    result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>/dev/null)
+    result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
     wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
     pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
 
@@ -1465,7 +1472,7 @@ function update_readers() {
     # PXC:not ok  STATUS:online
     elif [ "${pxc_main_mode}" != "DISABLED" -a "$stat" = "ONLINE" ];then
       change_server_status $LINENO $HOSTGROUP_READER_ID "$server" $port "OFFLINE_SOFT" ""\
-                           "pxc_maint_mode is $pxc_main_mode" 2>> ${ERR_FILE}
+                           "pxc_maint_mode is $pxc_main_mode" 2>>${ERR_FILE}
       echo "1" > ${reload_check_file}
     # WSREP:not ok  STATUS:offline soft
     elif [ "${wsrep_status}" != "4" -a "$stat" = "OFFLINE_SOFT" ]; then
@@ -1511,7 +1518,7 @@ function search_for_desynced_writers() {
         local wsrep_status
         local pxc_main_mode
         local result
-        result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>/dev/null)
+        result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
         wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
         pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
 
@@ -1597,7 +1604,7 @@ function search_for_desynced_readers() {
         local wsrep_status
         local pxc_main_mode
         local result
-        result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>/dev/null)
+        result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
         wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
         pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
 
@@ -1852,13 +1859,13 @@ function main() {
     available_host=$(find_online_cluster_host)
     if [[ -z $available_host ]]; then
       error $LINENO "Cannot contact a PXC host in hostgroups($HOSTGROUP_WRITER_ID, $HOSTGROUP_READER_ID)"
-      exit 1
-    fi
-    server=$(echo $available_host | awk '{print $1}')
-    port=$(echo $available_host | awk '{print $2}')
+    else
+      server=$(echo $available_host | awk '{print $1}')
+      port=$(echo $available_host | awk '{print $2}')
 
-    cluster_name=$(mysql_exec $LINENO "$server" "$port" -Nn \
-      "SELECT @@wsrep_cluster_name" 2>>${ERR_FILE}| tail -1 2>>${ERR_FILE})
+      cluster_name=$(mysql_exec $LINENO "$server" "$port" -Nn \
+          "SELECT @@wsrep_cluster_name" 2>>${ERR_FILE} | tail -1)
+    fi
 
     if [[ ! -z $cluster_name ]]; then
       #
@@ -2080,7 +2087,7 @@ function main() {
 
   if [[ $(cat ${reload_check_file}) -ne 0 ]] ; then
       log "" "###### Loading mysql_servers config into runtime ######"
-      proxysql_exec $LINENO -Ns "LOAD MYSQL SERVERS TO RUNTIME;" 2>> ${ERR_FILE}
+      proxysql_exec $LINENO -Ns "LOAD MYSQL SERVERS TO RUNTIME;" 2>>${ERR_FILE}
   else
       log "" "###### Not loading mysql_servers, no change needed ######"
   fi

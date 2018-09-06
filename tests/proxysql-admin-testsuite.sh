@@ -398,7 +398,7 @@ for test_file in ${TEST_SUITES[@]}; do
 
   sudo WORKDIR=$WORKDIR TERM=xterm bats \
         $SCRIPT_DIR/$test_file
-
+  rc=$?
   if (( $SECONDS > 60 )) ; then
     let "minutes=(SECONDS%3600)/60"
     let "seconds=(SECONDS%3600)%60"
@@ -407,7 +407,7 @@ for test_file in ${TEST_SUITES[@]}; do
     echo "Completed in $SECONDS seconds"
   fi
 
-  if [[ $? -ne 0 ]]; then
+  if [[ $rc -ne 0 ]]; then
     ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=127.0.0.1 --port=6032 \
       -e "select hostgroup_id,hostname,port,status,comment from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
     echo "********************************"
@@ -486,6 +486,7 @@ for test_file in ${TEST_SUITES[@]}; do
 
   sudo WORKDIR=$WORKDIR TERM=xterm bats \
         $SCRIPT_DIR/$test_file
+  rc=$?
 
   if (( $SECONDS > 60 )) ; then
     let "minutes=(SECONDS%3600)/60"
@@ -495,7 +496,7 @@ for test_file in ${TEST_SUITES[@]}; do
     echo "Completed in $SECONDS seconds"
   fi
 
-  if [[ $? -ne 0 ]]; then
+  if [[ $rc -ne 0 ]]; then
     ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=127.0.0.1 --port=6032 \
       -e "select hostgroup_id,hostname,port,status,comment from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
     echo "********************************"
