@@ -110,7 +110,11 @@ echo "$output"
 
   # This value is highly dependent on the PXC shutdown period
   #   --pxc_maint_transition_period
-  sleep 10
+  wait_for_server_shutdown
+
+  # Wait a little extra time to ensure that the proxysql_galera_checker
+  # was invoked
+  sleep 5
   nr_nodes=$(proxysql_exec "select count(*) from mysql_servers where status='ONLINE' and hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID);")
   [ "$nr_nodes" -eq 2 ]
 

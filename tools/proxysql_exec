@@ -1,0 +1,129 @@
+#!/bin/bash -u
+
+# Turn off shell globbing (because we do SQL querying below)
+set -o noglob
+
+function usage() {
+    local path=$0
+    cat << EOF
+Usage example:
+  $ ${path##*/} [options] <query>
+
+  This tool executes a query on ProxySQL.
+
+  Options:
+    --user=<user>           : specify the user name
+    --password=<password>   : specify the user password
+    --host=<host>           : specify host address
+    --port=<port>           : specify host port
+    --query-options=<options> : mysql client command line options, (example: "--silent -N")
+
+  Examples:
+    ${path##*/} --query-options="--table" "select * from mysql_servers"
+
+  The default is to use the ProxySQL credentials in /etc/proxysql-admin.cnf.
+
+EOF
+}
+
+#
+# Executes an SQL query
+#
+# Globals:
+#   USER
+#   PASSWORD
+#   HOST
+#   PORT
+#
+# Arguments:
+#   1: arguments to be passed to mysql
+#   2: the query
+#
+function exec_sql() {
+  local args=$1
+  local query=$2
+  local retvalue
+  local retoutput
+
+  retoutput=$(printf "[client]\nuser=${USER}\npassword=\"${PASSWORD}\"\nhost=${HOST}\nport=${PORT}"  \
+      | mysql --defaults-file=/dev/stdin --protocol=tcp \
+            ${args} -e "${query}")
+  retvalue=$?
+
+  printf "${retoutput//%/%%}"
+  return $retvalue
+}
+
+
+declare USER=""
+declare PASSWORD=""
+declare HOST=""
+declare PORT=""
+declare QUERY_OPTIONS=""
+declare QUERY=""
+
+function parse_args() {
+  local param value
+  local positional_params=""
+
+  while [[ $# -gt 0 && "$1" != "" ]]; do
+      param=`echo $1 | awk -F= '{print $1}'`
+      value=`echo $1 | awk -F= '{print $2}'`
+
+      # Assume that all options start with a '-'
+      # otherwise treat as a positional parameter
+      if [[ ! $param =~ ^- ]]; then
+        positional_params+="$param "
+        shift
+        continue
+      fi
+      case $param in
+        -h | --help)
+          usage
+          exit
+          ;;
+        --user)
+          USER=$value
+          ;;
+        --password)
+          PASSWORD=$value
+          ;;
+        --host)
+          HOST=$value
+          ;;
+        --port)
+          PORT=$value
+          ;;
+        --query-options)
+          QUERY_OPTIONS=$value
+          ;;
+        *)
+          echo "ERROR: unknown parameter \"$param\""
+          usage
+          exit 1
+          ;;
+      esac
+      shift
+  done
+
+  # handle positional parameters (we only expect one)
+  QUERY=$positional_params
+}
+
+
+if [[ -r /etc/proxysql-admin.cnf ]]; then
+  source /etc/proxysql-admin.cnf
+  USER=$PROXYSQL_USERNAME
+  PASSWORD=$PROXYSQL_PASSWORD
+  HOST=$PROXYSQL_HOSTNAME
+  PORT=$PROXYSQL_PORT
+fi
+
+parse_args "$@"
+
+if [[ -z $QUERY ]]; then
+  echo "Error, no query specified (nothing to run)"
+  exit 1
+fi
+
+exec_sql "$QUERY_OPTIONS" "$QUERY"
