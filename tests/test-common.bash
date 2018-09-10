@@ -238,6 +238,20 @@ function wait_for_server_start() {
   done
 }
 
+function wait_for_server_shutdown() {
+  local socket=$1
+  local cluster_size=$2
+
+  for X in $( seq 0 30 ); do
+    sleep 1
+    if ! ${PXC_BASEDIR}/bin/mysqladmin -uroot -S${socket} ping > /dev/null 2>&1; then
+      break
+    fi
+  done
+}
+
+
+
 function restart_server() {
   local restart_cmd=$1
   local restart_user=$2

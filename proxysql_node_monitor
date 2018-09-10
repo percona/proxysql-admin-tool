@@ -103,7 +103,7 @@ function debug() {
   local lineno=$1
   shift
 
-  log "$lineno" "${RED}DEBUG: $*${NRED}"
+  log "$lineno" "${RED}debug: $*${NRED}"
 }
 
 
@@ -231,14 +231,20 @@ function check_cmd() {
 #
 # Arguments:
 #   1: lineno
-#   1: the name of the user
-#   2: the user's password
-#   3: the hostname of the server
-#   4: the port used to connect to the server
-#   5: timeout in secs
-#   6: arguments to the mysql client
-#   7: additional options to the [client] config
-#   8: the query to be run
+#   2: the name of the user
+#   3: the user's password
+#   4: the hostname of the server
+#   5: the port used to connect to the server
+#   6: timeout in secs
+#   7: arguments to the mysql client
+#   8: additional options to the [client] config
+#   9: the query to be run
+#   10: additional options, space separated
+#      Available options:
+#       "hide_output"
+#         This will not show the output of the query when DEBUG is set.
+#         Used to stop the display of sensitve information (such as passwords)
+#         from being displayed when debugging.
 #
 function exec_sql() {
   local lineno=$1
@@ -248,34 +254,40 @@ function exec_sql() {
   local port=$5
   local timeout_secs=$6
   local args=$7
-  local more_options=$8
-  shift 8
-  local query="$*"
+  local client_options=$8
+  local query="$9"
+  local more_options="${10}"
   local retvalue
   local retoutput
 
   debug "$lineno" "exec_sql : $user@$hostname:$port ==> $query"
 
-  retoutput=$(printf "[client]\n${more_options}\nuser=${user}\npassword=\"${password}\"\nhost=${hostname}\nport=${port}"  \
+  retoutput=$(printf "[client]\n${client_options}\nuser=${user}\npassword=\"${password}\"\nhost=${hostname}\nport=${port}"  \
       | timeout ${timeout_secs} mysql --defaults-file=/dev/stdin --protocol=tcp \
               ${args} -e "$query")
   retvalue=$?
 
   if [[ $DEBUG -eq 1 ]]; then
     local number_of_newlines=0
-    if [[ -n $retoutput ]]; then
-      number_of_newlines=$(printf "%s" "${retoutput}" | wc -l)
+    local dbgoutput=$retoutput
+
+    if [[ " $more_options " =~ [[:space:]]hide_output[[:space:]] ]]; then
+      dbgoutput="**** data hidden ****"
+    fi
+
+    if [[ -n $dbgoutput ]]; then
+      number_of_newlines=$(printf "%s" "${dbgoutput}" | wc -l)
     fi
 
     if [[  $retvalue -ne 0 ]]; then
       debug "" "--> query failed $retvalue"
-    elif [[ -z $retoutput ]]; then
+    elif [[ -z $dbgoutput ]]; then
       debug "" "--> query returned $retvalue : <query returned no data>"
     elif [[ ${number_of_newlines} -eq 0 ]]; then
-      debug "" "--> query returned $retvalue : ${retoutput}"
+      debug "" "--> query returned $retvalue : ${dbgoutput}"
     else
       debug "" "--> query returned $retvalue : <data follows>"
-      printf "${retoutput//%/%%}\n" | while IFS= read -r line; do
+      printf "${dbgoutput//%/%%}\n" | while IFS= read -r line; do
         debug "" "----> $line"
       done
     fi
@@ -298,16 +310,21 @@ function exec_sql() {
 # Arguments:
 #   1: lineno (used for debugging/output, may be blank)
 #   2: The SQL query
+#   3: (optional) more options, see exec_sql
 #
 function proxysql_exec() {
   local lineno=$1
-  shift
-  local query="$*"
+  local query="$2"
+  local more_options=""
   local retoutput
+
+  if [[ $# -ge 3 ]]; then
+    more_options=$3
+  fi
 
   exec_sql "$lineno" "$PROXYSQL_USERNAME" "$PROXYSQL_PASSWORD" \
            "$PROXYSQL_HOSTNAME" "$PROXYSQL_PORT" \
-           "$TIMEOUT" "-Bs" "" "$query"
+           "$TIMEOUT" "-Bs" "" "$query" "$more_options"
   retoutput=$?
   return $retoutput
 }
@@ -324,16 +341,21 @@ function proxysql_exec() {
 # Arguments:
 #   1: lineno (used for debugging/output, may be blank)
 #   2: the query to be run
+#   3: (optional) more options, see exec_sql
 #
 function mysql_exec() {
   local lineno=$1
-  shift
-  local query=$*
+  local query=$2
+  local more_options=""
   local retoutput
+
+  if [[ $# -ge 3 ]]; then
+    more_options=$3
+  fi
 
   exec_sql "$lineno" "$CLUSTER_USERNAME" "$CLUSTER_PASSWORD" \
            "$CLUSTER_HOSTNAME" "$CLUSTER_PORT" \
-           "$TIMEOUT" "-Bs" "connect-timeout=${CLUSTER_TIMEOUT}" "$query"
+           "$TIMEOUT" "-Bs" "connect-timeout=${CLUSTER_TIMEOUT}" "$query" "$more_options"
   retoutput=$?
   return $retoutput
 }
@@ -351,19 +373,25 @@ function mysql_exec() {
 #   2: the hostname of the server
 #   3: the port used to connect to the server
 #   4: the query to be run
+#   5: (optional) more options, see exec_sql
 #
 function slave_exec() {
   local lineno=$1
   local hostname=$2
   local port=$3
-  shift 3
-  local query=$*
+  local query=$4
+  local more_options=""
   local timeout_secs=$TIMEOUT
   local retoutput
 
+  if [[ $# -ge 5 ]]; then
+    more_options=$5
+  fi
+
+
   exec_sql "$lineno" "$CLUSTER_USERNAME" "$CLUSTER_PASSWORD" \
            "$hostname" "$port" \
-           "$timeout_secs" "-Bs" "" "$query"
+           "$timeout_secs" "-Bs" "" "$query" "$more_options"
   retoutput=$?
   return $retoutput
 }
@@ -534,7 +562,7 @@ function update_cluster() {
     else
       ws_ip=$(echo $i | cut -d':' -f1)
       ws_port=$(echo $i | cut -d':' -f2)
-      ws_hg_status=$(echo `proxysql_exec $LINENO "SELECT hostgroup_id,status from mysql_servers WHERE hostname='$ws_ip' and port=$ws_port"`)
+      ws_hg_status=$(proxysql_exec $LINENO "SELECT hostgroup_id,status from mysql_servers WHERE hostname='$ws_ip' and port=$ws_port")
       ws_hg_id=$(echo $ws_hg_status | cut -d' ' -f1)
       ws_status=$(echo $ws_hg_status | cut -d' ' -f2)
 
@@ -656,55 +684,72 @@ function parse_args() {
     exit 1
   fi
 
-  if echo "$go_out" | grep -q "debug"; then
-    DEBUG=1
-
-    # For now
-    if [[ -t 1 ]]; then
-      ERR_FILE=/dev/stdout
-    fi
-  fi
+  #
+  # We iterate through the command-line options twice
+  # (1) to handle options that don't need permissions (such as --help)
+  # (2) to handle options that need to be done before other
+  #     options, such as loading the config file
+  #
+  for arg
+  do
+    case "$arg" in
+      -- ) shift; break;;
+      --config-file )
+        CONFIG_FILE="$2"
+        check_permission -e $LINENO "$CONFIG_FILE" "proxysql-admin configuration file"
+        debug $LINENO  "--config-file specified, using : $CONFIG_FILE"
+        shift 2
+        ;;
+      --help)
+        usage
+        exit 0
+        ;;
+      -v | --version)
+        echo "proxysql_node_monitor version $PROXYSQL_ADMIN_VERSION"
+        exit 0
+        ;;
+      --debug)
+        DEBUG=1
+        shift
+        ;;
+    esac
+  done
 
   #
   # Load the config file before reading in the command-line options
   #
-  # Is there a config-file option in the command-line?
-  if echo "$go_out" | grep -q "config-file"; then
-    local arg_array=( "$@" )
-    arg_array_len=${#arg_array[@]}
-    for (( i=0; i<${arg_array_len};  i++));
-    do
-      if [[ "${arg_array[$i]}" == "--config-file" ]]; then
-        CONFIG_FILE="${arg_array[$i+1]}"
-        check_permission -e $LINENO "$CONFIG_FILE" "proxysql-admin configuration file"
-        break
-      fi
-    done
-    debug $LINENO  "--config-file specified, using : $CONFIG_FILE"
-  fi
   readonly CONFIG_FILE
-  debug $LINENO  "Using configuration file : $CONFIG_FILE"
-
   if [ ! -e "$CONFIG_FILE" ]; then
-      warning "" "Could not locate configuration file: $CONFIG_FILE"
+      warning "" "Could not locate the configuration file: $CONFIG_FILE"
   else
       check_permission -r $LINENO "$CONFIG_FILE"
       debug $LINENO "Loading $CONFIG_FILE"
       source "$CONFIG_FILE"
   fi
 
+
+  if [[ $DEBUG -ne 0 ]]; then
+    # For now
+    if [[ -t 1 ]]; then
+      ERR_FILE=/dev/stdout
+    fi
+  fi
+
   local p_mode=""
+
+  # Reset the command line for the next invocation
+  eval set -- "$go_out"
 
   for arg
   do
     case "$arg" in
       -- ) shift; break;;
       -w | --write-hg )
-        WRITE_HOSTGROUP_ID="$2"
+        WRITE_HOSTGROUP_ID=$2
         shift 2
       ;;
       -r | --read-hg )
-        READ_HOSTGROUP_ID="$2"
+        READ_HOSTGROUP_ID=$2
         shift 2
       ;;
       -m | --mode )
@@ -730,7 +775,7 @@ function parse_args() {
         shift 2
 
         # Test if stdout and stderr are open to a terminal
-        if [[ $ERR_FILE == "/dev/stderr" ]]; then
+        if [[ $ERR_FILE == "/dev/stdout" || $ERR_FILE == "/dev/stderr" ]]; then
           RED=$(tput setaf 1)
           NRED=$(tput sgr0)
         fi
@@ -744,15 +789,13 @@ function parse_args() {
         shift 2
       ;;
       --debug )
-        shift 1;
+        shift;
       ;;
       -v | --version )
-        echo "proxysql_galera_checker version $PROXYSQL_ADMIN_VERSION"
-        exit 0
+        shift;
       ;;
       -h | --help )
-        usage
-        exit 0
+        shift;
       ;;
     esac
   done
@@ -776,6 +819,7 @@ function parse_args() {
 
   CHECK_STATUS=0
 
+  debug $LINENO "#### PROXYSQL NODE MONITOR ARGUMENT CHECKING"
   debug $LINENO "MODE: $MODE"
   debug $LINENO "check mode name from proxysql data directory "
   CLUSTER_NAME=$(proxysql_exec $LINENO "SELECT comment from scheduler where arg1 LIKE '%--write-hg=$WRITE_HOSTGROUP_ID %'")
@@ -864,7 +908,7 @@ function main() {
   CLUSTER_USERNAME=$(proxysql_exec $LINENO "SELECT variable_value FROM global_variables WHERE variable_name='mysql-monitor_username'")
   check_cmd $LINENO $? "Could not retrieve cluster login info from ProxySQL. Please check ProxySQL login credentials"
 
-  CLUSTER_PASSWORD=$(proxysql_exec $LINENO "SELECT variable_value FROM global_variables WHERE variable_name='mysql-monitor_password'")
+  CLUSTER_PASSWORD=$(proxysql_exec $LINENO "SELECT variable_value FROM global_variables WHERE variable_name='mysql-monitor_password'" "hide_output")
   check_cmd $LINENO $? "Could not retrieve cluster login info from ProxySQL. Please check ProxySQL login credentials"
 
   CLUSTER_TIMEOUT=$(proxysql_exec $LINENO "SELECT DISTINCT MAX(interval_ms / 1000 - 1, 1) FROM scheduler")

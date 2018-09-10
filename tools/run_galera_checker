@@ -1,0 +1,195 @@
+#!/bin/bash -u
+
+# Turn off shell globbing (because we do SQL querying below)
+set -o noglob
+
+function usage() {
+    local path=$0
+    cat << EOF
+Usage example:
+  $ ${path##*/} [options]
+
+  Options:
+    --write-hg=<number>     : The scheduler for this WRITE hostgroup
+                              will be invoked.
+    --debug                 : Enable DEBUG
+    --log=<path>            : Use this path for the log file instead
+                              of the one used by the scheduler.
+    --node-monitor-log=<path> : Sets the output of the node monitor
+                              to this path.
+
+  The options below are used when querying ProxySQL.  If unspecified, the
+  values in /etc/proxysql-admin.cnf are used.
+    --user=<user>           : specify the user name
+    --password=<password>   : specify the user password
+    --host=<host>           : specify host address
+    --port=<port>           : specify host port
+
+EOF
+}
+
+#
+# Executes an SQL query
+#
+# Globals:
+#   USER
+#   PASSWORD
+#   HOST
+#   PORT
+#
+# Arguments:
+#   1: arguments to be passed to mysql
+#   2: the query
+#
+function exec_sql() {
+  local args=$1
+  local query=$2
+  local retvalue
+  local retoutput
+
+  retoutput=$(printf "[client]\nuser=${USER}\npassword=\"${PASSWORD}\"\nhost=${HOST}\nport=${PORT}"  \
+      | mysql --defaults-file=/dev/stdin --protocol=tcp \
+            ${args} -e "${query}")
+  retvalue=$?
+
+  printf "%s" "${retoutput//%/%%}"
+  return $retvalue
+}
+
+
+declare DEBUG=0
+declare LOG_FILE=""
+declare NODE_MONITOR_LOG=""
+declare WRITE_HG=""
+
+declare USER=""
+declare PASSWORD=""
+declare HOST=""
+declare PORT=""
+
+function parse_args() {
+  local param value
+  local positional_params=""
+
+  while [[ $# -gt 0 && "$1" != "" ]]; do
+      param=`echo $1 | awk -F= '{print $1}'`
+      value=`echo $1 | awk -F= '{print $2}'`
+
+      # Assume that all options start with a '-'
+      # otherwise treat as a positional parameter
+      if [[ ! $param =~ ^- ]]; then
+        positional_params+="$param "
+        shift
+        continue
+      fi
+      case $param in
+        -h | --help)
+          usage
+          exit
+          ;;
+        --user)
+          USER=$value
+          ;;
+        --password)
+          PASSWORD=$value
+          ;;
+        --host)
+          HOST=$value
+          ;;
+        --port)
+          PORT=$value
+          ;;
+        --write-hg)
+          if [[ -z $value ]]; then
+            echo "Error: no value provided with --write-hg"
+            exit 1
+          fi
+          WRITE_HG=$value
+          ;;
+        --debug)
+          DEBUG=1
+          ;;
+        --log)
+          if [[ -z $value ]]; then
+            echo "Error: no value provided with --log"
+            exit 1
+          fi
+          LOG_FILE=$value
+          ;;
+        --node-monitor-log )
+          NODE_MONITOR_LOG=$value
+          if [[ -z $value ]]; then
+            echo "Error: no value provided with --node-monitir-log"
+            exit 1
+          fi
+          ;;
+        *)
+          echo "ERROR: unknown parameter \"$param\""
+          usage
+          exit 1
+          ;;
+      esac
+      shift
+  done
+
+  # handle positional parameters (we only expect one)
+  QUERY=$positional_params
+}
+
+
+if [[ -r /etc/proxysql-admin.cnf ]]; then
+  source /etc/proxysql-admin.cnf
+  USER=$PROXYSQL_USERNAME
+  PASSWORD=$PROXYSQL_PASSWORD
+  HOST=$PROXYSQL_HOSTNAME
+  PORT=$PROXYSQL_PORT
+fi
+
+parse_args "$@"
+
+if [[ -z $WRITE_HG ]]; then
+  echo "Error: A WRITE hostgroup is required (--write-hg=<number>)"
+  exit 1
+fi
+
+# Retrieve the scheduler information for this write hostgroup
+scheduler_id=$(exec_sql "-Ns" "SELECT id FROM scheduler WHERE arg1 like '% --write-hg=$WRITE_HOSTGROUP_ID %'")
+if [[ -z $scheduler_id ]]; then
+  echo "Error: Could not retrieve the scheduler for write hostgroup: $WRITE_HG"
+  exit 1
+fi
+
+galera_checker=$(exec_sql "-Ns" "SELECT filename FROM scheduler WHERE id=$scheduler_id")
+galera_checker_args=$(exec_sql "-Ns" "SELECT arg1 FROM scheduler WHERE id=$scheduler_id")
+if [[ -z $galera_checker || -z $galera_checker_args ]]; then
+  echo "Could not retrieve the galera checker information"
+  exit 1
+fi
+
+if [[ $DEBUG -ne 0 ]]; then
+  if [[ ! " $galera_checker_args " =~ "[[:space:]]--debug[[:space:]]" ]]; then
+    galera_checker_args+=" --debug"
+  fi
+fi
+
+if [[ -n $LOG_FILE ]]; then
+  # Replace the existing log file option
+  # Remove any existing --log=XXX option
+  galera_checker_args=$(echo "$galera_checker_args" | sed 's/--log=[^ ]*//g')
+
+  # Append on the --log option
+  galera_checker_args+=" --log=$LOG_FILE"
+fi
+
+if [[ -n $NODE_MONITOR_LOG ]]; then
+  galera_checker_args=$(echo "$galera_checker_args" | sed 's/--node-monitor-log=[^ ]*//g')
+
+  # Append on the --node-monitor-log option
+  galera_checker_args+=" --node-monitor-log=$NODE_MONITOR_LOG"  
+fi
+
+echo "$galera_checker_args"
+# TODO: Do we need to setup the paths?
+
+# Execute the galera checker statement
+${galera_checker} "${galera_checker_args}"

@@ -145,7 +145,7 @@ function dump_arguments() {
 #
 # Dispay script usage details
 #
-function usage () {
+function usage() {
   ### Consider adding a select or prompt option for --write-node that will let you select from discovered nodes during setup ###
   local path=$0
   cat << EOF
@@ -187,6 +187,7 @@ Options:
                                      'ondemand' means that the writer node only accepts reads
                                      if there are no other readers.
                                      (default: 'ondemand')
+  --help                             Dispalys this help text.
 
 These options are the possible operations for proxysql-admin.
 One of the options below must be provided.
@@ -295,6 +296,12 @@ function check_permission() {
 #   4: the port used to connect to the server
 #   5: the query to be run
 #   6: (optional) arguments to the mysql client
+#   7: (optional) additional options, space separated
+#      Available options:
+#       "hide_output"
+#         This will not show the output of the query when DEBUG is set.
+#         Used to stop the display of sensitve information (such as passwords)
+#         from being displayed when debugging.
 #
 function exec_sql() {
   local user=$1
@@ -303,11 +310,16 @@ function exec_sql() {
   local port=$4
   local query=$5
   local args=""
+  local more_options=""
   local retvalue
   local retoutput
 
   if [[ $# -ge 6 ]]; then
     args=$6
+  fi
+
+  if [[ $# -ge 7 ]]; then
+    more_options=$7
   fi
 
   debug "" "exec_sql : $user@$hostname:$port ==> $query"
@@ -319,19 +331,25 @@ function exec_sql() {
 
   if [[ $DEBUG -eq 1 ]]; then
     local number_of_newlines=0
-    if [[ -n $retoutput ]]; then
-      number_of_newlines=$(printf "%s" "${retoutput}" | wc -l)
+    local dbgoutput=$retoutput
+
+    if [[ " $more_options " =~ [[:space:]]hide_output[[:space:]] ]]; then
+      dbgoutput="**** data hidden ****"
+    fi
+
+    if [[ -n $dbgoutput ]]; then
+      number_of_newlines=$(printf "%s" "${dbgoutput}" | wc -l)
     fi
 
     if [[  $retvalue -ne 0 ]]; then
       debug "" "--> query failed $retvalue"
-    elif [[ -z $retoutput ]]; then
+    elif [[ -z $dbgoutput ]]; then
       debug "" "--> query returned $retvalue : <query returned no data>"
     elif [[ ${number_of_newlines} -eq 0 ]]; then
-      debug "" "--> query returned $retvalue : ${retoutput}"
+      debug "" "--> query returned $retvalue : ${dbgoutput}"
     else
       debug "" "--> query returned $retvalue : <data follows>"
-      printf "%s" "${retoutput}\n" | while IFS= read -r line; do
+      printf "%s" "${dbgoutput}\n" | while IFS= read -r line; do
         debug "" "----> $line"
       done
     fi
@@ -351,11 +369,13 @@ function exec_sql() {
 #
 # Arguments:
 #   1: The SQL query
-#   2: Additional arguments to the mysql client for the query
+#   2: (optional) Additional arguments to the mysql client for the query
+#   3: (optional) more options, see exec_sql
 #
 function proxysql_exec() {
   local query=$1
   local args=""
+  local more_options=""
 
   if [[ $# -ge 2 ]]; then
     args=$2
@@ -365,9 +385,13 @@ function proxysql_exec() {
     args="--skip-column_names"
   fi
 
+  if [[ $# -ge 3 ]]; then
+    more_options=$3
+  fi
+
   exec_sql "$PROXYSQL_USERNAME" "$PROXYSQL_PASSWORD" \
            "$PROXYSQL_HOSTNAME" "$PROXYSQL_PORT" \
-           "$query" "$args"
+           "$query" "$args" "$more_options"
 
   return $?
 }
@@ -383,18 +407,24 @@ function proxysql_exec() {
 # Arguments:
 #   1: The SQL query
 #   2: Additional arguments to the mysql client for the query
+#   3: (optional) more options, see exec_sql
 #
 function mysql_exec() {
   local query=$1
   local args=""
+  local more_options=""
 
   if [[ $# -ge 2 ]]; then
     args=$2
   fi
 
+  if [[ $# -ge 3 ]]; then
+    more_options=$3
+  fi
+
   exec_sql "$CLUSTER_USERNAME" "$CLUSTER_PASSWORD" \
            "$CLUSTER_HOSTNAME" "$CLUSTER_PORT" \
-           "$query" "$args"
+           "$query" "$args" "$more_options"
 
   return $?
 }
@@ -411,18 +441,24 @@ function mysql_exec() {
 # Arguments:
 #   1: The SQL query
 #   2: Additional arguments to the mysql client for the query
+#   3: (optional) more options, see exec_sql
 #
 function slave_exec() {
   local query=$1
   local args=""
+  local more_options=""
 
   if [[ $# -ge 2 ]]; then
     args=$2
   fi
 
+  if [[ $# -ge 3 ]]; then
+    more_options=$3
+  fi
+
   exec_sql "$CLUSTER_USERNAME" "$CLUSTER_PASSWORD" \
            "$SLAVE_HOSTNAME" "$SLAVE_PORT" \
-           "$query" "$args"
+           "$query" "$args" "$more_options"
 
   return $?
 }
@@ -1165,7 +1201,7 @@ function adduser(){
 #
 function get_proxysql_users() {
   local proxysql_users
-  proxysql_users=$(proxysql_exec "SELECT username,password FROM mysql_users where password!='' and default_hostgroup=$WRITE_HOSTGROUP_ID" |
+  proxysql_users=$(proxysql_exec "SELECT username,password FROM mysql_users where password!='' and default_hostgroup=$WRITE_HOSTGROUP_ID" "" "hide_output" |
                       sed 's/\t/,/g' |
                       egrep -v "username,password" |
                       sort |
@@ -1259,7 +1295,7 @@ function syncusers() {
       ;;
   esac
   
-  mysql_users=$(mysql_exec "SELECT User,${password_field} FROM mysql.user where ${password_field}!=''" |
+  mysql_users=$(mysql_exec "SELECT User,${password_field} FROM mysql.user where ${password_field}!=''" "" "hide_output" |
                   sed 's/\t/,/g' |
                   egrep -v "User,${password_field}|mysql.sys|mysql.session" |
                   sort |
@@ -1368,37 +1404,52 @@ function parse_args() {
     exit 1
   fi
 
-  if echo "$go_out" | grep -E -q " (\-\-version|\-v) "; then
-    echo "proxysql-admin version ${PROXYSQL_ADMIN_VERSION}"
-    exit 0
-  fi
+  #
+  # We iterate through the command-line options twice
+  # (1) to handle options that don't need permissions (such as --help)
+  # (2) to handle options that need to be done before other
+  #     options, such as loading the config file
+  #
+  for arg
+  do
+    case "$arg" in
+      -- ) shift; break;;
+      --config-file )
+        CONFIG_FILE="$2"
+        check_permission -e $LINENO "$CONFIG_FILE" "proxysql-admin configuration file"
+        debug $LINENO  "--config-file specified, using : $CONFIG_FILE"
+        shift 2
+        ;;
+      --help)
+        usage
+        exit 0
+        ;;
+      -v | --version)
+        echo "proxysql-admin version ${PROXYSQL_ADMIN_VERSION}"
+        exit 0
+        ;;
+      --debug)
+        DEBUG=1
+        shift
+        ;;
+      --quick-demo )
+        shift
+        QUICK_DEMO=1
+        ENABLE=1
+        ;;
+    esac
+  done
 
-  if echo "$go_out" | grep -E -q " \-\-debug "; then
-    DEBUG=1
-  fi
+  # Reset the command line for the next invocation
+  eval set -- "$go_out"
 
   #
   # Load the config file before reading in the command-line options
   #
-  if ! echo "$go_out" | grep -q 'quick-demo'; then
-    # Is there a config-file option in the command-line?
-    if echo "$go_out" | grep -q "config-file"; then
-      arg_array=( "$@" )
-      arg_array_len=${#arg_array[@]}
-      for (( i=0; i<${arg_array_len};  i++));
-      do
-        if [[ "${arg_array[$i]}" == "--config-file" ]]; then
-          CONFIG_FILE="${arg_array[$i+1]}"
-          check_permission -e $LINENO "$CONFIG_FILE" "proxysql-admin configuration file" 
-          break
-        fi
-      done
-      debug $LINENO  "--config-file specified, using : $CONFIG_FILE"
-    fi
-    readonly CONFIG_FILE
-
+  readonly CONFIG_FILE
+  if [[ $QUICK_DEMO -eq 0 ]]; then
     if [ ! -e "$CONFIG_FILE" ]; then
-        warning "" "Could not locate configuration file: $CONFIG_FILE"
+        warning "" "Could not locate the configuration file: $CONFIG_FILE"
     else
         check_permission -r $LINENO "$CONFIG_FILE"
         debug $LINENO "Loading $CONFIG_FILE"
@@ -1560,16 +1611,16 @@ function parse_args() {
         ENABLE=1
         ;;
       -v | --version )
-        echo "proxysql-admin version ${PROXYSQL_ADMIN_VERSION}"
-        exit 0
+        # Detection of this setting is done before this
+        shift
         ;;
       --debug )
         # Detection of this setting is done before this
         shift
         ;;
       --help )
-        usage
-        exit 0
+        # Detection of this setting is done before this
+        shift
         ;;
     esac
   done
