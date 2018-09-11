@@ -392,14 +392,17 @@ function mysql_exec() {
 #
 # Globals:
 #   PROXYSQL_DATADIR
+#   TIMEOUT
+#   HOST_PRIORITY_FILE
 #
 # Arguments:
 #   None
 function upgrade_scheduler(){
+  log $LINENO "**** Scheduler upgrade started ****"
   if [[ -f /etc/proxysql-admin.cnf ]]; then
     source /etc/proxysql-admin.cnf
   else
-    error $LINENO "Assert! proxysql-admin configuration file : /etc/proxysql-admin.cnf does not exists, Terminating!"
+    error $LINENO "Assert! proxysql-admin configuration file : /etc/proxysql-admin.cnf does not exist, Terminating!"
     exit 1
   fi
 
@@ -407,9 +410,16 @@ function upgrade_scheduler(){
   TIMEOUT=2
 
   local scheduler_rows
+  local -i rows_found=0
+  local -i rows_modified=0
+
   scheduler_rows=$(proxysql_exec $LINENO "-Ns" "SELECT * FROM scheduler")
 
-  for i in "${scheduler_rows[@]}"; do
+  while read i; do
+    if [[ -z $i ]]; then continue; fi
+
+    rows_found+=1
+
     # Extract fields from the line
     local id=$(echo "$i" | awk '{print $1}')
     local s_write_hg=$(echo "$i" | awk '{print $5}')
@@ -418,6 +428,8 @@ function upgrade_scheduler(){
     local s_log=$(echo "$i" | awk '{print $9}')
     local s_cluster_name=$(echo "$i" | awk '{print $10}')
     local s_mode=""
+
+    log $LINENO "Modifying the scheduler for write hostgroup: $s_write_hg"
 
     # Get the mode for this cluster
     local proxysql_mode_file
@@ -430,8 +442,20 @@ function upgrade_scheduler(){
     if [[ -f ${proxysql_mode_file} && -r ${proxysql_mode_file} ]] ; then
       s_mode=$(cat ${proxysql_mode_file})
     else
-      error $LINENO "Cannot find the ${proxysql_mode_file} file"
+      log $LINENO ".. Cannot find the ${proxysql_mode_file} file"
+      if [[ $s_read_hg == "-1" ]]; then
+        log $LINENO ".. Assuming mode='loadbal'"
+        s_mode="loadbal"
+      else
+        log $LINENO ".. Assuming mode='singlewrite'"
+        s_mode="singlewrite"
+      fi
     fi
+
+    # TODO: kennt
+    # This will fail in the multi-cluster case, but may be a non-issue
+    # since those nodes should appear in one cluster (may cause extra work
+    # for the othre clusters though).
 
     # Get the host priority file
     local s_host_priority=''
@@ -449,10 +473,19 @@ function upgrade_scheduler(){
 
     # Make the changes
     if [[ ! -z $s_write_hg ]] && [[ ! -z $s_read_hg ]] && [[ ! -z $s_number_of_writes ]] && [[ ! -z $s_log ]]; then
-      proxysql_exec $LINENO -Ns "UPDATE scheduler SET arg1='--config-file=/etc/proxysql-admin.cnf --writer-is-reader=never --write-hg=$s_write_hg --read-hg=$s_read_hg --writer-count=$s_number_of_writes $s_host_priority --mode=$s_mode --log=$s_log', arg2=NULL, arg3=NULL, arg4=NULL, arg5=NULL WHERE id=$id"
-      proxysql_exec $LINENO -Ns "LOAD SCHEDULER TO RUNTIME; SAVE SCHEDULER TO DISK;"
+      proxysql_exec $LINENO -Ns "UPDATE scheduler SET arg1='--config-file=/etc/proxysql-admin.cnf --writer-is-reader=ondemand --write-hg=$s_write_hg --read-hg=$s_read_hg --writer-count=$s_number_of_writes $s_host_priority --mode=$s_mode --log=$s_log', arg2=NULL, arg3=NULL, arg4=NULL, arg5=NULL WHERE id=$id"
+      rows_modified+=1
     fi
-  done
+  done< <(printf "${scheduler_rows}\n")
+
+  if [[ $rows_modified -gt 0 ]]; then
+    proxysql_exec $LINENO -Ns "LOAD SCHEDULER TO RUNTIME; SAVE SCHEDULER TO DISK;"
+    check_cmd $LINENO $? "Could not save scheduler changes to runtime or disk"
+    log_if_success $LINENO $? "Scheduler changes saved to runtime and disk"
+  fi
+
+  log $LINENO "$rows_modified row(s) modified / $rows_found row(s) found"
+  log $LINENO "**** Scheduler upgrade finished ****"
 }
 
 
@@ -565,7 +598,7 @@ function parse_args() {
   if [[ $DEBUG -ne 0 ]]; then
     # For now
     if [[ -t 1 ]]; then
-      ERR_FILE=/dev/stdout
+      ERR_FILE=/dev/stderr
     fi
   fi
 
@@ -592,8 +625,10 @@ function parse_args() {
       -l | --log )
         ERR_FILE="$2"
         shift 2
-        # Test if stdout and stderr are open to a terminal
-        if [[ $ERR_FILE == "/dev/stdout" || $ERR_FILE == "/dev/stderr" ]]; then
+        # Test if stderr is open to a terminal
+        # We cannot use stdout as the log output, since it is used
+        # to return values.
+        if [[ $ERR_FILE == "/dev/stderr" ]]; then
           RED=$(tput setaf 1)
           NRED=$(tput sgr0)
         else
@@ -2184,13 +2219,45 @@ if [ "$#" -eq 1 ]; then
   # The eval is needed here to preserve whitespace in the arguments
   eval set -- $1
 else
+  # Parse the arguments
+  declare param value
+
+  # We don't need all the options here, just the log/debug options
+  while [[ $# -gt 0 && "$1" != "" ]]; do
+      param=`echo $1 | awk -F= '{print $1}'`
+      value=`echo $1 | awk -F= '{print $2}'`
+
+      # Assume that all options start with a '-'
+      # otherwise treat as a positional parameter
+      if [[ ! $param =~ ^- ]]; then
+        continue
+      fi
+      case $param in
+        -h | --help)
+          usage
+          exit
+          ;;
+        --debug)
+          DEBUG=1
+          ;;
+        -v | --version)
+          echo "proxysql_galera_checker version $PROXYSQL_ADMIN_VERSION"
+          exit 0
+          ;;
+        --log)
+          if [[ -n $value ]]; then
+            ERR_FILE=$value
+          fi
+          ;;
+      esac
+      shift
+  done
+
   echo "Old config detected...trying to upgrade More than one parameter"
 
-  if [[ "$@" =~ --debug ]]; then
-    DEBUG=1
-
+  if [[ $DEBUG -eq 1 ]]; then
     # For now
-    if [[ -t 1 ]]; then
+    if [[ -z $ERR_FILE && -t 1 ]]; then
       ERR_FILE=/dev/stderr
     fi
   fi
