@@ -91,8 +91,8 @@ declare -i SYNCUSERS=0
 declare -i SYNCMULTICLUSTERUSERS=0
 
 
-declare -i WITHOUT_CHECK_MONITOR_USER=0
-declare -i WITHOUT_CLUSTER_APP_USER=0
+declare -i WITH_CHECK_MONITOR_USER=1
+declare -i WITH_CLUSTER_APP_USER=1
 
 declare    WRITER_IS_READER="ondemand"
 
@@ -464,6 +464,38 @@ function slave_exec() {
 }
 
 
+# Executes a SQL query on a cluster ndde with the monitor credentials
+#
+# Globals:
+#   CLUSTER_HOSTNAME
+#   CLUSTER_PORT
+#
+# Arguments:
+#   1: The monitor username
+#   2: The monitor password
+#   3: Additional arguments to the mysql client for the query
+#   4: The SQL query
+#   5: (optional) more options, see exec_sql
+#
+function monitor_exec() {
+  local user=$1
+  local password=$2
+  local args=$3
+  local query=$4
+  local more_options=""
+
+  if [[ $# -ge 5 ]]; then
+    more_options=$5
+  fi
+
+  exec_sql "$user" "$password" \
+           "$CLUSTER_HOSTNAME" "$CLUSTER_PORT" \
+           "$query" "$args" "$more_options"
+
+  return $?
+}
+
+
 # Check proxysql running status
 #
 # Globals:
@@ -740,8 +772,8 @@ function proxysql_load_to_runtime_save_to_disk() {
 #   MONITOR_USERNAME, MONITOR_PASSWORD
 #   CLUSTER_APP_USERNAME, CLUSTER_APP_PASSWORD
 #   CLUSTER_USERNAME, CLUSTER_HOSTNAME
-#   WITHOUT_CHECK_MONITOR_USER
-#   WITHOUT_CLUSTER_APP_USER
+#   WITH_CHECK_MONITOR_USER
+#   WITH_CLUSTER_APP_USER
 #   QUICK_DEMO
 #   SLAVE_NODES
 #   MODE
@@ -812,66 +844,91 @@ function enable_proxysql() {
   else
     USER_HOST_RANGE="%"
   fi
+
   echo -e "\nConfiguring the ProxySQL monitoring user."
   user_input_check MONITOR "ProxySQL monitor user"
   readonly MONITOR_USERNAME
 
-  local check_user
-  check_user=$(mysql_exec "SELECT user,host FROM mysql.user where user='$MONITOR_USERNAME' and host='$USER_HOST_RANGE';")
-  check_cmd $? $LINENO "Could not retrieve the monitor user information from PXC."\
-                       "\n-- Please check the PXC cluster connection parameters and status."
+  if [[ $WITH_CHECK_MONITOR_USER -eq 1 ]]; then
+    local check_user
+    check_user=$(mysql_exec "SELECT user,host FROM mysql.user where user='$MONITOR_USERNAME' and host='$USER_HOST_RANGE';")
+    check_cmd $? $LINENO "Could not retrieve the monitor user information from PXC."\
+                         "\n-- Please check the PXC cluster connection parameters and status."
 
-  if [[ -z "$check_user" ]]; then
-    mysql_exec "CREATE USER '$MONITOR_USERNAME'@'$USER_HOST_RANGE' IDENTIFIED BY '$MONITOR_PASSWORD';"
-    check_cmd $? $LINENO  "Failed to create the ProxySQL monitoring user."\
-                          "\n-- Please check that '$CLUSTER_USERNAME'@'$CLUSTER_HOSTNAME' has the proper permissions to create the montioring user"
+    if [[ -z "$check_user" ]]; then
+      # No monitor user found in MySQL, create the monitor user
+      mysql_exec "CREATE USER '$MONITOR_USERNAME'@'$USER_HOST_RANGE' IDENTIFIED BY '$MONITOR_PASSWORD';"
+      check_cmd $? $LINENO  "Failed to create the ProxySQL monitoring user."\
+                            "\n-- Please check that '$CLUSTER_USERNAME'@'$CLUSTER_HOSTNAME' has the proper permissions to create the montioring user"
 
+      proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
+      check_cmd $? $LINENO  "Failed to set the mysql-monitor variables in ProxySQL."\
+                            "\n-- Please check the ProxySQL connection parameters and status."
+
+      proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
+
+      echo -e "\nUser '${BD}$MONITOR_USERNAME'@'$USER_HOST_RANGE${NBD}' has been added with USAGE privileges"
+    else
+      # Monitor user found in MySQL, do we want to use this existing user?
+      local check_param
+
+      echo ""
+      echo -e "The monitoring user is already present in Percona XtraDB Cluster.\n"
+      read -p "Would you like to enter a new password [y/n] ? " check_param
+
+      case $check_param in
+        y|Y)
+          if [[ $QUICK_DEMO -eq 0 ]]; then
+            read -r -s -p  "Please enter the password you have assigned to the monitoring user '$MONITOR_USERNAME': " MONITOR_PASSWORD
+            echo ""
+
+            monitor_exec "$MONITOR_USERNAME" "$MONITOR_PASSWORD" "-Bs" "SELECT 1" >/dev/null
+            check_cmd $? $LINENO "Failed to connect to Percona XtraDB Cluster using monitor credentials."\
+                                 "\n-- Please check MONITOR_USERNAME and MONITOR_PASSWORD"
+
+            proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
+            check_cmd $? $LINENO  "Failed to set the mysql-monitor variables in ProxySQL."\
+                                  "\n-- Please check the ProxySQL connection parameters"
+            proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
+            echo -e "\nMonitoring user '${BD}$MONITOR_USERNAME'@'$USER_HOST_RANGE${NBD}' has been setup in the ProxySQL database."
+          fi
+        ;;
+        n|N)
+          monitor_exec "$MONITOR_USERNAME" "$MONITOR_PASSWORD" "-Bs" "SELECT 1" >/dev/null
+          check_cmd $? $LINENO "Failed to connect to Percona XtraDB Cluster using monitor credentials."\
+                               "\n-- Please check MONITOR_USERNAME and MONITOR_PASSWORD"
+
+          proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
+          check_cmd $? $LINENO  "Failed to set the mysql-monitor variables in ProxySQL."\
+                                "\n-- Please check the ProxySQL connection parameters"
+
+          proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
+          echo -e "\nMonitoring user '${BD}$MONITOR_USERNAME'@'$USER_HOST_RANGE${NBD}' has been setup in the ProxySQL database."
+        ;;
+        *)
+          error "" "Please type [y/n]!"
+          exit 1
+        ;;
+      esac
+    fi
+    debug $LINENO "monitor username is '$MONITOR_USERNAME'"
+  else
+    #
+    # This is the no-check case
+    # So we aren't going to verify that the monitoring user exists in PXC
+    #
     proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
     check_cmd $? $LINENO  "Failed to set the mysql-monitor variables in ProxySQL."\
                           "\n-- Please check the ProxySQL connection parameters and status."
 
     proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
 
-    echo -e "\nUser '${BD}$MONITOR_USERNAME'@'$USER_HOST_RANGE${NBD}' has been added with USAGE privileges"
-  else
-    local check_param
-    if [[ $WITHOUT_CHECK_MONITOR_USER -eq 1 ]]; then
-        check_param="n"
-    else
-        echo ""
-        echo -e "The monitoring user is already present in Percona XtraDB Cluster.\n"
-        read -p "Would you like to proceed with the existing username and password [y/n] ? " check_param
-    fi
-    case $check_param in
-      y|Y)
-        if [[ $QUICK_DEMO -eq 0 ]]; then
-          read -r -s -p  "Please enter the password you have assigned to the monitoring user '$MONITOR_USERNAME': " MONITOR_PASSWORD
-          echo ""
-          proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
-          check_cmd $? $LINENO  "Failed to set the mysql-monitor variables in ProxySQL."\
-                                "\n-- Please check the ProxySQL connection parameters"
-          proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
-        fi
-      ;;
-      n|N)
-        proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
-        check_cmd $? $LINENO  "Failed to set the mysql-monitor variables in ProxySQL."\
-                              "\n-- Please check the ProxySQL connection parameters"
-
-        proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
-        echo -e "\nUser '${BD}$MONITOR_USERNAME'@'$USER_HOST_RANGE${NBD}' has been updated in ProxySQL database."\
-                "\nPlease make sure the credentials are the same in Percona XtraDB Cluster"
-      ;;
-      *)
-        error "" "Please type [y/n]!"
-        exit 1
-      ;;
-    esac
+    echo -e "\nMonitoring user '${BD}$MONITOR_USERNAME'@'$USER_HOST_RANGE${NBD}' has been setup in the ProxySQL database."
+    echo -e "The monitoring user has not been checked with PXC (due to --without-check-monitor-user)."
+    echo -e "Manual setup in PXC may be required."
   fi
 
-  debug $LINENO "monitor username is '$MONITOR_USERNAME'"
-
-  if [[ $WITHOUT_CLUSTER_APP_USER -ne 1 ]]; then
+  if [[ $WITH_CLUSTER_APP_USER -eq 1 ]]; then
     echo -e "\nConfiguring the Percona XtraDB Cluster application user to connect through ProxySQL"
     user_input_check CLUSTER_APP "Percona XtraDB Cluster application user" $WRITE_HOSTGROUP_ID
     readonly CLUSTER_APP_USERNAME
@@ -1025,7 +1082,7 @@ function enable_proxysql() {
                               "\n-- Please check the ProxySQL connection parameters and status."
       fi
     done
-    if [ "$WITHOUT_CLUSTER_APP_USER" != 1 ]; then
+    if [[ $WITH_CLUSTER_APP_USER -eq 1 ]]; then
       proxysql_exec "INSERT INTO mysql_query_rules (username,destination_hostgroup,active,match_digest,apply) values('$CLUSTER_APP_USERNAME',$WRITE_HOSTGROUP_ID,1,'^SELECT.*FOR UPDATE',1),('$CLUSTER_APP_USERNAME',$READ_HOSTGROUP_ID,1,'^SELECT ',1);"
       check_cmd $? $LINENO "Failed to add the read query rule to ProxySQL."\
                            "\n-- Please check the ProxySQL connection parameters and status."
@@ -1542,7 +1599,7 @@ function parse_args() {
         shift 2
         ;;
       --without-check-monitor-user )
-        WITHOUT_CHECK_MONITOR_USER=1
+        WITH_CHECK_MONITOR_USER=0
         shift
         ;;
       --cluster-app-username )
@@ -1555,7 +1612,7 @@ function parse_args() {
         ;;
       --without-cluster-app-user )
         shift
-        WITHOUT_CLUSTER_APP_USER=1
+        WITH_CLUSTER_APP_USER=0
         ;;
       --writer-is-reader )
         WRITER_IS_READER="$2"
@@ -1767,8 +1824,8 @@ function parse_args() {
   readonly SYNCMULTICLUSTERUSERS
   readonly QUICK_DEMO
 
-  readonly WITHOUT_CHECK_MONITOR_USER
-  readonly WITHOUT_CLUSTER_APP_USER
+  readonly WITH_CHECK_MONITOR_USER
+  readonly WITH_CLUSTER_APP_USER
   readonly WRITER_IS_READER
 }
 
