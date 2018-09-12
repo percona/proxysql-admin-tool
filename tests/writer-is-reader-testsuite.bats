@@ -133,7 +133,7 @@ function verify_initial_state() {
 }
 
 @test "run proxysql-admin -e ($WSREP_CLUSTER_NAME)" {
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin -e --writer-is-reader=never <<< 'n'
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin -e --without-check-monitor-user --writer-is-reader=never <<< 'n'
   echo "$output"
   [ "$status" -eq  0 ]
 }
