@@ -90,8 +90,7 @@ declare -i ADDUSER=0
 declare -i SYNCUSERS=0
 declare -i SYNCMULTICLUSTERUSERS=0
 
-
-declare -i WITH_CHECK_MONITOR_USER=1
+declare -i USE_EXISTING_MONITOR_PASSWORD=0
 declare -i WITH_CLUSTER_APP_USER=1
 
 declare    WRITER_IS_READER="ondemand"
@@ -167,7 +166,7 @@ Options:
   --without-cluster-app-user         Configure Percona XtraDB Cluster without application user
   --monitor-username=user_name       Username for monitoring Percona XtraDB Cluster nodes through ProxySQL
   --monitor-password[=password]      Password for monitoring Percona XtraDB Cluster nodes through ProxySQL
-  --without-check-monitor-user       Configure ProxySQL without checking/attempting to create monitor user
+  --use-existing-monitor-password    Do not prompt for a new monitor password if one is provided.
   --node-check-interval=3000         Interval for monitoring node checker script (in milliseconds)
                                      (default: 3000)
   --mode=[loadbal|singlewrite]       ProxySQL read/write configuration mode
@@ -772,7 +771,7 @@ function proxysql_load_to_runtime_save_to_disk() {
 #   MONITOR_USERNAME, MONITOR_PASSWORD
 #   CLUSTER_APP_USERNAME, CLUSTER_APP_PASSWORD
 #   CLUSTER_USERNAME, CLUSTER_HOSTNAME
-#   WITH_CHECK_MONITOR_USER
+#   USE_EXISTING_MONITOR_PASSWORD
 #   WITH_CLUSTER_APP_USER
 #   QUICK_DEMO
 #   SLAVE_NODES
@@ -849,51 +848,41 @@ function enable_proxysql() {
   user_input_check MONITOR "ProxySQL monitor user"
   readonly MONITOR_USERNAME
 
-  if [[ $WITH_CHECK_MONITOR_USER -eq 1 ]]; then
-    local check_user
-    check_user=$(mysql_exec "SELECT user,host FROM mysql.user where user='$MONITOR_USERNAME' and host='$USER_HOST_RANGE';")
-    check_cmd $? $LINENO "Could not retrieve the monitor user information from PXC."\
-                         "\n-- Please check the PXC cluster connection parameters and status."
+  local check_user
+  check_user=$(mysql_exec "SELECT user,host FROM mysql.user where user='$MONITOR_USERNAME' and host='$USER_HOST_RANGE';")
+  check_cmd $? $LINENO "Could not retrieve the monitor user information from PXC."\
+                       "\n-- Please check the PXC cluster connection parameters and status."
+  if [[ -z "$check_user" ]]; then
+    # No monitor user found in MySQL, create the monitor user
+    mysql_exec "CREATE USER '$MONITOR_USERNAME'@'$USER_HOST_RANGE' IDENTIFIED BY '$MONITOR_PASSWORD';"
+    check_cmd $? $LINENO  "Failed to create the ProxySQL monitoring user."\
+                          "\n-- Please check that '$CLUSTER_USERNAME'@'$CLUSTER_HOSTNAME' has the proper permissions to create the montioring user"
 
-    if [[ -z "$check_user" ]]; then
-      # No monitor user found in MySQL, create the monitor user
-      mysql_exec "CREATE USER '$MONITOR_USERNAME'@'$USER_HOST_RANGE' IDENTIFIED BY '$MONITOR_PASSWORD';"
-      check_cmd $? $LINENO  "Failed to create the ProxySQL monitoring user."\
-                            "\n-- Please check that '$CLUSTER_USERNAME'@'$CLUSTER_HOSTNAME' has the proper permissions to create the montioring user"
+    proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
+    check_cmd $? $LINENO  "Failed to set the mysql-monitor variables in ProxySQL."\
+                          "\n-- Please check the ProxySQL connection parameters and status."
 
-      proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
-      check_cmd $? $LINENO  "Failed to set the mysql-monitor variables in ProxySQL."\
-                            "\n-- Please check the ProxySQL connection parameters and status."
+    proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
 
-      proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
+    echo -e "\nUser '${BD}$MONITOR_USERNAME'@'$USER_HOST_RANGE${NBD}' has been added with USAGE privileges"
+  else
+    # Monitor user found in MySQL, do we want to use this existing user?
+    local check_param
 
-      echo -e "\nUser '${BD}$MONITOR_USERNAME'@'$USER_HOST_RANGE${NBD}' has been added with USAGE privileges"
+    if [[ $USE_EXISTING_MONITOR_PASSWORD -eq 1 ]]; then
+      # We have a password, so no need to ask for a new password
+      check_param="n"
     else
-      # Monitor user found in MySQL, do we want to use this existing user?
-      local check_param
-
       echo ""
       echo -e "The monitoring user is already present in Percona XtraDB Cluster.\n"
       read -p "Would you like to enter a new password [y/n] ? " check_param
+    fi
+    case $check_param in
+      y|Y)
+        if [[ $QUICK_DEMO -eq 0 ]]; then
+          read -r -s -p  "Please enter the password you have assigned to the monitoring user '$MONITOR_USERNAME': " MONITOR_PASSWORD
+          echo ""
 
-      case $check_param in
-        y|Y)
-          if [[ $QUICK_DEMO -eq 0 ]]; then
-            read -r -s -p  "Please enter the password you have assigned to the monitoring user '$MONITOR_USERNAME': " MONITOR_PASSWORD
-            echo ""
-
-            monitor_exec "$MONITOR_USERNAME" "$MONITOR_PASSWORD" "-Bs" "SELECT 1" >/dev/null
-            check_cmd $? $LINENO "Failed to connect to Percona XtraDB Cluster using monitor credentials."\
-                                 "\n-- Please check MONITOR_USERNAME and MONITOR_PASSWORD"
-
-            proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
-            check_cmd $? $LINENO  "Failed to set the mysql-monitor variables in ProxySQL."\
-                                  "\n-- Please check the ProxySQL connection parameters"
-            proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
-            echo -e "\nMonitoring user '${BD}$MONITOR_USERNAME'@'$USER_HOST_RANGE${NBD}' has been setup in the ProxySQL database."
-          fi
-        ;;
-        n|N)
           monitor_exec "$MONITOR_USERNAME" "$MONITOR_PASSWORD" "-Bs" "SELECT 1" >/dev/null
           check_cmd $? $LINENO "Failed to connect to Percona XtraDB Cluster using monitor credentials."\
                                "\n-- Please check MONITOR_USERNAME and MONITOR_PASSWORD"
@@ -901,32 +890,29 @@ function enable_proxysql() {
           proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
           check_cmd $? $LINENO  "Failed to set the mysql-monitor variables in ProxySQL."\
                                 "\n-- Please check the ProxySQL connection parameters"
-
           proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
           echo -e "\nMonitoring user '${BD}$MONITOR_USERNAME'@'$USER_HOST_RANGE${NBD}' has been setup in the ProxySQL database."
-        ;;
-        *)
-          error "" "Please type [y/n]!"
-          exit 1
-        ;;
-      esac
-    fi
-    debug $LINENO "monitor username is '$MONITOR_USERNAME'"
-  else
-    #
-    # This is the no-check case
-    # So we aren't going to verify that the monitoring user exists in PXC
-    #
-    proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
-    check_cmd $? $LINENO  "Failed to set the mysql-monitor variables in ProxySQL."\
-                          "\n-- Please check the ProxySQL connection parameters and status."
+        fi
+      ;;
+      n|N)
+        monitor_exec "$MONITOR_USERNAME" "$MONITOR_PASSWORD" "-Bs" "SELECT 1" >/dev/null
+        check_cmd $? $LINENO "Failed to connect to Percona XtraDB Cluster using monitor credentials."\
+                             "\n-- Please check MONITOR_USERNAME and MONITOR_PASSWORD"
 
-    proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
+        proxysql_exec "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
+        check_cmd $? $LINENO  "Failed to set the mysql-monitor variables in ProxySQL."\
+                              "\n-- Please check the ProxySQL connection parameters"
 
-    echo -e "\nMonitoring user '${BD}$MONITOR_USERNAME'@'$USER_HOST_RANGE${NBD}' has been setup in the ProxySQL database."
-    echo -e "The monitoring user has not been checked with PXC (due to --without-check-monitor-user)."
-    echo -e "Manual setup in PXC may be required."
+        proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
+        echo -e "\nMonitoring user '${BD}$MONITOR_USERNAME'@'$USER_HOST_RANGE${NBD}' has been setup in the ProxySQL database."
+      ;;
+      *)
+        error "" "Please type [y/n]!"
+        exit 1
+      ;;
+    esac
   fi
+  debug $LINENO "monitor username is '$MONITOR_USERNAME'"
 
   if [[ $WITH_CLUSTER_APP_USER -eq 1 ]]; then
     echo -e "\nConfiguring the Percona XtraDB Cluster application user to connect through ProxySQL"
@@ -1451,7 +1437,7 @@ function parse_args() {
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,include-slaves:,without-check-monitor-user,without-cluster-app-user,writer-is-reader:,enable,disable,adduser,syncusers,sync-multi-cluster-users,version,debug,help \
+    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,include-slaves:,use-existing-monitor-password,without-cluster-app-user,writer-is-reader:,enable,disable,adduser,syncusers,sync-multi-cluster-users,version,debug,help \
     --name="$(basename "$0")" -- "$@")"
     check_cmd $? $LINENO "Script error: getopt() failed with arguments: $@"
     eval set -- "$go_out"
@@ -1598,8 +1584,8 @@ function parse_args() {
         MONITOR_PASSWORD="$2"
         shift 2
         ;;
-      --without-check-monitor-user )
-        WITH_CHECK_MONITOR_USER=0
+      --use-existing-monitor-password )
+        USE_EXISTING_MONITOR_PASSWORD=1
         shift
         ;;
       --cluster-app-username )
