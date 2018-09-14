@@ -696,7 +696,7 @@ function user_input_check() {
         check_cmd $? $LINENO "Failed to add the PXC application user: '$username' to the ProxySQL database."\
                              "\n-- Please check the ProxySQL connection parameters and status."
 
-        proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO
+        proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO 1
     
         if [[ $QUICK_DEMO -eq 0 ]]; then
           echo -e "\nPercona XtraDB Cluster application user '${BD}$username'@'$USER_HOST_RANGE${NBD}' has been added with ${BD}ALL${NBD} privileges, ${BD}this user is created for testing purposes${NBD}"
@@ -720,7 +720,7 @@ function user_input_check() {
         check_cmd $? $LINENO "Failed to add the PXC application user: '$username' to the ProxySQL database."\
                              "\n-- Please check the ProxySQL connection parameters and status."
 
-        proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO
+        proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO 1
       else
         error $LINENO "The application user ${BD}$username${NBD} is already present in the ProxySQL database."
         echo -e "-- Note: ProxySQL does not allow duplicate usernames."
@@ -748,11 +748,26 @@ function user_input_check() {
 function proxysql_load_to_runtime_save_to_disk() {
   local data_type=$1
   local lineno=$2
+  local reload_from_runtime=0
+
+  if [[ $# -ge 3 ]]; then
+    reload_from_runtime=$3
+  fi
 
   proxysql_exec "LOAD ${data_type} TO RUNTIME"
   check_cmd $? $lineno "Failed to load the ${data_type} configuration to runtime."\
                        "\n-- Please check the ProxySQL configuration and status."
   debug "$lineno" "Loaded ${data_type} to runtime"
+
+  if [[ $reload_from_runtime -eq 1 ]]; then
+    # This has a specific purpose for the MYSQL USERS
+    # This will cause the password field to be loaded with the encrypted version
+    # of the password field
+    proxysql_exec "SAVE ${data_type} FROM RUNTIME"
+    check_cmd $? $lineno "Failed to safe the ${data_type} configuration from the runtime."\
+                         "\n-- Please check the ProxySQL configuration and status."
+    debug "$lineno" "Saved ${data_type} from runtime"
+  fi
 
   proxysql_exec "SAVE ${data_type} TO DISK;"
   check_cmd $? $lineno "Failed to save the ${data_type} configuration to disk."\
@@ -1230,7 +1245,7 @@ function adduser(){
                          "\n-- Please check the ProxySQL connection parameters and status."
   fi
 
-  proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO
+  proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO "1"
 }
 
 
