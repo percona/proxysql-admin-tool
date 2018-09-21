@@ -25,3 +25,6 @@ export READ_HOSTGROUP_ID='11'
 
 # ProxySQL read/write configuration mode.
 export MODE="singlewrite"
+
+# Writer-is-reader configuration
+export WRITER_IS_READER="ondemand"

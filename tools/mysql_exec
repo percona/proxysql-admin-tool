@@ -1,0 +1,141 @@
+#!/bin/bash -u
+
+# Turn off shell globbing (because we do SQL querying below)
+set -o noglob
+
+function usage() {
+    local path=$0
+    cat << EOF
+Usage example:
+  $ ${path##*/} [options] <query>
+
+  This tool executes a query on the PXC cluster.
+
+  Options:
+    --user=<user>           : specify the user name (default:root)
+    --password=<password>   : specify the user password
+    --host=<host>           : specify host address
+    --port=<port>           : specify host port
+    --socket=<socket>       : path to the socket file (default:/tmp/cluster_one1.sock)
+    --query-options=<options> : mysql client command line options, (example: "--silent -N")
+
+  If the host and port are specified, the socket file is ignored.
+
+  Examples:
+    ${path##*/} --query-options="--table" "select * from table_name"
+
+  The default is to connect using the PXC cluster sockets utilizing the default
+  PXC root user credentials.
+
+EOF
+}
+
+#
+# Executes an SQL query
+#
+# Globals:
+#   USER
+#   PASSWORD
+#   HOST
+#   PORT
+#
+# Arguments:
+#   1: arguments to be passed to mysql
+#   2: the query
+#
+function exec_sql() {
+  local args=$1
+  local query=$2
+  local retvalue
+  local retoutput
+
+  if [[ -n $HOST && -n $PORt ]]; then
+    retoutput=$(printf "[client]\nuser=${USER}\npassword=\"${PASSWORD}\"\nhost=${HOST}\nport=${PORT}"  \
+        | mysql --defaults-file=/dev/stdin --protocol=tcp \
+              ${args} -e "${query}")
+  elif [[ -n $SOCKET ]]; then
+    if [[ ! -e $SOCKET ]]; then
+      echo "Error: Could not find socket file: $SOCKET"
+      exit 1
+    fi
+    retoutput=$(printf "[client]\nuser=${USER}\npassword=\"${PASSWORD}\"\n"  \
+        | mysql --defaults-file=/dev/stdin --socket=$SOCKET --user=$USER \
+              ${args} -e "${query}")
+  else
+    echo "Error: requires a socket or host/port to be specified"
+    exit 1
+  fi
+  retvalue=$?
+
+  printf "${retoutput//%/%%}"
+  return $retvalue
+}
+
+
+declare USER="root"
+declare PASSWORD=""
+declare HOST=""
+declare PORT=""
+declare QUERY_OPTIONS=""
+declare QUERY=""
+declare SOCKET="/tmp/cluster_one1.sock"
+
+function parse_args() {
+  local param value
+  local positional_params=""
+
+  while [[ $# -gt 0 && "$1" != "" ]]; do
+      param=`echo $1 | awk -F= '{print $1}'`
+      value=`echo $1 | awk -F= '{print $2}'`
+
+      # Assume that all options start with a '-'
+      # otherwise treat as a positional parameter
+      if [[ ! $param =~ ^- ]]; then
+        positional_params+="$param "
+        shift
+        continue
+      fi
+      case $param in
+        -h | --help)
+          usage
+          exit
+          ;;
+        --user)
+          USER=$value
+          ;;
+        --password)
+          PASSWORD=$value
+          ;;
+        --host)
+          HOST=$value
+          ;;
+        --port)
+          PORT=$value
+          ;;
+        --socket)
+          SOCKET=$value
+          ;;
+        --query-options)
+          QUERY_OPTIONS=$value
+          ;;
+        *)
+          echo "ERROR: unknown parameter \"$param\""
+          usage
+          exit 1
+          ;;
+      esac
+      shift
+  done
+
+  # handle positional parameters (we only expect one)
+  QUERY=$positional_params
+}
+
+parse_args "$@"
+
+if [[ -z $QUERY ]]; then
+  echo "Error, no query specified (nothing to run)"
+  exit 1
+fi
+
+exec_sql "$QUERY_OPTIONS" "$QUERY"
