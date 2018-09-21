@@ -87,7 +87,6 @@ EOF
 
 
 function parse_args() {
-  echo "$@"
   local param value
   local positional_params=""
   while [[ $# -gt 0 ]]; do
