@@ -47,7 +47,7 @@ declare -i  NUMBER_WRITERS=0
 
 declare     WRITER_IS_READER="ondemand"
 
-declare     P_MODE
+declare     P_MODE=""
 declare     P_PRIORITY=""
 
 declare     MYSQL_USERNAME
@@ -165,7 +165,6 @@ Options:
   -p, --priority=<HOST_LIST>          Can accept comma delimited list of write nodes priority
   -m, --mode=[loadbal|singlewrite]    ProxySQL read/write configuration mode,
                                       currently supporting: 'loadbal' and 'singlewrite'
-                                      (default: 'singlewrite')
   --writer-is-reader=<value>          Defines if the writer node also accepts writes.
                                       Possible values are 'always', 'never', and 'ondemand'.
                                       'ondemand' means that the writer node only accepts reads
