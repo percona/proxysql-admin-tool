@@ -822,7 +822,7 @@ function parse_args() {
   debug $LINENO "#### PROXYSQL NODE MONITOR ARGUMENT CHECKING"
   debug $LINENO "MODE: $MODE"
   debug $LINENO "check mode name from proxysql data directory "
-  CLUSTER_NAME=$(proxysql_exec $LINENO "SELECT comment from scheduler where arg1 LIKE '%--write-hg=$WRITE_HOSTGROUP_ID %'")
+  CLUSTER_NAME=$(proxysql_exec $LINENO "SELECT comment from scheduler where arg1 LIKE '%--write-hg=$WRITE_HOSTGROUP_ID %' OR arg1 LIKE '%-w $WRITE_HOSTGROUP_ID %'")
   check_cmd $LINENO $? "Cannot connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"
   if [[ ! -z $p_mode ]] ; then
     MODE=$p_mode

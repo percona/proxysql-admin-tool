@@ -1934,8 +1934,11 @@ function main() {
   MYSQL_PASSWORD=$(echo $mysql_credentials | awk '{print $2}')
 
   # Search for the scheduler id that corresponds to our write hostgroup
-  scheduler_id=$(proxysql_exec $LINENO -Ns "SELECT id FROM scheduler where arg1 LIKE '%--write-hg=$HOSTGROUP_WRITER_ID %'")
-  cluster_name=$(proxysql_exec $LINENO -Ns "SELECT comment FROM scheduler WHERE id=${scheduler_id}")
+  scheduler_id=$(proxysql_exec $LINENO -Ns "SELECT id FROM scheduler where arg1 LIKE '%--write-hg=$HOSTGROUP_WRITER_ID %' OR arg1 LIKE '%-w $HOSTGROUP_WRITER_ID %'")
+  if [[ -z $scheduler_id ]]; then
+    error $LINENO "Cannot find the scheduler row with write hostgroup : $HOSTGROUP_WRITER_ID"
+  fi
+  cluster_name=$(proxysql_exec $LINENO -Ns "SELECT comment FROM scheduler WHERE id=${scheduler_id}" 2>>$ERR_FILE)
   if [[ -z $cluster_name ]]; then
     #
     # Could not find the cluster name from the scheduler,

@@ -153,7 +153,7 @@ if [[ -z $WRITE_HG ]]; then
 fi
 
 # Retrieve the scheduler information for this write hostgroup
-scheduler_id=$(exec_sql "-Ns" "SELECT id FROM scheduler WHERE arg1 like '% --write-hg=$WRITE_HOSTGROUP_ID %'")
+scheduler_id=$(exec_sql "-Ns" "SELECT id FROM scheduler WHERE arg1 like '% --write-hg=$WRITE_HOSTGROUP_ID %' OR  arg1 like '% -w $WRITE_HOSTGROUP_ID %'")
 if [[ -z $scheduler_id ]]; then
   echo "Error: Could not retrieve the scheduler for write hostgroup: $WRITE_HG"
   exit 1
@@ -167,7 +167,7 @@ if [[ -z $galera_checker || -z $galera_checker_args ]]; then
 fi
 
 if [[ $DEBUG -ne 0 ]]; then
-  if [[ ! " $galera_checker_args " =~ "[[:space:]]--debug[[:space:]]" ]]; then
+  if [[ ! " $galera_checker_args " =~ [[:space:]]--debug[[:space:]] ]]; then
     galera_checker_args+=" --debug"
   fi
 fi
@@ -188,8 +188,7 @@ if [[ -n $NODE_MONITOR_LOG ]]; then
   galera_checker_args+=" --node-monitor-log=$NODE_MONITOR_LOG"  
 fi
 
-echo "$galera_checker_args"
-# TODO: Do we need to setup the paths?
+# TODO: kennt, should support --log-text also
 
 # Execute the galera checker statement
 ${galera_checker} "${galera_checker_args}"
