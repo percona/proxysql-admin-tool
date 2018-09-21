@@ -1495,6 +1495,9 @@ function parse_args() {
         QUICK_DEMO=1
         ENABLE=1
         ;;
+      *)
+        shift
+        ;;
     esac
   done
 
