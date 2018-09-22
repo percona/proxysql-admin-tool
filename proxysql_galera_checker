@@ -47,6 +47,8 @@ declare -i  NUMBER_WRITERS=0
 
 declare     WRITER_IS_READER="ondemand"
 
+declare     SLAVE_IS_WRITER="yes"
+
 declare     P_MODE=""
 declare     P_PRIORITY=""
 
@@ -170,7 +172,10 @@ Options:
                                       'ondemand' means that the writer node only accepts reads
                                       if there are no other readers.
                                       (default: 'never')
-
+  --use-slave-as-writer=<yes/no>      If this is 'yes' then slave nodes may
+                                      be added to the write hostgroup if all other
+                                      cluster nodes are down.
+                                      (default: 'yes')
   -h, --help                          Display script usage information
   -v, --version                       Print version info
 
@@ -536,7 +541,7 @@ function parse_args() {
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=w:r:c:l:n:m:p:vh --longoptions=write-hg:,read-hg:,config-file:,log:,node-monitor-log:,writer-count:,mode:,priority:,writer-is-reader:,log-text:,version,debug,help \
+    go_out="$(getopt --options=w:r:c:l:n:m:p:vh --longoptions=write-hg:,read-hg:,config-file:,log:,node-monitor-log:,writer-count:,mode:,priority:,writer-is-reader:,use-slave-as-writer:,log-text:,version,debug,help \
     --name="$(basename "$0")" -- "$@")"
     if [[ $? -ne 0 ]]; then
       # no place to send output
@@ -577,6 +582,9 @@ function parse_args() {
         ;;
       --debug)
         DEBUG=1
+        shift
+        ;;
+      *)
         shift
         ;;
     esac
@@ -660,6 +668,10 @@ function parse_args() {
         WRITER_IS_READER="$2"
         shift 2
       ;;
+      --use-slave-as-writer )
+        SLAVE_IS_WRITER="$2"
+        shift 2
+      ;;
       --debug )
         # Not handled here, see above
         shift
@@ -718,6 +730,17 @@ function parse_args() {
     exit 1
   fi
 
+  if [[ ! $SLAVE_IS_WRITER =~ ^(yes|YES|no|NO)$ ]]; then
+    error "" "Invalid --use-slave-as-writer option: '$SLAVE_IS_WRITER'"
+    echo "Please choose either yes or no"
+    exit 1
+  fi
+  if [[ $SLAVE_IS_WRITER =~ ^(yes|YES)$ ]]; then
+    SLAVE_IS_WRITER="yes"
+  else
+    SLAVE_IS_WRITER="no"
+  fi
+
   # These may get set in the config file, but they are not used
   # by this script.  So to avoid confusion and problems, remove
   # these variables explicitly.
@@ -735,6 +758,7 @@ function parse_args() {
   readonly NUMBER_WRITERS
 
   readonly WRITER_IS_READER
+  readonly SLAVE_IS_WRITER
 
   readonly P_PRIORITY
   readonly P_MODE
@@ -2167,7 +2191,11 @@ function main() {
 
     log $LINENO "###### ASYNC-SLAVE ACTIVITY ######"
 
-    if [[ $number_readers_online -eq 0 && $number_writers_online -eq 0 ]]; then
+    # If use-slave-as-writer is set, then we do not allow slaves to
+    # be added, however we still call the remove slave writers
+    # in case the option was just changed.
+
+    if [[ $SLAVE_IS_WRITER == "yes" && $number_readers_online -eq 0 && $number_writers_online -eq 0 ]]; then
       # No cluster nodes active, add a slave to the writer hostgroup
       debug $LINENO "Nothing in the cluster, checking slavereaders"
       add_slave_to_write_hostgroup "${reload_check_file}"

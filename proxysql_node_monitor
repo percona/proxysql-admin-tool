@@ -712,6 +712,9 @@ function parse_args() {
         DEBUG=1
         shift
         ;;
+      *)
+        shift
+        ;;
     esac
   done
 
