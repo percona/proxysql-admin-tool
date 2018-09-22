@@ -117,6 +117,12 @@ echo "$output"
         [ "$status" -eq 1 ]
 }
 
+@test 'run proxysql-admin --include-slaves without --use-slave-as-writer' {
+run sudo $WORKDIR/proxysql-admin --include-slave=127.0.0.1:4110
+echo "$output"
+        [ "$status" -eq 1 ]
+}
+
 @test "run proxysql-admin --version check" {
   admin_version=$(sudo $WORKDIR/proxysql-admin -v | grep --extended-regexp -oe '[1-9]\.[0-9]\.[0-9]+')
   proxysql_version=$(sudo $PROXYSQL_BASE/usr/bin/proxysql --help | grep --extended-regexp -oe '[1-9]\.[0-9]\.[0-9]+')
