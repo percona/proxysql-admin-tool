@@ -49,7 +49,7 @@ fi
 #
 # Script parameters/constants
 #
-readonly    PROXYSQL_ADMIN_VERSION="1.4.10"
+readonly    PROXYSQL_ADMIN_VERSION="1.4.11"
 declare  -i DEBUG=0
 
 #
