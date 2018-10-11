@@ -2505,7 +2505,7 @@ function verify_initial_state() {
   $PXC_BASEDIR/bin/mysqladmin $pxc_socket -u root shutdown
 
   # Run the checker, should move writer to OFFLINE_SOFT reader
-  run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --debug")
+  run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS}")
   [ "$status" -eq 0 ]
 
   # nodes are ordered by status,host,port,hostgroup

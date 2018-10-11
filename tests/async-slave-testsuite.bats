@@ -50,6 +50,11 @@ else
   PORT_SLAVE2=4295
 fi
 
+if [[ USE_IPVERSION == "v6" ]]; then
+  LOCALHOST_IP="[::1]"
+else
+  LOCALHOST_IP="127.0.0.1"
+fi
 
 # Sets up the general test setup
 #   (1) Deactivates the scheduler
@@ -121,9 +126,9 @@ function verify_initial_state() {
   [ "${read_weight[2]}" -eq 1000 ]
 
   result=$(retrieve_slavenode_status "${slave_host[0]}" "${slave_port[0]}")
-  master_host=$(echo "$result" | cut -d: -f1)
-  slave_io_running=$(echo "$result" | cut -d: -f2)
-  slave_sql_running=$(echo "$result" | cut -d: -f3)
+  master_host=$(echo -e "$result" | cut -f1)
+  slave_io_running=$(echo -e "$result" | cut -f2)
+  slave_sql_running=$(echo -e "$result" | cut -f3)
 
   [ -n "${master_host}" ]
   [ "${slave_io_running}" = "Yes" ]
@@ -143,15 +148,15 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
   
   result=$(retrieve_slavenode_status "${CLUSTER_HOSTNAME}" "${PORT_SLAVE1}")
-  master_host=$(echo "$result" | cut -d: -f1)
-  slave_io_running=$(echo "$result" | cut -d: -f2)
-  slave_sql_running=$(echo "$result" | cut -d: -f3)
+  master_host=$(echo -e "$result" | cut -f1)
+  slave_io_running=$(echo -e "$result" | cut -f2)
+  slave_sql_running=$(echo -e "$result" | cut -f3)
 
   [ -n "${master_host}" ]
   [ "${slave_io_running}" = "Yes" ]
   [ "${slave_sql_running}" = "Yes" ]
 
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --include-slaves=127.0.0.1:$PORT_SLAVE1 --use-slave-as-writer=yes --writer-is-reader=ondemand <<< 'n'
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --include-slaves=$LOCALHOST_IP:$PORT_SLAVE1 --use-slave-as-writer=yes --writer-is-reader=ondemand <<< 'n'
   [ "$status" -eq  0 ]
 
   #
@@ -211,9 +216,9 @@ function verify_initial_state() {
   
   result=$(retrieve_slavenode_status "${CLUSTER_HOSTNAME}" "${PORT_SLAVE1}")
   echo $result >&2
-  master_host=$(echo "$result" | cut -d: -f1)
-  slave_io_running=$(echo "$result" | cut -d: -f2)
-  slave_sql_running=$(echo "$result" | cut -d: -f3)
+  master_host=$(echo -e "$result" | cut -f1)
+  slave_io_running=$(echo -e "$result" | cut -f2)
+  slave_sql_running=$(echo -e "$result" | cut -f3)
 
   [ -n "${master_host}" ]
   [ "${slave_io_running}" = "No" ]
@@ -255,9 +260,9 @@ function verify_initial_state() {
   [ "${slave_hostgroup[0]}" -eq $READ_HOSTGROUP_ID ]
   
   result=$(retrieve_slavenode_status "${CLUSTER_HOSTNAME}" "${PORT_SLAVE1}")
-  master_host=$(echo "$result" | cut -d: -f1)
-  slave_io_running=$(echo "$result" | cut -d: -f2)
-  slave_sql_running=$(echo "$result" | cut -d: -f3)
+  master_host=$(echo -e "$result" | cut -f1)
+  slave_io_running=$(echo -e "$result" | cut -f2)
+  slave_sql_running=$(echo -e "$result" | cut -f3)
 
   [ -n "${master_host}" ]
   [ "${slave_io_running}" = "Yes" ]
@@ -311,9 +316,9 @@ function verify_initial_state() {
   [ "${slave_hostgroup[0]}" -eq $READ_HOSTGROUP_ID ]
   
   result=$(retrieve_slavenode_status "${CLUSTER_HOSTNAME}" "${PORT_SLAVE1}")
-  master_host=$(echo "$result" | cut -d: -f1)
-  slave_io_running=$(echo "$result" | cut -d: -f2)
-  slave_sql_running=$(echo "$result" | cut -d: -f3)
+  master_host=$(echo -e "$result" | cut -f1)
+  slave_io_running=$(echo -e "$result" | cut -f2)
+  slave_sql_running=$(echo -e "$result" | cut -f3)
 
   [ -n "${master_host}" ]
   [ "${slave_io_running}" = "Yes" ]
@@ -355,9 +360,9 @@ function verify_initial_state() {
   [ "${slave_hostgroup[0]}" -eq $READ_HOSTGROUP_ID ]
   
   result=$(retrieve_slavenode_status "${CLUSTER_HOSTNAME}" "${PORT_SLAVE1}")
-  master_host=$(echo "$result" | cut -d: -f1)
-  slave_io_running=$(echo "$result" | cut -d: -f2)
-  slave_sql_running=$(echo "$result" | cut -d: -f3)
+  master_host=$(echo -e "$result" | cut -f1)
+  slave_io_running=$(echo -e "$result" | cut -f2)
+  slave_sql_running=$(echo -e "$result" | cut -f3)
 
   [ -n "${master_host}" ]
   [ "${slave_io_running}" = "Yes" ]
@@ -398,9 +403,9 @@ function verify_initial_state() {
   [ "${slave_hostgroup[0]}" -eq $READ_HOSTGROUP_ID ]
   
   result=$(retrieve_slavenode_status "${CLUSTER_HOSTNAME}" "${PORT_SLAVE1}")
-  master_host=$(echo "$result" | cut -d: -f1)
-  slave_io_running=$(echo "$result" | cut -d: -f2)
-  slave_sql_running=$(echo "$result" | cut -d: -f3)
+  master_host=$(echo -e "$result" | cut -f1)
+  slave_io_running=$(echo -e "$result" | cut -f2)
+  slave_sql_running=$(echo -e "$result" | cut -f3)
 
   [ -n "${master_host}" ]
   [ "${slave_io_running}" = "No" ]
@@ -442,9 +447,9 @@ function verify_initial_state() {
   [ "${slave_hostgroup[0]}" -eq $READ_HOSTGROUP_ID ]
   
   result=$(retrieve_slavenode_status "${CLUSTER_HOSTNAME}" "${PORT_SLAVE1}")
-  master_host=$(echo "$result" | cut -d: -f1)
-  slave_io_running=$(echo "$result" | cut -d: -f2)
-  slave_sql_running=$(echo "$result" | cut -d: -f3)
+  master_host=$(echo -e "$result" | cut -f1)
+  slave_io_running=$(echo -e "$result" | cut -f2)
+  slave_sql_running=$(echo -e "$result" | cut -f3)
 
   [ -n "${master_host}" ]
   [ "${slave_io_running}" = "Yes" ]
@@ -1216,7 +1221,7 @@ function verify_initial_state() {
   #proxysql_exec "UPDATE scheduler SET active=1 WHERE id=$SCHEDULER_ID; LOAD scheduler TO RUNTIME"
 }
 
-@test "run proxysql-admin -d (restart fot use-slave-as-writer tests) ($WSREP_CLUSTER_NAME)" {
+@test "run proxysql-admin -d (restart for use-slave-as-writer tests) ($WSREP_CLUSTER_NAME)" {
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
   echo "$output" >&2
   [ "$status" -eq  0 ]
@@ -1228,15 +1233,15 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   result=$(retrieve_slavenode_status "${CLUSTER_HOSTNAME}" "${PORT_SLAVE1}")
-  master_host=$(echo "$result" | cut -d: -f1)
-  slave_io_running=$(echo "$result" | cut -d: -f2)
-  slave_sql_running=$(echo "$result" | cut -d: -f3)
+  master_host=$(echo -e "$result" | cut -f1)
+  slave_io_running=$(echo -e "$result" | cut -f2)
+  slave_sql_running=$(echo -e "$result" | cut -f3)
 
   [ -n "${master_host}" ]
   [ "${slave_io_running}" = "Yes" ]
   [ "${slave_sql_running}" = "Yes" ]
 
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --include-slaves=127.0.0.1:$PORT_SLAVE1 --use-slave-as-writer=no --writer-is-reader=ondemand <<< 'n'
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --include-slaves=$LOCALHOST_IP:$PORT_SLAVE1 --use-slave-as-writer=no --writer-is-reader=ondemand <<< 'n'
   [ "$status" -eq  0 ]
 
   #
@@ -1296,9 +1301,9 @@ function verify_initial_state() {
 
   result=$(retrieve_slavenode_status "${CLUSTER_HOSTNAME}" "${PORT_SLAVE1}")
   echo $result >&2
-  master_host=$(echo "$result" | cut -d: -f1)
-  slave_io_running=$(echo "$result" | cut -d: -f2)
-  slave_sql_running=$(echo "$result" | cut -d: -f3)
+  master_host=$(echo -e "$result" | cut -f1)
+  slave_io_running=$(echo -e "$result" | cut -f2)
+  slave_sql_running=$(echo -e "$result" | cut -f3)
 
   [ -n "${master_host}" ]
   [ "${slave_io_running}" = "No" ]
@@ -1340,9 +1345,9 @@ function verify_initial_state() {
   [ "${slave_hostgroup[0]}" -eq $READ_HOSTGROUP_ID ]
 
   result=$(retrieve_slavenode_status "${CLUSTER_HOSTNAME}" "${PORT_SLAVE1}")
-  master_host=$(echo "$result" | cut -d: -f1)
-  slave_io_running=$(echo "$result" | cut -d: -f2)
-  slave_sql_running=$(echo "$result" | cut -d: -f3)
+  master_host=$(echo -e "$result" | cut -f1)
+  slave_io_running=$(echo -e "$result" | cut -f2)
+  slave_sql_running=$(echo -e "$result" | cut -f3)
 
   [ -n "${master_host}" ]
   [ "${slave_io_running}" = "Yes" ]
@@ -1396,9 +1401,9 @@ function verify_initial_state() {
   [ "${slave_hostgroup[0]}" -eq $READ_HOSTGROUP_ID ]
 
   result=$(retrieve_slavenode_status "${CLUSTER_HOSTNAME}" "${PORT_SLAVE1}")
-  master_host=$(echo "$result" | cut -d: -f1)
-  slave_io_running=$(echo "$result" | cut -d: -f2)
-  slave_sql_running=$(echo "$result" | cut -d: -f3)
+  master_host=$(echo -e "$result" | cut -f1)
+  slave_io_running=$(echo -e "$result" | cut -f2)
+  slave_sql_running=$(echo -e "$result" | cut -f3)
 
   [ -n "${master_host}" ]
   [ "${slave_io_running}" = "Yes" ]
@@ -1440,9 +1445,9 @@ function verify_initial_state() {
   [ "${slave_hostgroup[0]}" -eq $READ_HOSTGROUP_ID ]
 
   result=$(retrieve_slavenode_status "${CLUSTER_HOSTNAME}" "${PORT_SLAVE1}")
-  master_host=$(echo "$result" | cut -d: -f1)
-  slave_io_running=$(echo "$result" | cut -d: -f2)
-  slave_sql_running=$(echo "$result" | cut -d: -f3)
+  master_host=$(echo -e "$result" | cut -f1)
+  slave_io_running=$(echo -e "$result" | cut -f2)
+  slave_sql_running=$(echo -e "$result" | cut -f3)
 
   [ -n "${master_host}" ]
   [ "${slave_io_running}" = "Yes" ]
@@ -1483,9 +1488,9 @@ function verify_initial_state() {
   [ "${slave_hostgroup[0]}" -eq $READ_HOSTGROUP_ID ]
 
   result=$(retrieve_slavenode_status "${CLUSTER_HOSTNAME}" "${PORT_SLAVE1}")
-  master_host=$(echo "$result" | cut -d: -f1)
-  slave_io_running=$(echo "$result" | cut -d: -f2)
-  slave_sql_running=$(echo "$result" | cut -d: -f3)
+  master_host=$(echo -e "$result" | cut -f1)
+  slave_io_running=$(echo -e "$result" | cut -f2)
+  slave_sql_running=$(echo -e "$result" | cut -f3)
 
   [ -n "${master_host}" ]
   [ "${slave_io_running}" = "No" ]
@@ -1527,9 +1532,9 @@ function verify_initial_state() {
   [ "${slave_hostgroup[0]}" -eq $READ_HOSTGROUP_ID ]
 
   result=$(retrieve_slavenode_status "${CLUSTER_HOSTNAME}" "${PORT_SLAVE1}")
-  master_host=$(echo "$result" | cut -d: -f1)
-  slave_io_running=$(echo "$result" | cut -d: -f2)
-  slave_sql_running=$(echo "$result" | cut -d: -f3)
+  master_host=$(echo -e "$result" | cut -f1)
+  slave_io_running=$(echo -e "$result" | cut -f2)
+  slave_sql_running=$(echo -e "$result" | cut -f3)
 
   [ -n "${master_host}" ]
   [ "${slave_io_running}" = "Yes" ]
