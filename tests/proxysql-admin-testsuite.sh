@@ -40,6 +40,9 @@ declare RUN_TEST=1
 # for cluster 2
 declare USE_CLUSTER_TWO=1
 
+# Set to either v4 or v6 (default is 'v4')
+declare USE_IPVERSION="v4"
+
 declare ALLOW_SHUTDOWN="Yes"
 
 #
@@ -82,6 +85,8 @@ Options:
                       of the proxysql-admin script.
   --cluster-one-only  Only starts up (and runs the tests) for cluster_one.
                       May be used with --no-test to startup only one cluster.
+  --ipv4              Run the tests using IPv4 addresses (default)
+  --ipv6              Run the tests using IPv6 addresses
 EOF
 }
 
@@ -110,6 +115,12 @@ function parse_args() {
         --cluster-one-only)
           USE_CLUSTER_TWO=0
           ;;
+        --ipv4)
+          USE_IPVERSION="v4"
+          ;;
+        --ipv6)
+          USE_IPVERSION="v6"
+          ;;
         *)
           echo "ERROR: unknown parameter \"$param\""
           usage
@@ -130,13 +141,13 @@ function start_pxc_node(){
   local cluster_name=$1
   local baseport=$2
   local NODES=3
-  local addr="127.0.0.1"
+  local addr="$LOCALHOST_IP"
   local WSREP_CLUSTER_NAME="--wsrep_cluster_name=$cluster_name"
-  # Creating default my.cnf file
+
 
   pushd "$PXC_BASEDIR" > /dev/null
 
-  cd $PXC_BASEDIR
+  # Creating default my.cnf file
   echo "[mysqld]" > my.cnf
   echo "basedir=${PXC_BASEDIR}" >> my.cnf
   echo "innodb_file_per_table" >> my.cnf
@@ -146,7 +157,6 @@ function start_pxc_node(){
   echo "wsrep_node_incoming_address=$addr" >> my.cnf
   echo "wsrep_sst_method=rsync" >> my.cnf
   echo "wsrep_sst_auth=$SUSER:$SPASS" >> my.cnf
-  echo "wsrep_node_address=$addr" >> my.cnf
   echo "core-file" >> my.cnf
   echo "log-output=none" >> my.cnf
   echo "server-id=1" >> my.cnf
@@ -161,20 +171,50 @@ function start_pxc_node(){
     echo "wsrep_slave_threads=2" >> my.cnf
     echo "pxc_maint_transition_period=1" >> my.cnf
   fi
+  if [[ $USE_IPVERSION == "v6" ]]; then
+    echo "bind-address = ::" >> my.cnf
+  fi
 
   WSREP_CLUSTER=""
   for i in `seq 1 $NODES`; do
     rbase1="$(( baseport + (10 * $i ) ))"
-    LADDR1="$addr:$(( rbase1 + 1 ))"
-    WSREP_CLUSTER+="${LADDR1},"
+    local laddr
+    if [[ $USE_IPVERSION == "v6" ]]; then
+      laddr="[$addr]:$(( rbase1 + 1 ))"
+    else
+      laddr="$addr:$(( rbase1 + 1 ))"
+    fi
+    WSREP_CLUSTER+="${laddr},"
   done
   # remove trailing comma
   WSREP_CLUSTER=${WSREP_CLUSTER%,}
   WSREP_CLUSTER_ADD="--wsrep_cluster_address=gcomm://$WSREP_CLUSTER"
 
   for i in `seq 1 $NODES`; do
+    # Base port for this node
     rbase1="$(( baseport + (10 * $i ) ))"
-    LADDR1="$addr:$(( rbase1 + 1 ))"
+
+    if [[ $USE_IPVERSION == "v6" ]]; then
+      # gmcast.listen_addr
+      LADDR1="[::]:$(( rbase1 + 1 ))"
+
+      # wsrep_node_address
+      LADDR2="[$addr]:$(( rbase1 + 1 ))"
+
+      # IST receive address
+      RADDR1="[$addr]:$(( rbase1 + 3 ))"
+
+      # SST receive address
+      RADDR2="[$addr]:$(( rbase1 + 5 ))"
+
+      # wsrep_node_incoming_address
+      MYADDR1="[$addr]:${rbase1}"
+    else
+      LADDR1="$addr:$(( rbase1 + 1 ))"
+      LADDR2="$addr:$(( rbase1 + 1 ))"
+      RADDR1="$addr:$(( rbase1 + 3 ))"
+      RADDR2="$addr:$(( rbase1 + 5 ))"
+    fi
     node="${PXC_BASEDIR}/${cluster_name}${i}"
 
     # clear the datadir
@@ -183,11 +223,11 @@ function start_pxc_node(){
     if [ "$(${PXC_BASEDIR}/bin/mysqld --version | grep -oe '5\.[567]' | head -n1 )" != "5.7" ]; then
       mkdir -p $node
       if  [ ! "$(ls -A $node)" ]; then
-        ${MID} --datadir=$node  > $WORKDIR/logs/startup_node${cluster_name}${i}.err 2>&1 || exit 1;
+        ${MID} --datadir=$node  > $WORKDIR/logs/startup_${cluster_name}${i}.err 2>&1 || exit 1;
       fi
     fi
     if [ ! -d $node ]; then
-      ${MID} --datadir=$node  > $WORKDIR/logs/startup_node${cluster_name}${i}.err 2>&1 || exit 1;
+      ${MID} --datadir=$node  > $WORKDIR/logs/startup_${cluster_name}${i}.err 2>&1 || exit 1;
     fi
 
     if [ $i -eq 1 ]; then
@@ -196,10 +236,20 @@ function start_pxc_node(){
       WSREP_NEW_CLUSTER=""
     fi
 
+    if [[ $USE_IPVERSION == "v6" ]]; then
+      # Workaround, otherwise the wsrep_incoming_addresses isn't set correctly
+      WSREP_IPV6_OPTIONS=" --wsrep_node_incoming_address=$MYADDR1 "
+    else
+      WSREP_IPV6_OPTIONS=""
+    fi
+
     ${PXC_BASEDIR}/bin/mysqld --defaults-file=${PXC_BASEDIR}/my.cnf \
       --datadir=$node \
       $WSREP_CLUSTER_ADD  \
-      --wsrep_provider_options=gmcast.listen_addr=tcp://$LADDR1 \
+      --wsrep_provider_options="gmcast.listen_addr=tcp://$LADDR1;ist.recv_addr=$RADDR1" \
+      --wsrep_node_address=$LADDR2 \
+      $WSREP_IPV6_OPTIONS \
+      --wsrep_sst_receive_address=$RADDR2 \
       --log-error=$WORKDIR/logs/${cluster_name}${i}.err \
       --socket=/tmp/${cluster_name}${i}.sock \
       --port=$rbase1 $WSREP_CLUSTER_NAME \
@@ -224,7 +274,6 @@ function start_async_slave() {
 
   pushd "$PXC_BASEDIR" > /dev/null
 
-  cd $PXC_BASEDIR
   echo "[mysqld]" > my-slave.cnf
   echo "basedir=${PXC_BASEDIR}" >> my-slave.cnf
   echo "innodb_file_per_table" >> my-slave.cnf
@@ -240,6 +289,9 @@ function start_async_slave() {
   echo "enforce-gtid-consistency" >> my-slave.cnf
   echo "log-slave-updates" >> my-slave.cnf
   echo "log-bin" >> my-slave.cnf
+  if [[ $USE_IPVERSION == "v6" ]]; then
+    echo "bind-address = ::" >> my-slave.cnf
+  fi
 
   # This is a requirement for proxysql-admin
   echo "read-only=1" >> my-slave.cnf
@@ -253,11 +305,11 @@ function start_async_slave() {
   if [ "$(${PXC_BASEDIR}/bin/mysqld --version | grep -oe '5\.[567]' | head -n1 )" != "5.7" ]; then
     mkdir -p $node
     if  [ ! "$(ls -A $node)" ]; then
-      ${MID} --datadir=$node  > $WORKDIR/logs/startup_node${cluster_name}_slave.err 2>&1 || exit 1;
+      ${MID} --datadir=$node  > $WORKDIR/logs/startup_${cluster_name}_slave.err 2>&1 || exit 1;
     fi
   fi
   if [ ! -d $node ]; then
-    ${MID} --datadir=$node  > $WORKDIR/logs/startup_node${cluster_name}_slave.err 2>&1 || exit 1;
+    ${MID} --datadir=$node  > $WORKDIR/logs/startup_${cluster_name}_slave.err 2>&1 || exit 1;
   fi
 
   ${PXC_BASEDIR}/bin/mysqld --defaults-file=${PXC_BASEDIR}/my-slave.cnf \
@@ -327,6 +379,15 @@ if [[ $# -eq 0 ]]; then
 fi
 parse_args $*
 trap cleanup_handler EXIT
+
+if [[ $USE_IPVERSION == "v4" ]]; then
+  LOCALHOST_IP="127.0.0.1"
+elif [[ $USE_IPVERSION == "v6" ]]; then
+  LOCALHOST_IP="::1"
+fi
+
+# Find the localhost alias in /etc/hosts
+LOCALHOST_NAME=$(cat /etc/hosts | grep "^${LOCALHOST_IP}" | awk '{ print $2 }')
 
 declare ROOT_FS=$WORKDIR
 mkdir -p $WORKDIR/logs
@@ -453,10 +514,10 @@ echo "....cluster one async slave started"
 echo "Creating accounts on the cluster"
 if [[ $MYSQL_VERSION == "5.6" ]]; then
   ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock <<EOF
-GRANT ALL ON *.* TO admin@'localhost' identified by 'admin' WITH GRANT OPTION;
-GRANT SELECT ON SYS.* TO monitor@'localhost' identified by 'monit0r';
-CREATE USER '${REPL_USER}'@'localhost' IDENTIFIED BY '${REPL_PASSWORD}';
-GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'localhost';
+GRANT ALL ON *.* TO admin@'${LOCALHOST_NAME}' identified by 'admin' WITH GRANT OPTION;
+GRANT SELECT ON SYS.* TO monitor@'${LOCALHOST_NAME}' identified by 'monit0r';
+CREATE USER '${REPL_USER}'@'${LOCALHOST_NAME}' IDENTIFIED BY '${REPL_PASSWORD}';
+GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'${LOCALHOST_NAME}';
 FLUSH PRIVILEGES;
 EOF
 else
@@ -473,15 +534,15 @@ echo "Setting up slave for async replication"
 
 if [[ $MYSQL_VERSION == "5.6" ]]; then
   ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_one_slave.sock -uroot <<EOF
-GRANT ALL ON *.* TO admin@'localhost' identified by 'admin' WITH GRANT OPTION;
-GRANT REPLICATION CLIENT ON *.* TO 'monitor'@'localhost' IDENTIFIED BY 'monit0r';
-CHANGE MASTER TO MASTER_HOST='127.0.0.1', MASTER_PORT=4110, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1;
+GRANT ALL ON *.* TO admin@'${LOCALHOST_NAME}' identified by 'admin' WITH GRANT OPTION;
+GRANT REPLICATION CLIENT ON *.* TO 'monitor'@'${LOCALHOST_NAME}' IDENTIFIED BY 'monit0r';
+CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4110, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1;
 FLUSH PRIVILEGES;
 EOF
 else
   ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_one_slave.sock -uroot <<EOF
 GRANT ALL ON *.* TO admin@'%' identified by 'admin' WITH GRANT OPTION;
-CHANGE MASTER TO MASTER_HOST='127.0.0.1', MASTER_PORT=4110, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1 FOR CHANNEL 'master-a';
+CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4110, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1 FOR CHANNEL 'master-a';
 FLUSH PRIVILEGES;
 EOF
 fi
@@ -508,6 +569,7 @@ fi
 
 CLUSTER_ONE_PORT=$(${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock -Bs -e "select @@port")
 sudo sed -i "0,/^[ \t]*export CLUSTER_PORT[ \t]*=.*$/s|^[ \t]*export CLUSTER_PORT[ \t]*=.*$|export CLUSTER_PORT=\"$CLUSTER_ONE_PORT\"|" /etc/proxysql-admin.cnf
+sudo sed -i "0,/^[ \t]*export CLUSTER_HOSTNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_HOSTNAME[ \t]*=.*$|export CLUSTER_HOSTNAME=\"${LOCALHOST_NAME}\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_one\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$|export WRITE_HOSTGROUP_ID=\"10\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$|export READ_HOSTGROUP_ID=\"11\"|" /etc/proxysql-admin.cnf
@@ -516,8 +578,8 @@ if [[ $RUN_TEST -eq 1 ]]; then
   echo ""
   echo "================================================================"
   echo "proxysql-admin generic bats test log"
-  sudo WORKDIR=$WORKDIR TERM=xterm bats \
-        $SCRIPT_DIR/generic-test.bats
+  sudo WORKDIR=$WORKDIR TERM=xterm USE_IPVERSION=$USE_IPVERSION \
+        bats $SCRIPT_DIR/generic-test.bats
   echo "================================================================"
   echo ""
 
@@ -525,8 +587,8 @@ if [[ $RUN_TEST -eq 1 ]]; then
     echo "cluster_one : $test_file"
     SECONDS=0
 
-    sudo WORKDIR=$WORKDIR TERM=xterm bats \
-          $SCRIPT_DIR/$test_file
+    sudo WORKDIR=$WORKDIR TERM=xterm USE_IPVERSION=$USE_IPVERSION \
+          bats $SCRIPT_DIR/$test_file
     rc=$?
     if (( $SECONDS > 60 )) ; then
       let "minutes=(SECONDS%3600)/60"
@@ -537,7 +599,7 @@ if [[ $RUN_TEST -eq 1 ]]; then
     fi
 
     if [[ $rc -ne 0 ]]; then
-      ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=127.0.0.1 --port=6032 \
+      ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=$LOCALHOST_IP --port=6032 --protocol=tcp \
         -e "select hostgroup_id,hostname,port,status,comment from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
       echo "********************************"
       echo "* $test_file failed, the servers (ProxySQL+PXC)will be left running"
@@ -570,10 +632,10 @@ echo "....cluster two async slave started"
 echo "Creating accounts on the cluster"
 if [[ $MYSQL_VERSION == "5.6" ]]; then
   ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock <<EOF
-GRANT ALL ON *.* TO admin@'localhost' identified by 'admin' WITH GRANT OPTION;
-GRANT SELECT ON SYS.* TO monitor@'localhost' identified by 'monit0r';
-CREATE USER '${REPL_USER}'@'localhost' IDENTIFIED BY '${REPL_PASSWORD}';
-GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'localhost';
+GRANT ALL ON *.* TO admin@'${LOCALHOST_NAME}' identified by 'admin' WITH GRANT OPTION;
+GRANT SELECT ON SYS.* TO monitor@'${LOCALHOST_NAME}' identified by 'monit0r';
+CREATE USER '${REPL_USER}'@'${LOCALHOST_NAME}' IDENTIFIED BY '${REPL_PASSWORD}';
+GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'${LOCALHOST_NAME}';
 FLUSH PRIVILEGES;
 EOF
 else
@@ -589,15 +651,15 @@ fi
 echo "Setting up slave for async replication"
 if [[ $MYSQL_VERSION == "5.6" ]]; then
   ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_two_slave.sock -uroot <<EOF
-GRANT ALL ON *.* TO admin@'localhost' identified by 'admin' WITH GRANT OPTION;
-GRANT REPLICATION CLIENT ON *.* TO 'monitor'@'localhost' IDENTIFIED BY 'monit0r';
-CHANGE MASTER TO MASTER_HOST='127.0.0.1', MASTER_PORT=4210, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1;
+GRANT ALL ON *.* TO admin@'${LOCALHOST_NAME}' identified by 'admin' WITH GRANT OPTION;
+GRANT REPLICATION CLIENT ON *.* TO 'monitor'@'${LOCALHOST_NAME}' IDENTIFIED BY 'monit0r';
+CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4210, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1;
 FLUSH PRIVILEGES;
 EOF
 else
   ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_two_slave.sock -uroot <<EOF
 GRANT ALL ON *.* TO admin@'%' identified by 'admin' WITH GRANT OPTION;
-CHANGE MASTER TO MASTER_HOST='127.0.0.1', MASTER_PORT=4210, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1 FOR CHANNEL 'master-a';
+CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4210, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1 FOR CHANNEL 'master-a';
 FLUSH PRIVILEGES;
 EOF
 fi
@@ -616,8 +678,8 @@ if [[ $RUN_TEST -eq 1 ]]; then
     echo "cluster_two : $test_file"
     SECONDS=0
 
-    sudo WORKDIR=$WORKDIR TERM=xterm bats \
-        $SCRIPT_DIR/$test_file
+    sudo WORKDIR=$WORKDIR TERM=xterm USE_IPVERSION=$USE_IPVERSION \
+          bats $SCRIPT_DIR/$test_file
     rc=$?
 
     if (( $SECONDS > 60 )) ; then
@@ -629,7 +691,7 @@ if [[ $RUN_TEST -eq 1 ]]; then
     fi
 
     if [[ $rc -ne 0 ]]; then
-      ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=127.0.0.1 --port=6032 \
+      ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=$LOCALHOST_IP --port=6032 --protocol=tcp \
         -e "select hostgroup_id,hostname,port,status,comment from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
       echo "********************************"
       echo "* $test_file failed, the servers (ProxySQL+PXC)will be left running"

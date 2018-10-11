@@ -396,6 +396,65 @@ function slave_exec() {
   return $retoutput
 }
 
+# Separates the IP address from the port in a network address
+# Works for IPv4 and IPv6
+#
+# Globals:
+#   None
+#
+# Params:
+#   1. The network address to be parsed
+#
+# Outputs:
+#   A string with a space separating the IP address from the port
+#
+function separate_ip_port_from_address()
+{
+  #
+  # Break address string into host:port/path parts
+  #
+  local address=$1
+
+  ip_addr=${address%:*}
+  port=${address##*:}
+
+  # Remove any braces that surround the ip address portion
+  ip_addr=${ip_addr#\[}
+  ip_addr=${ip_addr%\]}
+
+  echo "${ip_addr} ${port}"
+}
+
+# Combines the IP address and port into a network address
+# Works for IPv4 and IPv6
+# (If the IP address is IPv6, the IP portion will have brackets)
+#
+# Globals:
+#   None
+#
+# Params:
+#   1: The IP address portion
+#   2: The port
+#
+# Outputs:
+#   A string containing the full network address
+#
+function combine_ip_port_into_address()
+{
+  local ip_addr=$1
+  local port=$2
+  local addr
+
+  if [[ ! $ip_addr =~ \[.*\] && $ip_addr =~ .*:.* ]] ; then
+    # If there are no brackets and it does have a ':', then add the brackets
+    # because this is an unbracketed IPv6 address
+    addr="[${ip_addr}]:${port}"
+  else
+    addr="${ip_addr}:${port}"
+  fi
+  echo $addr
+}
+
 
 # Update Percona XtraDB Cluster nodes in ProxySQL database
 # This will take care of nodes that have gone up or gone down
@@ -424,6 +483,7 @@ function update_cluster() {
   local current_hosts=""
   local is_current_hosts_empty=0
   local wsrep_address=""
+  local ws_address
   local ws_ip
   local ws_port
   local ws_hg_status
@@ -436,7 +496,21 @@ function update_cluster() {
   if [[ -n host_info ]]; then
     # Extract the hostname and port from the rows
     # Creates a string of "host:port" separated by spaces
-    current_hosts=$(echo "$host_info" | cut -d' ' -f1 | tr '\n' ' ')
+    current_hosts=""
+
+    while read line; do
+      if [[ -z $line ]]; then
+        continue
+      fi
+      net_address=$(echo $line | cut -d' ' -f1)
+      net_address=$(separate_ip_port_from_address $net_address)
+      local ip_addr=$(echo $net_address | cut -d' ' -f1)
+      local port=$(echo $net_address | cut -d' ' -f2)
+      net_address=$(combine_ip_port_into_address "$ip_addr" "$port")
+      current_hosts+="$net_address "
+    done< <(printf "$host_info\n")
+
+    current_hosts=${current_hosts% }
   fi
 
   if [[ -n $cluster_host && -n $cluster_port ]]; then
@@ -466,9 +540,9 @@ function update_cluster() {
     fi
 
     log $LINENO "Cluster node (${i}) does not exist in ProxySQL, adding as a $MODE_COMMENT node"
-
-    ws_ip=$(echo $i | cut -d':' -f1)
-    ws_port=$(echo $i | cut -d':' -f2)
+    ws_address=$(separate_ip_port_from_address "$i")
+    ws_ip=$(echo $ws_address | cut -d' ' -f1)
+    ws_port=$(echo $ws_address | cut -d' ' -f2)
 
     # Add the node as a reader
     local hostgroup
@@ -479,12 +553,12 @@ function update_cluster() {
     if [[ -n $hostgroup ]]; then
       # Update reader to OFFLINE_SOFT if new PXC node in ProxySQL
       proxysql_exec $LINENO "UPDATE mysql_servers SET status='OFFLINE_SOFT',weight=1000,comment='$MODE_COMMENT' WHERE hostname='${ws_ip}' AND port=${ws_port} AND hostgroup_id=${hostgroup}"
-      check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster node $ws_ip:$ws_port (hostgroup $hostgroup) to ProxySQL database, Please check ProxySQL login credentials"
+      check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster node $ws_address (hostgroup $hostgroup) to ProxySQL database, Please check ProxySQL login credentials"
       log_if_success $LINENO $? "Updated ${hostgroup}:${i} node in the ProxySQL database."
     else
       # Insert a reader if new PXC node not in ProxySQL
       proxysql_exec $LINENO "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment) VALUES ('$ws_ip',$DEFAULT_HOSTGROUP_ID,$ws_port,1000,'$MODE_COMMENT');"
-      check_cmd $LINENO $? "Cannot add Percona XtraDB Cluster node $ws_ip:$ws_port (hostgroup $DEFAULT_HOSTGROUP_ID) to ProxySQL database, Please check ProxySQL login credentials"
+      check_cmd $LINENO $? "Cannot add Percona XtraDB Cluster node $ws_address (hostgroup $DEFAULT_HOSTGROUP_ID) to ProxySQL database, Please check ProxySQL login credentials"
       log_if_success $LINENO $? "Added ${DEFAULT_HOSTGROUP_ID}:${i} node into ProxySQL database."
     fi
 
@@ -508,16 +582,17 @@ function update_cluster() {
     # The current host in current_hosts was not found in cluster membership,
     # set it OFFLINE_SOFT unless its a slave node
     #
-    ws_ip=$(echo $i | cut -d':' -f1)
-    ws_port=$(echo $i | cut -d':' -f2)
+    ws_address=$(separate_ip_port_from_address "$i")
+    ws_ip=$(echo $ws_address | cut -d' ' -f1)
+    ws_port=$(echo $ws_address | cut -d' ' -f2)
 
     # This is supported by status, so OFFLINE should come before ONLINE
     # Note that the status is in DESC order, so "ONLINE : OFFLINE_SOFT : OFFLINE_HARD"
     # This is needed because there may be multiple entries
     ws_hg_status=$(proxysql_exec $LINENO "SELECT hostgroup_id,status,comment from mysql_servers WHERE hostname='$ws_ip' and port=$ws_port ORDER BY status DESC LIMIT 1")
-    ws_hg_id=$(echo $ws_hg_status | cut -d' ' -f1)
-    ws_status=$(echo $ws_hg_status | cut -d' ' -f2)
-    ws_comment=$(echo $ws_hg_status | cut -d' ' -f3)
+    ws_hg_id=$(echo -e "$ws_hg_status" | cut -f1)
+    ws_status=$(echo -e "$ws_hg_status" | cut -f2)
+    ws_comment=$(echo -e "$ws_hg_status" | cut -f3)
 
     if [ "$ws_comment" == "SLAVEREAD" ]; then
       # This update now happens in proxysql_galera_checker
@@ -553,15 +628,22 @@ function update_cluster() {
     if [[ -n $current_hosts && " ${current_hosts} " =~ " ${i} " ]]; then
       # Lookup the status in the host_info
       local host
-      host=$(echo "$host_info" | grep "${i}" | head -1)
-      ws_ip=$(echo $i | cut -d':' -f1)
-      ws_port=$(echo $i | cut -d':' -f2)
+
+      ws_address=$(separate_ip_port_from_address "$i")
+      ws_ip=$(echo $ws_address | cut -d' ' -f1)
+      ws_port=$(echo $ws_address | cut -d' ' -f2)
+
+      # properly escape the characters for grep
+      local re_i="$(printf '%s' "$ws_ip:$ws_port" | sed 's/[.[\*^$]/\\&/g')"
+      host=$(echo "$host_info" | grep "${re_i}" | head -1)
+
       ws_hg_id=$(echo $host | cut -d' ' -f2)
       ws_status=$(echo $host | cut -d' ' -f3)
       log "" "Cluster node (${ws_hg_id}:${i}) current status '$ws_status' in ProxySQL."
     else
-      ws_ip=$(echo $i | cut -d':' -f1)
-      ws_port=$(echo $i | cut -d':' -f2)
+      ws_address=$(separate_ip_port_from_address "$i")
+      ws_ip=$(echo $ws_address | cut -d' ' -f1)
+      ws_port=$(echo $ws_address | cut -d' ' -f2)
       ws_hg_status=$(proxysql_exec $LINENO "SELECT hostgroup_id,status from mysql_servers WHERE hostname='$ws_ip' and port=$ws_port")
       ws_hg_id=$(echo $ws_hg_status | cut -d' ' -f1)
       ws_status=$(echo $ws_hg_status | cut -d' ' -f2)

@@ -509,6 +509,64 @@ function monitor_exec() {
   return $?
 }
 
+# Separates the IP address from the port in a network address
+# Works for IPv4 and IPv6
+#
+# Globals:
+#   None
+#
+# Params:
+#   1. The network address to be parsed
+#
+# Outputs:
+#   A string with a space separating the IP address from the port
+#
+function separate_ip_port_from_address()
+{
+  #
+  # Break address string into host:port/path parts
+  #
+  local address=$1
+
+  ip_addr=${address%:*}
+  port=${address##*:}
+
+  # Remove any braces that surround the ip address portion
+  ip_addr=${ip_addr#\[}
+  ip_addr=${ip_addr%\]}
+
+  echo "${ip_addr} ${port}"
+}
+
+# Combines the IP address and port into a network address
+# Works for IPv4 and IPv6
+# (If the IP address is IPv6, the IP portion will have brackets)
+#
+# Globals:
+#   None
+#
+# Params:
+#   1: The IP address portion
+#   2: The port
+#
+# Outputs:
+#   A string containing the full network address
+#
+function combine_ip_port_into_address()
+{
+  local ip_addr=$1
+  local port=$2
+  local addr
+
+  if [[ ! $ip_addr =~ \[.*\] && $ip_addr =~ .*:.* ]] ; then
+    # If there are no brackets and it does have a ':', then add the brackets
+    # because this is an unbracketed IPv6 address
+    addr="[${ip_addr}]:${port}"
+  else
+    addr="${ip_addr}:${port}"
+  fi
+  echo $addr
+}
 
 # Check proxysql running status
 #
@@ -959,8 +1017,9 @@ function enable_proxysql() {
   if [[ -n $SLAVE_NODES ]];then
     echo -e "\nVerifying specified slave nodes"
     for i in $SLAVE_NODES; do
-      SLAVE_HOSTNAME=`echo $i | cut -d: -f1`
-      SLAVE_PORT=`echo $i | cut -d: -f2`
+      ws_address=$(separate_ip_port_from_address "$i")
+      SLAVE_HOSTNAME=`echo $ws_address | cut -d' ' -f1`
+      SLAVE_PORT=`echo $ws_address | cut -d' ' -f2`
 
       # Verify we can connect to the slave
       slave_exec "$LINENO" 'show slave status\G' > /dev/null
@@ -974,8 +1033,12 @@ function enable_proxysql() {
                         cut -d: -f2 |
                         tr '\n' ':' |
                         sed 's/:$//g')
+      local slave_master_address=$(separate_ip_port_from_address "$slave_master")
+      local slave_master_ip=$(echo $slave_master_address | cut -d' ' -f1)
+      local slave_master_port=$(echo $slave_master_address | cut -d' ' -f2)
+      slave_master_address=$(combine_ip_port_into_address "$slave_master_ip", "$slave_master_port")
       if [[ ${wsrep_address[*]} != *"$slave_master"* ]]; then
-        error $LINENO "The slave node's master ($slave_master) is not in the list"\
+        error $LINENO "The slave node's master ($slave_master_address) is not in the list"\
                       "\n-- of WSREP incoming address(${wsrep_address[*]})."\
                       "\n-- The specified slave is not replicating from any of the PXC nodes,"\
                       "\n-- this is not supported.  Please configure ProxySQL manually."
@@ -1011,10 +1074,12 @@ function enable_proxysql() {
     check_cmd $? $LINENO "Failed to delete the existing servers with hostgroup: ${WRITE_HOSTGROUP_ID}"\
                          "\n-- Please check the ProxySQL connection parameters and status."
     for i in "${wsrep_address[@]}"; do  
-      local ws_ip=$(echo "$i" | cut -d':' -f1)
-      local ws_port=$(echo "$i" | cut -d':' -f2)
+      local ws_address=$(separate_ip_port_from_address "$i")
+      local ws_ip=$(echo "$ws_address" | cut -d' ' -f1)
+      local ws_port=$(echo "$ws_address" | cut -d' ' -f2)
+      ws_address=$(combine_ip_port_into_address "$ws_ip" "$ws_port")
       proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment) VALUES ('$ws_ip',$WRITE_HOSTGROUP_ID,$ws_port,1000,'READWRITE');"
-      check_cmd $? $LINENO "Failed to add the PXC server node $ws_ip:$ws_port."\
+      check_cmd $? $LINENO "Failed to add the PXC server node $ws_address."\
                            "\n-- Please check the ProxySQL connection parameters and status."
     done
 
@@ -1031,23 +1096,27 @@ function enable_proxysql() {
     if [[ $QUICK_DEMO -eq 0 ]]; then
       local writer_ws_ip
       local writer_ws_port
+      local writer_ws_address
 
       if [ -z "$WRITE_NODE" ]; then
         writer_ws_ip=$(mysql_exec "$LINENO" "show variables like 'wsrep_provider_options'" |
                         grep -o -P '(?<=base_host =).*(?=; base_port)' |
                         xargs)
         writer_ws_port=$CLUSTER_PORT
+        writer_ws_address=$(combine_ip_port_into_address "$writer_ws_ip" "$writer_ws_port")
       else
-        writer_ws_ip=$(echo "$WRITE_NODE" | awk -F':' '{print $1}')
-        writer_ws_port=$(echo "$WRITE_NODE" | awk -F':' '{print $2}')
+        writer_ws_address=$(separate_ip_port_from_address "$WRITE_NODE")
+        writer_ws_ip=$(echo "$writer_ws_address" | cut -d' ' -f1)
+        writer_ws_port=$(echo "$writer_ws_address" | cut -d' ' -f2)
         if [ -z "$writer_ws_port" ];then
           writer_ws_port=3306
         fi
+        writer_ws_address=$(combine_ip_port_into_address "$writer_ws_ip" "$writer_ws_port")
 
         # TODO: kennt, do we want to display the error message?
         exec_sql $LINENO "$CLUSTER_USERNAME" "$CLUSTER_PASSWORD" "$writer_ws_ip" "$writer_ws_port" "select @@port" &>/dev/null
         if [ $? -ne 0 ]; then 
-          error $LINENO "Failed to establish a connection to the write node $writer_ws_ip:$writer_ws_port."\
+          error $LINENO "Failed to establish a connection to the write node $writer_ws_address."\
                         "\n-- Please check that the write node is alive and the connection parameters are correct"; 
           proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE default_hostgroup in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID);"
           check_cmd $? $LINENO "Failed to delete PXC user from ProxySQL."\
@@ -1060,12 +1129,14 @@ function enable_proxysql() {
       check_cmd $? $LINENO "Could not get the wsrep_provider_options from the PXC cluster"\
                            "\n-- Please check the PXC connection parameters and status."      
       writer_ws_port=$CLUSTER_PORT
+      writer_ws_address=$(combine_ip_port_into_address $writer_ws_ip $writer_ws_port)
     fi
     proxysql_exec "$LINENO" "DELETE FROM mysql_servers WHERE hostgroup_id=$WRITE_HOSTGROUP_ID"
     check_cmd $? $LINENO "Failed to delete the existing servers with hostgroup: ${WRITE_HOSTGROUP_ID}"\
                          "\n-- Please check the ProxySQL connection parameters and status."
-    if [[ ${wsrep_address[*]} != *"$writer_ws_ip:$writer_ws_port"* ]]; then
-      error $LINENO "Writer node cluster address($writer_ws_ip:$writer_ws_port) does not exist"\
+
+    if [[ ${wsrep_address[*]} != *"$writer_ws_address"* ]]; then
+      error $LINENO "Writer node cluster address($writer_ws_address) does not exist"\
                     "\n-- in WSREP incoming address(${wsrep_address[*]})."
       echo -e "-- Different wsrep incoming and cluster IP addresses are not supported"
       echo -e "-- by proxysql-admin at this time.  Please configure ProxySQL manually."
@@ -1082,19 +1153,20 @@ function enable_proxysql() {
       host_priority="--priority=$P_HOST_PRIORITY"
     fi
 
-    for i in "${wsrep_address[@]}"; do  
-      local ws_ip=$(echo "$i" | cut -d':' -f1)
-      local ws_port=$(echo "$i" | cut -d':' -f2)
+    for i in "${wsrep_address[@]}"; do
+      local ws_address=$(separate_ip_port_from_address $i)
+      local ws_ip=$(echo "$ws_address" | cut -d' ' -f1)
+      local ws_port=$(echo "$ws_address" | cut -d' ' -f2)
       if [ "$ws_ip" == "$writer_ws_ip" ] && [ "$ws_port" == "$writer_ws_port" ]; then
         proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment) VALUES ('$writer_ws_ip',$WRITE_HOSTGROUP_ID,$writer_ws_port,1000000,'WRITE');"
-        check_cmd $? $LINENO "Failed to add the PXC server node $writer_ws_ip:$writer_ws_port."\
+        check_cmd $? $LINENO "Failed to add the PXC server node $ws_address."\
                              "\n-- Please check the ProxySQL connection parameters and status."
         echo -e "\nWrite node info"
         proxysql_exec "$LINENO" "SELECT hostname,hostgroup_id,port,weight,comment FROM mysql_servers WHERE hostgroup_id=$WRITE_HOSTGROUP_ID" "-t"
         echo ""
       else
         proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment) VALUES ('$ws_ip',$READ_HOSTGROUP_ID,$ws_port,1000,'READ');"
-        check_cmd $? $LINENO "Failed to add the PXC server node $ws_ip:$ws_port."\
+        check_cmd $? $LINENO "Failed to add the PXC server node $i."\
                               "\n-- Please check the ProxySQL connection parameters and status."
       fi
     done
@@ -1111,10 +1183,11 @@ function enable_proxysql() {
   if [ -n "$SLAVE_NODES" ];then
     echo -e "\nAdding the following slave server nodes to ProxySQL:"
     for i in $SLAVE_NODES;do
-      local ws_ip=$(echo "$i" | cut -d':' -f1)
-      local ws_port=$(echo "$i" | cut -d':' -f2)
+      local ws_address=$(separate_ip_port_from_address "$i")
+      local ws_ip=$(echo "$ws_address" | cut -d' ' -f1)
+      local ws_port=$(echo "$ws_address" | cut -d' ' -f2)
       proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment) VALUES ('$ws_ip',$SLAVEREAD_HOSTGROUP_ID,$ws_port,1000,'SLAVEREAD');"
-      check_cmd $? $LINENO "Failed to add the slave node $ws_ip:$ws_port."\
+      check_cmd $? $LINENO "Failed to add the slave node $i."\
                            "\n-- Please check the ProxySQL connection parameters and status."
 
       proxysql_load_to_runtime_save_to_disk "MYSQL SERVERS" $LINENO
