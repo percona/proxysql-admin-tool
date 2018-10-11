@@ -160,6 +160,8 @@ Options:
   -r, --read-hg=<NUMBER>              Specify ProxySQL read hostgroup.
   -c, --config-file=PATH              Specify ProxySQL-admin configuration file.
   -l, --log=PATH                      Specify proxysql_galera_checker log file.
+  --log-text=TEXT                     This is text that will be written to the log file
+                                      whenever this script is run (useful for debugging).
   --node-monitor-log=PATH             Specify proxysql_node_monitor log file.
   -n, --writer-count=<NUMBER>         Maximum number of write hostgroup_id nodes
                                       that can be marked ONLINE
