@@ -122,6 +122,8 @@ Options:
   -p, --priority=<HOST_LIST>          Can accept comma delimited list of write nodes priority
   -c, --config-file=PATH              Specify ProxySQL-admin configuration file.
   -l, --log=PATH                      Specify proxysql_node_monitor log file.
+  --log-text=TEXT                     This is text that will be written to the log file
+                                      whenever this script is run (useful for debugging).
   --reload-check-file=PATH            Specify file used to notify proysql_galera_checker
                                       of a change in server configuration
   -h, --help                          Display script usage information
