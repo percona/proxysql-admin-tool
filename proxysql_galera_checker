@@ -178,6 +178,7 @@ Options:
                                       be added to the write hostgroup if all other
                                       cluster nodes are down.
                                       (default: 'yes')
+  --debug                             Enables additional debug logging.
   -h, --help                          Display script usage information
   -v, --version                       Print version info
 
@@ -946,7 +947,8 @@ function writer_is_reader_check() {
       #
       # Ensure that there is a corresponding entry in mysql_servers
       #
-      if [[ ! $servers =~ $regex ]]; then
+      local reader_row=$(echo "$servers" | grep -E "$regex")
+      if [[ -z $reader_row ]]; then
         # We did not find a matching row, insert the corresponding READER entry
 
         # If we are to always have a reader, or if there are no other
@@ -964,9 +966,15 @@ function writer_is_reader_check() {
       elif [[ $WRITER_IS_READER == "ondemand" && $stat == "ONLINE" && $number_readers_online -gt 1 ]]; then
         # If the reader node is ONLINE and there is another reader
         # Then we can deactivate this reader node (if ondemand)
-        proxysql_exec $LINENO -Ns "UPDATE mysql_servers SET status='OFFLINE_SOFT' WHERE hostgroup_id=$HOSTGROUP_READER_ID AND hostname='$server' AND port=$port"
-        log_if_success $LINENO $? "Updating $hostgroup:$address to OFFLINE_SOFT because writers prefer to not be readers (writer-is-reader:ondemand)"
-        echo "1" > ${reload_check_file}
+
+        # This should only do this if there is a corresponding READ entry that is NOT "OFFLINE_SOFT"
+        # Search through the $servers for an entry corresponding to the READ data
+        local reader_status=$(echo -e "$reader_row" | cut -f4)
+        if [[ $reader_status != "OFFLINE_SOFT" ]]; then
+          proxysql_exec $LINENO -Ns "UPDATE mysql_servers SET status='OFFLINE_SOFT' WHERE hostgroup_id=$HOSTGROUP_READER_ID AND hostname='$server' AND port=$port"
+          log_if_success $LINENO $? "Updating $hostgroup:$address to OFFLINE_SOFT because writers prefer to not be readers (writer-is-reader:ondemand)"
+          echo "1" > ${reload_check_file}
+        fi
       fi
     elif [[ $WRITER_IS_READER == "never" ]]; then
       #
