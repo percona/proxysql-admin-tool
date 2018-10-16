@@ -1367,7 +1367,7 @@ function update_writers() {
         log "" "server $hostgroup:$address is already ONLINE: ${number_writers_online} of ${NUMBER_WRITERS} write nodes"
       else
         number_writers_online=$(( $number_writers_online + 1 ))
-        change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" $port "OFFLINE_SOFT" "$rdstat" \
+        change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" "$port" "OFFLINE_SOFT" "$rdstat" \
                              "max write nodes reached (${NUMBER_WRITERS})"
         echo "1" > ${reload_check_file}
       fi
@@ -1381,13 +1381,13 @@ function update_writers() {
       if [[ $NUMBER_WRITERS -gt 0 ]] ; then
         if [[ $number_writers_online -lt $NUMBER_WRITERS ]]; then
           number_writers_online=$(( $number_writers_online + 1 ))
-          change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" $port "ONLINE" "$rdstat" \
+          change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" "$port" "ONLINE" "$rdstat" \
                                "${number_writers_online} of ${NUMBER_WRITERS} write nodes"
           echo "1" > ${reload_check_file}
         else
           number_writers_online=$(( $number_writers_online + 1 ))
           if [ "$stat" != "OFFLINE_SOFT" ]; then
-            change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" $port "OFFLINE_SOFT" "" \
+            change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" "$port" "OFFLINE_SOFT" "" \
                                  "max write nodes reached (${NUMBER_WRITERS})"
             echo "1" > ${reload_check_file}
           elif [[ $rdstat != "PRIORITY_NODE" ]]; then
@@ -1397,7 +1397,7 @@ function update_writers() {
       # we do not have to limit
       elif [[ $NUMBER_WRITERS -eq 0 ]] ; then
         # TODO: kennt, What if node is SHUNNED?
-        change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" $port "ONLINE" "$rdstat"\
+        change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" "$port" "ONLINE" "$rdstat"\
                              "Changed state, marking write node ONLINE"
         echo "1" > ${reload_check_file}
       fi
@@ -1406,12 +1406,12 @@ function update_writers() {
     # WSREP status is not ok, but the node is marked online, we should put it offline
     # wsrep:not ok  pxc:--  status:online
     if [ "${wsrep_status}" != "4" -a "$stat" = "ONLINE" ]; then
-      change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" $port "OFFLINE_SOFT" "" \
+      change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" "$port" "OFFLINE_SOFT" "" \
                            "WSREP status is ${wsrep_status} which is not ok"
       echo "1" > ${reload_check_file}
     # wsrep:--  pxc:not ok  status:online
     elif [ "${pxc_main_mode}" != "DISABLED" -a "$stat" = "ONLINE" ]; then
-      change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" $port "OFFLINE_SOFT" "" \
+      change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" "$port" "OFFLINE_SOFT" "" \
                            "pxc_maint_mode is $pxc_main_mode" 2>>${ERR_FILE}
       echo "1" > ${reload_check_file}
     # wsrep:not ok  pxc:--  status:offline soft
@@ -1638,7 +1638,7 @@ function update_readers() {
           # Enable the first one found as ONLINE
           # (when writer-is-reader=ondemand)
           #
-          change_server_status $LINENO $HOSTGROUP_READER_ID "$server" $port "ONLINE" ""\
+          change_server_status $LINENO $HOSTGROUP_READER_ID "$server" "$port" "ONLINE" ""\
                                "marking ONLINE write node as read ONLINE state, not enough non-ONLINE readers found"
           echo "1" > ${reload_check_file}
         fi
@@ -1646,7 +1646,7 @@ function update_readers() {
         # WSREP:ok  PXC:ok  STATUS:online
         if [ "${wsrep_status}" = "4" -a "$stat" == "ONLINE" -a "${pxc_main_mode}" == "DISABLED" ] ; then
           # Else disable the other READ nodes
-          change_server_status $LINENO $HOSTGROUP_READER_ID "$server" $port "OFFLINE_SOFT" ""\
+          change_server_status $LINENO $HOSTGROUP_READER_ID "$server" "$port" "OFFLINE_SOFT" ""\
                                "making ONLINE writer node as read OFFLINE_SOFT as well because writers should not be readers"
           echo "1" > ${reload_check_file}
         fi
@@ -1668,7 +1668,7 @@ function update_readers() {
       # WSREP status OK, but node is not marked ONLINE
       # WSREP:ok  PXC:ok  STATUS:not online
       if [ "${wsrep_status}" = "4" -a "$stat" != "ONLINE" -a "${pxc_main_mode}" == "DISABLED" ] ; then
-        change_server_status $LINENO $HOSTGROUP_READER_ID "$server" $port "ONLINE" ""\
+        change_server_status $LINENO $HOSTGROUP_READER_ID "$server" "$port" "ONLINE" ""\
                               "changed state"
         echo "1" > ${reload_check_file}
         online_readonly_nodes_found=$(( $online_readonly_nodes_found + 1 ))
@@ -1678,12 +1678,12 @@ function update_readers() {
     # WSREP status is not ok, but the node is marked online, we should put it offline
     # WSREP:not ok  STATUS:online
     if [ "${wsrep_status}" != "4" -a "$stat" = "ONLINE" ]; then
-      change_server_status $LINENO $HOSTGROUP_READER_ID "$server" $port "OFFLINE_SOFT" ""\
+      change_server_status $LINENO $HOSTGROUP_READER_ID "$server" "$port" "OFFLINE_SOFT" ""\
                            "WSREP status is ${wsrep_status} which is not ok"
       echo "1" > ${reload_check_file}
     # PXC:not ok  STATUS:online
     elif [ "${pxc_main_mode}" != "DISABLED" -a "$stat" = "ONLINE" ];then
-      change_server_status $LINENO $HOSTGROUP_READER_ID "$server" $port "OFFLINE_SOFT" ""\
+      change_server_status $LINENO $HOSTGROUP_READER_ID "$server" "$port" "OFFLINE_SOFT" ""\
                            "pxc_maint_mode is $pxc_main_mode" 2>>${ERR_FILE}
       echo "1" > ${reload_check_file}
     # WSREP:not ok  STATUS:offline soft
@@ -1764,7 +1764,7 @@ function search_for_desynced_writers() {
                   VALUES ('$server',$HOSTGROUP_WRITER_ID,$port,1000000,'WRITE');"
             log $LINENO "Adding server $HOSTGROUP_WRITER_ID:$address with status ONLINE. Reason: WSREP status is DESYNC/DONOR, as this is the only node we will put this one online"
           else
-            change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" $port "ONLINE" ""\
+            change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" "$port" "ONLINE" ""\
                                  "WSREP status is DESYNC/DONOR, as this is the only node we will put this one online"
           fi
           cnt=$(( $cnt + 1 ))
@@ -1842,7 +1842,7 @@ function search_for_desynced_readers() {
         log "" "Checking $hostgroup:$address for node in DONOR state, status $stat , wsrep_local_state $wsrep_status"
         if [ "${wsrep_status}" = "2" -a "$stat" != "ONLINE" ];then
           # if we are on Donor/Desync an not online in mysql_servers -> proceed
-          change_server_status $LINENO $HOSTGROUP_READER_ID "$server" $port "ONLINE" ""\
+          change_server_status $LINENO $HOSTGROUP_READER_ID "$server" "$port" "ONLINE" ""\
                                "WSREP status is DESYNC/DONOR, as this is the only node we will put this one online"
           cnt=$(( $cnt + 1 ))
 
