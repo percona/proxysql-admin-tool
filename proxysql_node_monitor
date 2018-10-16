@@ -126,6 +126,7 @@ Options:
                                       whenever this script is run (useful for debugging).
   --reload-check-file=PATH            Specify file used to notify proysql_galera_checker
                                       of a change in server configuration
+  --debug                             Enables additional debug logging.
   -h, --help                          Display script usage information
   -v, --version                       Print version info
 EOF

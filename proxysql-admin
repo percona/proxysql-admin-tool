@@ -192,6 +192,7 @@ Options:
                                      'ondemand' means that the writer node only accepts reads
                                      if there are no other readers.
                                      (default: 'ondemand')
+  --debug                            Enables additional debug logging.
   --help                             Dispalys this help text.
 
 These options are the possible operations for proxysql-admin.
