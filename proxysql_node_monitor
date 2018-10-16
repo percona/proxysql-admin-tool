@@ -21,7 +21,7 @@ declare NRED=""
 #
 
 declare -i  DEBUG=0
-readonly    PROXYSQL_ADMIN_VERSION="1.4.11"
+readonly    PROXYSQL_ADMIN_VERSION="1.4.12"
 
 declare     CONFIG_FILE="/etc/proxysql-admin.cnf"
 declare     ERR_FILE="/dev/null"
@@ -998,7 +998,7 @@ function main() {
   CLUSTER_PASSWORD=$(proxysql_exec $LINENO "SELECT variable_value FROM global_variables WHERE variable_name='mysql-monitor_password'" "hide_output")
   check_cmd $LINENO $? "Could not retrieve cluster login info from ProxySQL. Please check ProxySQL login credentials"
 
-  CLUSTER_TIMEOUT=$(proxysql_exec $LINENO "SELECT DISTINCT MAX(interval_ms / 1000 - 1, 1) FROM scheduler")
+  CLUSTER_TIMEOUT=$(proxysql_exec $LINENO "SELECT MAX(MAX(interval_ms / 1000 - 1, 1)) FROM scheduler")
 
   local cluster_host_info
   cluster_host_info=$(find_online_cluster_host)

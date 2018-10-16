@@ -18,7 +18,7 @@ set -o nounset    # no undefined variables
 # Script parameters/constants
 #
 declare  -i DEBUG=0
-readonly    PROXYSQL_ADMIN_VERSION="1.4.11"
+readonly    PROXYSQL_ADMIN_VERSION="1.4.12"
 
 #Timeout exists for instances where mysqld may be hung
 declare  -i TIMEOUT=10
@@ -568,8 +568,8 @@ function upgrade_scheduler(){
 #   3: server address
 #   4: port
 #   5: new status
-#   6: comment
-#   7: reader_status
+#   6: reader_status
+#   7: comment
 #
 function change_server_status() {
   local lineno=$1

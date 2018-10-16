@@ -20,7 +20,7 @@ TEST_SUITES+=("loadbal-testsuite.bats")
 # Variables
 # ================================================
 #
-declare WORKDIR
+declare WORKDIR=""
 declare SCRIPT_PATH=$0
 declare SCRIPT_DIR=$(cd `dirname $0` && pwd)
 
@@ -51,8 +51,6 @@ declare ALLOW_SHUTDOWN="Yes"
 #
 function usage() {
   cat << EOF
-No valid parameters were passed. Need relative workdir setting. Retry.
-
 Usage example:
   $ ${SCRIPT_PATH##*/} /sda/proxysql-testing [<options>]
 
@@ -378,6 +376,11 @@ if [[ $# -eq 0 ]]; then
   exit 1
 fi
 parse_args $*
+
+if [[ -z $WORKDIR ]]; then
+  echo "No valid parameters were passed. Need relative workdir setting. Retry."
+  exit 1
+fi
 trap cleanup_handler EXIT
 
 if [[ $USE_IPVERSION == "v4" ]]; then
