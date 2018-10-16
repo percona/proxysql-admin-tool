@@ -50,7 +50,7 @@ else
   PORT_SLAVE2=4295
 fi
 
-if [[ USE_IPVERSION == "v6" ]]; then
+if [[ $USE_IPVERSION == "v6" ]]; then
   LOCALHOST_IP="[::1]"
 else
   LOCALHOST_IP="127.0.0.1"
@@ -1222,12 +1222,14 @@ function verify_initial_state() {
 }
 
 @test "run proxysql-admin -d (restart for use-slave-as-writer tests) ($WSREP_CLUSTER_NAME)" {
+  #skip
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
   echo "$output" >&2
   [ "$status" -eq  0 ]
 }
 
 @test "run proxysql-admin -e --use-slave-as-writer=no ($WSREP_CLUSTER_NAME)" {
+  #skip
   echo "$LINENO Starting the slave on port:$PORT_SLAVE1" >&2
   run mysql_exec "$CLUSTER_HOSTNAME" "$PORT_SLAVE1" "START SLAVE"
   [ "$status" -eq 0 ]
