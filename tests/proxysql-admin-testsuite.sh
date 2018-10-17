@@ -165,6 +165,7 @@ function start_pxc_node(){
   echo "enforce-gtid-consistency" >> my.cnf
   echo "log-slave-updates" >> my.cnf
   echo "log-bin" >> my.cnf
+  echo "user=$OS_USER" >> my.cnf
   if [[ $MYSQL_VERSION != "5.6" ]]; then
     echo "wsrep_slave_threads=2" >> my.cnf
     echo "pxc_maint_transition_period=1" >> my.cnf
@@ -287,6 +288,7 @@ function start_async_slave() {
   echo "enforce-gtid-consistency" >> my-slave.cnf
   echo "log-slave-updates" >> my-slave.cnf
   echo "log-bin" >> my-slave.cnf
+  echo "user=$OS_USER" >> my-slave.cnf
   if [[ $USE_IPVERSION == "v6" ]]; then
     echo "bind-address = ::" >> my-slave.cnf
   fi
