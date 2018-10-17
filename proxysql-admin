@@ -202,8 +202,10 @@ One of the options below must be provided.
   --enable, -e                       Auto-configure Percona XtraDB Cluster nodes into ProxySQL
   --quick-demo                       Setup a quick demo with no authentication
   --syncusers                        Sync user accounts currently configured in MySQL to ProxySQL
+                                     May be used with --enable.
                                      (deletes ProxySQL users not in MySQL)
   --sync-multi-cluster-users         Sync user accounts currently configured in MySQL to ProxySQL
+                                     May be used with --enable.
                                      (doesn't delete ProxySQL users not in MySQL)
   --version, -v                      Print version info
 
@@ -1986,6 +1988,10 @@ function main() {
       echo -e "${BD}mysql --user=$CLUSTER_APP_USERNAME -p --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_CLIENT_PORT --protocol=tcp ${NBD}\n"
     fi 
 
+    if [[ $SYNCUSERS -eq 1 ]] || [[ $SYNCMULTICLUSTERUSERS -eq 1 ]]; then
+      syncusers
+      echo -e "\nSynced PXC users to the ProxySQL database!"
+    fi
   elif [[ $DISABLE -eq 1 ]]; then  
 
     disable_proxysql
