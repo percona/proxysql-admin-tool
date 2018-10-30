@@ -863,6 +863,9 @@ function check_is_galera_checker_running() {
       ps -p $GPID > /dev/null 2>&1
       if [[ $? -eq 0 ]]; then
         log "$LINENO" "ProxySQL galera checker process already running."
+
+        # We don't want to remove this file on cleanup
+        CHECKER_PIDFILE=""
         exit 1
       else
         echo $$ > $CHECKER_PIDFILE
