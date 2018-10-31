@@ -895,7 +895,7 @@ function check_is_galera_checker_running() {
 }
 
 function cleanup_handler() {
-  if [[ -n CHECKER_PIDFILE ]]; then
+  if [[ -n $CHECKER_PIDFILE ]]; then
     rm -f $CHECKER_PIDFILE
   fi
 }
