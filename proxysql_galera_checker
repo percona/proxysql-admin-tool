@@ -18,7 +18,7 @@ set -o nounset    # no undefined variables
 # Script parameters/constants
 #
 declare  -i DEBUG=0
-readonly    PROXYSQL_ADMIN_VERSION="1.4.11"
+readonly    PROXYSQL_ADMIN_VERSION="1.4.12"
 
 #Timeout exists for instances where mysqld may be hung
 declare  -i TIMEOUT=10
@@ -47,7 +47,9 @@ declare -i  NUMBER_WRITERS=0
 
 declare     WRITER_IS_READER="ondemand"
 
-declare     P_MODE
+declare     SLAVE_IS_WRITER="yes"
+
+declare     P_MODE=""
 declare     P_PRIORITY=""
 
 declare     MYSQL_USERNAME
@@ -158,6 +160,8 @@ Options:
   -r, --read-hg=<NUMBER>              Specify ProxySQL read hostgroup.
   -c, --config-file=PATH              Specify ProxySQL-admin configuration file.
   -l, --log=PATH                      Specify proxysql_galera_checker log file.
+  --log-text=TEXT                     This is text that will be written to the log file
+                                      whenever this script is run (useful for debugging).
   --node-monitor-log=PATH             Specify proxysql_node_monitor log file.
   -n, --writer-count=<NUMBER>         Maximum number of write hostgroup_id nodes
                                       that can be marked ONLINE
@@ -165,13 +169,16 @@ Options:
   -p, --priority=<HOST_LIST>          Can accept comma delimited list of write nodes priority
   -m, --mode=[loadbal|singlewrite]    ProxySQL read/write configuration mode,
                                       currently supporting: 'loadbal' and 'singlewrite'
-                                      (default: 'singlewrite')
   --writer-is-reader=<value>          Defines if the writer node also accepts writes.
                                       Possible values are 'always', 'never', and 'ondemand'.
                                       'ondemand' means that the writer node only accepts reads
                                       if there are no other readers.
                                       (default: 'never')
-
+  --use-slave-as-writer=<yes/no>      If this is 'yes' then slave nodes may
+                                      be added to the write hostgroup if all other
+                                      cluster nodes are down.
+                                      (default: 'yes')
+  --debug                             Enables additional debug logging.
   -h, --help                          Display script usage information
   -v, --version                       Print version info
 
@@ -388,6 +395,67 @@ function mysql_exec() {
   return $retoutput
 }
 
+
+# Separates the IP address from the port in a network address
+# Works for IPv4 and IPv6
+#
+# Globals:
+#   None
+#
+# Params:
+#   1. The network address to be parsed
+#
+# Outputs:
+#   A string with a space separating the IP address from the port
+#
+function separate_ip_port_from_address()
+{
+  #
+  # Break address string into host:port/path parts
+  #
+  local address=$1
+
+  ip_addr=${address%:*}
+  port=${address##*:}
+
+  # Remove any braces that surround the ip address portion
+  ip_addr=${ip_addr#\[}
+  ip_addr=${ip_addr%\]}
+
+  echo "${ip_addr} ${port}"
+}
+
+# Combines the IP address and port into a network address
+# Works for IPv4 and IPv6
+# (If the IP address is IPv6, the IP portion will have brackets)
+#
+# Globals:
+#   None
+#
+# Params:
+#   1: The IP address portion
+#   2: The port
+#
+# Outputs:
+#   A string containing the full network address
+#
+function combine_ip_port_into_address()
+{
+  local ip_addr=$1
+  local port=$2
+  local addr
+
+  if [[ ! $ip_addr =~ \[.*\] && $ip_addr =~ .*:.* ]] ; then
+    # If there are no brackets and it does have a ':', then add the brackets
+    # because this is an unbracketed IPv6 address
+    addr="[${ip_addr}]:${port}"
+  else
+    addr="${ip_addr}:${port}"
+  fi
+  echo $addr
+}
+
+
 # upgrade scheduler from old layout to new layout
 #
 # Globals:
@@ -501,8 +569,8 @@ function upgrade_scheduler(){
 #   3: server address
 #   4: port
 #   5: new status
-#   6: comment
-#   7: reader_status
+#   6: reader_status
+#   7: comment
 #
 function change_server_status() {
   local lineno=$1
@@ -512,6 +580,9 @@ function change_server_status() {
   local status=$5
   local reader_status=$6
   local comment=$7
+  local address
+
+  address=$(combine_ip_port_into_address "$server" "$port")
 
   # If we have a PRIORITY_NODE, then we don't have a WRITER entry
   # to upgrade, but we do have a READER entry, so upgrade that
@@ -519,11 +590,11 @@ function change_server_status() {
     proxysql_exec $lineno -Ns "INSERT INTO mysql_servers
           (hostname,hostgroup_id,port,weight,status,comment)
           VALUES ('$server',$hostgroup,$port,1000000,'$status','WRITE');"
-    log "$lineno" "Adding server $hostgroup:$server:$port with status $status. Reason: $comment"
+    log "$lineno" "Adding server $hostgroup:$address with status $status. Reason: $comment"
   else
     proxysql_exec $lineno -Ns "UPDATE mysql_servers
           set status = '$status' WHERE hostgroup_id = $hostgroup AND hostname = '$server' AND port = $port;" 2>>${ERR_FILE}
-    log "$lineno" "Changing server $hostgroup:$server:$port to status $status. Reason: $comment"
+    log "$lineno" "Changing server $hostgroup:$address to status $status. Reason: $comment"
   fi
 }
 
@@ -537,7 +608,7 @@ function parse_args() {
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=w:r:c:l:n:m:p:vh --longoptions=write-hg:,read-hg:,config-file:,log:,node-monitor-log:,writer-count:,mode:,priority:,writer-is-reader:,log-text:,version,debug,help \
+    go_out="$(getopt --options=w:r:c:l:n:m:p:vh --longoptions=write-hg:,read-hg:,config-file:,log:,node-monitor-log:,writer-count:,mode:,priority:,writer-is-reader:,use-slave-as-writer:,log-text:,version,debug,help \
     --name="$(basename "$0")" -- "$@")"
     if [[ $? -ne 0 ]]; then
       # no place to send output
@@ -578,6 +649,9 @@ function parse_args() {
         ;;
       --debug)
         DEBUG=1
+        shift
+        ;;
+      *)
         shift
         ;;
     esac
@@ -661,6 +735,10 @@ function parse_args() {
         WRITER_IS_READER="$2"
         shift 2
       ;;
+      --use-slave-as-writer )
+        SLAVE_IS_WRITER="$2"
+        shift 2
+      ;;
       --debug )
         # Not handled here, see above
         shift
@@ -719,6 +797,17 @@ function parse_args() {
     exit 1
   fi
 
+  if [[ ! $SLAVE_IS_WRITER =~ ^(yes|YES|no|NO)$ ]]; then
+    error "" "Invalid --use-slave-as-writer option: '$SLAVE_IS_WRITER'"
+    echo "Please choose either yes or no"
+    exit 1
+  fi
+  if [[ $SLAVE_IS_WRITER =~ ^(yes|YES)$ ]]; then
+    SLAVE_IS_WRITER="yes"
+  else
+    SLAVE_IS_WRITER="no"
+  fi
+
   # These may get set in the config file, but they are not used
   # by this script.  So to avoid confusion and problems, remove
   # these variables explicitly.
@@ -736,6 +825,7 @@ function parse_args() {
   readonly NUMBER_WRITERS
 
   readonly WRITER_IS_READER
+  readonly SLAVE_IS_WRITER
 
   readonly P_PRIORITY
   readonly P_MODE
@@ -773,6 +863,9 @@ function check_is_galera_checker_running() {
       ps -p $GPID > /dev/null 2>&1
       if [[ $? -eq 0 ]]; then
         log "$LINENO" "ProxySQL galera checker process already running."
+
+        # We don't want to remove this file on cleanup
+        CHECKER_PIDFILE=""
         exit 1
       else
         echo $$ > $CHECKER_PIDFILE
@@ -802,7 +895,7 @@ function check_is_galera_checker_running() {
 }
 
 function cleanup_handler() {
-  if [[ -n CHECKER_PIDFILE ]]; then
+  if [[ -n $CHECKER_PIDFILE ]]; then
     rm -f $CHECKER_PIDFILE
   fi
 }
@@ -850,12 +943,15 @@ function writer_is_reader_check() {
     fi
 
     local regex="(^|[[:space:]])${HOSTGROUP_READER_ID}[[:blank:]]${server}[[:blank:]]${port}[[:blank:]]"
+    local address
+    address=$(combine_ip_port_into_address "$server" "$port")
 
     if [[ $WRITER_IS_READER == "always" || $WRITER_IS_READER == "ondemand" ]]; then
       #
       # Ensure that there is a corresponding entry in mysql_servers
       #
-      if [[ ! $servers =~ $regex ]]; then
+      local reader_row=$(echo "$servers" | grep -E "$regex")
+      if [[ -z $reader_row ]]; then
         # We did not find a matching row, insert the corresponding READER entry
 
         # If we are to always have a reader, or if there are no other
@@ -867,15 +963,21 @@ function writer_is_reader_check() {
           comment="OFFLINE_SOFT"
         fi
         proxysql_exec $LINENO -Ns "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,status,comment) VALUES ('$server',$HOSTGROUP_READER_ID,$port,1000,'$comment','READ');"
-        check_cmd $LINENO $? "writer-is-reader($WRITER_IS_READER): Failed to add $HOSTGROUP_READER_ID:$server:$port"
-        log_if_success $LINENO $? "writer-is-reader($WRITER_IS_READER): Adding reader $HOSTGROUP_READER_ID:$server:$port with status OFFLINE_SOFT"
+        check_cmd $LINENO $? "writer-is-reader($WRITER_IS_READER): Failed to add $HOSTGROUP_READER_ID:$address"
+        log_if_success $LINENO $? "writer-is-reader($WRITER_IS_READER): Adding reader $HOSTGROUP_READER_ID:$address with status OFFLINE_SOFT"
         echo "1" > ${reload_check_file}
       elif [[ $WRITER_IS_READER == "ondemand" && $stat == "ONLINE" && $number_readers_online -gt 1 ]]; then
         # If the reader node is ONLINE and there is another reader
         # Then we can deactivate this reader node (if ondemand)
-        proxysql_exec $LINENO -Ns "UPDATE mysql_servers SET status='OFFLINE_SOFT' WHERE hostgroup_id=$HOSTGROUP_READER_ID AND hostname='$server' AND port=$port"
-        log_if_success $LINENO $? "Updating $hostgroup:$server:$port to OFFLINE_SOFT because writers prefer to not be readers (writer-is-reader:ondemand)"
-        echo "1" > ${reload_check_file}
+
+        # This should only do this if there is a corresponding READ entry that is NOT "OFFLINE_SOFT"
+        # Search through the $servers for an entry corresponding to the READ data
+        local reader_status=$(echo -e "$reader_row" | cut -f4)
+        if [[ $reader_status != "OFFLINE_SOFT" ]]; then
+          proxysql_exec $LINENO -Ns "UPDATE mysql_servers SET status='OFFLINE_SOFT' WHERE hostgroup_id=$HOSTGROUP_READER_ID AND hostname='$server' AND port=$port"
+          log_if_success $LINENO $? "Updating $hostgroup:$address to OFFLINE_SOFT because writers prefer to not be readers (writer-is-reader:ondemand)"
+          echo "1" > ${reload_check_file}
+        fi
       fi
     elif [[ $WRITER_IS_READER == "never" ]]; then
       #
@@ -884,8 +986,8 @@ function writer_is_reader_check() {
       if [[ $servers =~ $regex ]]; then
         # Delete the corresponding READER entry
         proxysql_exec $LINENO -Ns "DELETE FROM mysql_servers WHERE hostgroup_id=$HOSTGROUP_READER_ID and hostname='$server' and port=$port"
-        check_cmd $LINENO $? "writer-is-reader(never): Failed to remove $HOSTGROUP_READER_ID:$server:$port"
-        log_if_success $LINENO $? "writer-is-reader(never): Removing reader $HOSTGROUP_READER_ID:$server:$port"
+        check_cmd $LINENO $? "writer-is-reader(never): Failed to remove $HOSTGROUP_READER_ID:$address"
+        log_if_success $LINENO $? "writer-is-reader(never): Removing reader $HOSTGROUP_READER_ID:$address"
         echo "1" > ${reload_check_file}
       fi
     fi
@@ -971,6 +1073,8 @@ function ensure_one_writer_node() {
     local wsrep_status
     local pxc_main_mode
     local result
+    local address
+    address=$(combine_ip_port_into_address "$host" "$port")
     result=$(mysql_exec $LINENO "$host" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
     wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
     pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
@@ -984,9 +1088,9 @@ function ensure_one_writer_node() {
     fi
 
     local write_stat=$(echo "$line" | awk '{print $3}')
-    debug $LINENO "Looking at $host:$port write_status:$write_stat"
+    debug $LINENO "Looking at $address write_status:$write_stat"
 
-    log $LINENO "Promoting $host:$port as writer node..."
+    log $LINENO "Promoting $address as writer node..."
 
     # We have an ONLINE reader node
     # if ondemand or always keep the reader node (may need to move it to OFFLINE_SOFT)
@@ -1000,11 +1104,11 @@ function ensure_one_writer_node() {
           "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,status,comment)
            VALUES ('$host',$HOSTGROUP_WRITER_ID,$port,1000000,'ONLINE','WRITE');"
         check_cmd $LINENO $? "Cannot add a PXC writer node to ProxySQL, Please check ProxySQL login credentials"
-        log_if_success $LINENO $? "Added $HOSTGROUP_WRITER_ID:$host:$port as a writer."
+        log_if_success $LINENO $? "Added $HOSTGROUP_WRITER_ID:$address as a writer."
       else
         # Writer exists, move writer to ONLINE
         proxysql_exec $LINENO -Ns "UPDATE mysql_servers SET status='ONLINE',comment='WRITE',weight=1000000 WHERE hostgroup_id=$HOSTGROUP_WRITER_ID AND hostname='$host' AND port=$port"
-        check_cmd $LINENO $? "Cannot update the PXC node $HOSTGROUP_WRITER_ID:$host:$port, Please check the ProxySQL login credentials"
+        check_cmd $LINENO $? "Cannot update the PXC node $HOSTGROUP_WRITER_ID:$address, Please check the ProxySQL login credentials"
         log_if_success $LINENO $? "Updated ${HOSTGROUP_WRITER_ID}:${host}:${port} node in ProxySQL."
       fi
     else
@@ -1013,11 +1117,11 @@ function ensure_one_writer_node() {
         proxysql_exec $$LINENO -Ns\
             "UPDATE mysql_servers set status='ONLINE',hostgroup_id=$HOSTGROUP_WRITER_ID, comment='WRITE', weight=1000000 WHERE hostgroup_id=$HOSTGROUP_READER_ID and hostname='$host' and port=$port"
         check_cmd $LINENO $? "Cannot update PXC writer in ProxySQL, Please check ProxySQL login credentials"
-        log_if_success $LINENO $? "Added $HOSTGROUP_WRITER_ID:$host:$port as a writer node."
+        log_if_success $LINENO $? "Added $HOSTGROUP_WRITER_ID:$address as a writer node."
       else
         # Writer exists, move writer to ONLINE, remove reader
         proxysql_exec $LINENO -Ns "UPDATE mysql_servers SET status='ONLINE',comment='WRITE',weight=1000000 WHERE hostgroup_id=$HOSTGROUP_WRITER_ID AND hostname='$host' AND port=$port"
-        check_cmd $LINENO $? "Cannot update the PXC node $HOSTGROUP_WRITER_ID:$host:$port, Please check the ProxySQL login credentials"
+        check_cmd $LINENO $? "Cannot update the PXC node $HOSTGROUP_WRITER_ID:$address, Please check the ProxySQL login credentials"
         log_if_success $LINENO $? "Updated ${HOSTGROUP_WRITER_ID}:${host}:${port} node in ProxySQL."
 
         proxysql_exec $LINENO -Ns "DELETE FROM mysql_servers WHERE hostgroup_id=$HOSTGROUP_READER_ID and hostname='$host' and port=$port"
@@ -1100,7 +1204,17 @@ function build_proxysql_list_with_priority() {
 
   for prio in "${priority_list[@]}"; do
     local psql_entry
-    psql_entry=$(echo "$proxysql_list" | grep "^${prio}[^[[:space:]]]*")
+    local prio_entry
+    local prio_ip
+    local prio_port
+    prio_entry=$(separate_ip_port_from_address "$prio")
+    prio_ip=$(echo "$prio_entry" | cut -d' ' -f1)
+    prio_port=$(echo "$prio_entry" | cut -d' ' -f2)
+    prio_entry="$prio_ip$sep$prio_port"
+    # properly escape the characters for grep
+    prio_entry_re="$(printf '%s' "$prio_entry" | sed 's/[.[\*^$]/\\&/g')"
+
+    psql_entry=$(echo "$proxysql_list" | grep "^${prio_entry_re}[^[[:space:]]]*")
     if [[ $? -eq 0 && -n ${psql_entry} ]]; then
       # Add entries that are in the priority list and in the proxysql list
       new_proxysql_list+=($psql_entry)
@@ -1118,11 +1232,11 @@ function build_proxysql_list_with_priority() {
         reader_query=1
       fi
       if [[ -n $reader_list ]]; then
-        if echo $reader_list | grep -E -q "(^|[[:space:]])${prio}($|[[:space:]])*"; then
+        if echo $reader_list | grep -E -q "(^|[[:space:]])${prio_entry_re}($|[[:space:]])*"; then
           # If this address is a reader, add a fake writer entry
           # If detected to be online, the writer check algorithm
           # will insert an entry
-          new_proxysql_list+=("${prio}${sep}${HOSTGROUP_WRITER_ID}${sep}OFFLINE_SOFT${sep}WRITE${sep}PRIORITY_NODE")
+          new_proxysql_list+=("${prio_entry}${sep}${HOSTGROUP_WRITER_ID}${sep}OFFLINE_SOFT${sep}WRITE${sep}PRIORITY_NODE")
         fi
       fi
     fi
@@ -1135,9 +1249,14 @@ function build_proxysql_list_with_priority() {
   if [[ -n ${priority_list[@]+"${priority_list[@]}"} ]]; then
     local priority_string="${priority_list[@]}"
     for row in ${proxysql_list}; do
-      local addr=$(echo $row | cut -d "$sep" -f 1,2)
-      local re="(^|[[:space:]])${addr}($|[[:space:]])"
-      if ! echo $priority_string | grep -E -q "(^|[[:space:]])${addr}($|[[:space:]])"; then
+      local host=$(echo $row | cut -d "$sep" -f 1)
+      local port=$(echo $row | cut -d "$sep" -f 2)
+      local addr=$(combine_ip_port_into_address "$host" "$port")
+
+      # properly escape the characters for grep -E
+      addr_re="$(printf '%s' "$addr" | sed 's/[.[\*^$()+?{|]/\\&/g')"
+
+      if ! echo $priority_string | grep -E -q "(^|[[:space:]])${addr_re}($|[[:space:]])"; then
         new_proxysql_list+=($row)
       fi
     done
@@ -1189,14 +1308,14 @@ function update_writers() {
   if [[ -n $priority_list ]]; then
     #
     # Need to do some processing of the lists so that we can pass them down
-    # Assume that the fields cannot contain the ':' character'
+    # Assume that the fields cannot contain the ';' character'
     # Can't use "local -n" becaus of Centos6 (needs newer bash version)
     #
     local prio_list=${priority_list}
-    local pxsql_list=$(echo "${proxysql_list[@]}" | tr '\t' ':' | tr '\n' ' ')
+    local pxsql_list=$(echo "${proxysql_list[@]}" | tr '\t' ';' | tr '\n' ' ')
 
-    proxysql_list=$(build_proxysql_list_with_priority ":" "$pxsql_list" "$prio_list")
-    proxysql_list=$(echo "${proxysql_list}" | tr ' ' '\n' | tr ':' ' ')
+    proxysql_list=$(build_proxysql_list_with_priority ";" "$pxsql_list" "$prio_list")
+    proxysql_list=$(echo "${proxysql_list}" | tr ' ' '\n' | tr ';' ' ')
   fi
 
   if [[ -z ${proxysql_list[@]+"${proxysql_list[@]}"} ]]; then
@@ -1219,6 +1338,8 @@ function update_writers() {
     local wsrep_status
     local pxc_main_mode
     local result
+    local address
+    address=$(combine_ip_port_into_address "$server" "$port")
     result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
     wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
     pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
@@ -1238,7 +1359,7 @@ function update_writers() {
       continue
     fi
 
-    log "" "--> Checking WRITE server $hostgroup:$server:$port, current status $stat, wsrep_local_state $wsrep_status"
+    log "" "--> Checking WRITE server $hostgroup:$address, current status $stat, wsrep_local_state $wsrep_status"
 
     # we have to limit amount of writers, WSREP status OK, AND node is marked ONLINE
     # PXC and ProxySQL agreee on the status
@@ -1246,10 +1367,10 @@ function update_writers() {
     if [ $NUMBER_WRITERS -gt 0 -a "${wsrep_status}" = "4" -a "$stat" == "ONLINE" -a "${pxc_main_mode}" == "DISABLED" ] ; then
       if [[ $number_writers_online -lt $NUMBER_WRITERS ]]; then
         number_writers_online=$(( $number_writers_online + 1 ))
-        log "" "server $hostgroup:$server:$port is already ONLINE: ${number_writers_online} of ${NUMBER_WRITERS} write nodes"
+        log "" "server $hostgroup:$address is already ONLINE: ${number_writers_online} of ${NUMBER_WRITERS} write nodes"
       else
         number_writers_online=$(( $number_writers_online + 1 ))
-        change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" $port "OFFLINE_SOFT" "$rdstat" \
+        change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" "$port" "OFFLINE_SOFT" "$rdstat" \
                              "max write nodes reached (${NUMBER_WRITERS})"
         echo "1" > ${reload_check_file}
       fi
@@ -1263,23 +1384,23 @@ function update_writers() {
       if [[ $NUMBER_WRITERS -gt 0 ]] ; then
         if [[ $number_writers_online -lt $NUMBER_WRITERS ]]; then
           number_writers_online=$(( $number_writers_online + 1 ))
-          change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" $port "ONLINE" "$rdstat" \
+          change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" "$port" "ONLINE" "$rdstat" \
                                "${number_writers_online} of ${NUMBER_WRITERS} write nodes"
           echo "1" > ${reload_check_file}
         else
           number_writers_online=$(( $number_writers_online + 1 ))
           if [ "$stat" != "OFFLINE_SOFT" ]; then
-            change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" $port "OFFLINE_SOFT" "" \
+            change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" "$port" "OFFLINE_SOFT" "" \
                                  "max write nodes reached (${NUMBER_WRITERS})"
             echo "1" > ${reload_check_file}
           elif [[ $rdstat != "PRIORITY_NODE" ]]; then
-             log $LINENO "server $hostgroup:$server:$port is already OFFLINE_SOFT, max write nodes reached (${NUMBER_WRITERS})"
+             log $LINENO "server $hostgroup:$address is already OFFLINE_SOFT, max write nodes reached (${NUMBER_WRITERS})"
           fi
         fi
       # we do not have to limit
       elif [[ $NUMBER_WRITERS -eq 0 ]] ; then
         # TODO: kennt, What if node is SHUNNED?
-        change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" $port "ONLINE" "$rdstat"\
+        change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" "$port" "ONLINE" "$rdstat"\
                              "Changed state, marking write node ONLINE"
         echo "1" > ${reload_check_file}
       fi
@@ -1288,20 +1409,20 @@ function update_writers() {
     # WSREP status is not ok, but the node is marked online, we should put it offline
     # wsrep:not ok  pxc:--  status:online
     if [ "${wsrep_status}" != "4" -a "$stat" = "ONLINE" ]; then
-      change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" $port "OFFLINE_SOFT" "" \
+      change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" "$port" "OFFLINE_SOFT" "" \
                            "WSREP status is ${wsrep_status} which is not ok"
       echo "1" > ${reload_check_file}
     # wsrep:--  pxc:not ok  status:online
     elif [ "${pxc_main_mode}" != "DISABLED" -a "$stat" = "ONLINE" ]; then
-      change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" $port "OFFLINE_SOFT" "" \
+      change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" "$port" "OFFLINE_SOFT" "" \
                            "pxc_maint_mode is $pxc_main_mode" 2>>${ERR_FILE}
       echo "1" > ${reload_check_file}
     # wsrep:not ok  pxc:--  status:offline soft
     elif [ "${wsrep_status}" != "4" -a "$stat" = "OFFLINE_SOFT" -a "$rdstat" != "PRIORITY_NODE" ]; then
-      log "" "server $hostgroup:$server:$port is already OFFLINE_SOFT, WSREP status is ${wsrep_status} which is not ok"
+      log "" "server $hostgroup:$address is already OFFLINE_SOFT, WSREP status is ${wsrep_status} which is not ok"
     # wsrep:--  pxc:not ok  status:offline soft
     elif [ "${pxc_main_mode}" != "DISABLED" -a "$stat" = "OFFLINE_SOFT" -a "$rdstat" != "PRIORITY_NODE" ]; then
-      log "" "server $hostgroup:$server:$port is already OFFLINE_SOFT, pxc_maint_mode is ${pxc_main_mode} which is not ok"
+      log "" "server $hostgroup:$address is already OFFLINE_SOFT, pxc_maint_mode is ${pxc_main_mode} which is not ok"
     fi
   done
 }
@@ -1328,7 +1449,9 @@ function set_slave_status() {
   local ws_ip=$3
   local ws_port=$4
   local ws_status=$5
-  local node_id="${ws_hg_id}:${ws_ip}:${ws_port}"
+  local ws_address
+  ws_address=$(combine_ip_port_into_address "$ws_ip" "$ws_port")
+  local node_id="${ws_hg_id}:${ws_address}"
 
   # This function will get and return a status of a slave node, 4=GOOD, 2=BEHIND, 0=OTHER
   local slave_status
@@ -1336,7 +1459,7 @@ function set_slave_status() {
   log $LINENO "--> Checking SLAVE server ${node_id}"
 
   slave_status=$(mysql_exec $LINENO "$ws_ip" "$ws_port" -nsE "SHOW SLAVE STATUS")
-  check_cmd $LINENO $? "Cannot get status from the slave $ws_ip:$ws_port, Please check cluster login credentials"
+  check_cmd $LINENO $? "Cannot get status from the slave $ws_address, Please check cluster login credentials"
 
   slave_status=$(echo "$slave_status" | sed 's/ //g')
   echo "$slave_status" | grep "^Master_Host:" >/dev/null
@@ -1346,8 +1469,8 @@ function set_slave_status() {
     # Only changing the status here as another node might be in the writer hostgroup
     #
     proxysql_exec $LINENO -Ns "UPDATE mysql_servers SET status = 'OFFLINE_HARD'  WHERE hostname='$ws_ip' and port=$ws_port;"
-    check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster node $ws_ip:$ws_port to ProxySQL database, Please check ProxySQL admin credentials"
-    log_if_success $LINENO $? "slave server ${ws_ip}:${ws_port} set to OFFLINE_HARD status in ProxySQL (cannot determine slave status)."
+    check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster node $ws_address to ProxySQL database, Please check ProxySQL admin credentials"
+    log_if_success $LINENO $? "slave server ${ws_address} set to OFFLINE_HARD status in ProxySQL (cannot determine slave status)."
     echo "1" > ${reload_check_file}
   else
     local slave_master_host slave_io_running slave_sql_running seconds_behind
@@ -1370,11 +1493,11 @@ function set_slave_status() {
       #
       if [ "$ws_status" != "OFFLINE_HARD" ];then
         proxysql_exec $LINENO -Ns "UPDATE mysql_servers SET status = 'OFFLINE_HARD' WHERE hostname='$ws_ip' and port=$ws_port;"
-        check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster node $ws_ip:$ws_port to ProxySQL database, Please check ProxySQL login credentials"
-        log_if_success $LINENO $? "slaver server ${ws_ip}:${ws_port} set to OFFLINE_HARD status in ProxySQL (io:$slave_io_running sql:$slave_sql_running)."
+        check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster node $ws_address to ProxySQL database, Please check ProxySQL login credentials"
+        log_if_success $LINENO $? "slave server ${ws_address} set to OFFLINE_HARD status in ProxySQL (io:$slave_io_running sql:$slave_sql_running)."
         echo "1" > ${reload_check_file}
       else
-        log $LINENO "slave server (${ws_hg_id}:${ws_ip}:${ws_port}) current status '$ws_status' in ProxySQL. (io:$slave_io_running sql:$slave_sql_running)"
+        log $LINENO "slave server (${ws_hg_id}:${ws_address}) current status '$ws_status' in ProxySQL. (io:$slave_io_running sql:$slave_sql_running)"
       fi
     elif [[ $slave_io_running == "Yes" ]]; then
       #
@@ -1385,8 +1508,8 @@ function set_slave_status() {
         # Slave is more than the set number of seconds behind, return status 2
         if [ "$ws_status" != "OFFLINE_SOFT" ];then
           proxysql_exec $LINENO -Ns "UPDATE mysql_servers SET status = 'OFFLINE_SOFT' WHERE hostname='$ws_ip' and port=$ws_port;"
-          check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster node $ws_ip:$ws_port to ProxySQL database, Please check ProxySQL login credentials"
-          log_if_success $LINENO $? "slave server ${ws_ip}:${ws_port} set to OFFLINE_SOFT status in ProxySQL (slave is too far behind:$seconds_behind). (io:$slave_io_running sql:$slave_sql_running)"
+          check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster node $ws_address to ProxySQL database, Please check ProxySQL login credentials"
+          log_if_success $LINENO $? "slave server ${ws_address} set to OFFLINE_SOFT status in ProxySQL (slave is too far behind:$seconds_behind). (io:$slave_io_running sql:$slave_sql_running)"
           echo "1" > ${reload_check_file}
         else
           log $LINENO "slave server (${node_id}) current status '$ws_status' in ProxySQL. (io:$slave_io_running sql:$slave_sql_running)"
@@ -1398,8 +1521,8 @@ function set_slave_status() {
         #
         if [ "$ws_status" != "ONLINE" ];then
           proxysql_exec $LINENO -Ns "UPDATE mysql_servers SET status = 'ONLINE' WHERE hostgroup_id=$HOSTGROUP_SLAVEREADER_ID AND hostname='$ws_ip' and port=$ws_port;"
-          check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster node $ws_ip:$ws_port in ProxySQL, Please check ProxySQL login credentials"
-          log_if_success $LINENO $? "slave server $HOSTGROUP_SLAVEREADER_ID:${ws_ip}:${ws_port} set to ONLINE status in ProxySQL. (io:$slave_io_running sql:$slave_sql_running)"
+          check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster node $ws_address in ProxySQL, Please check ProxySQL login credentials"
+          log_if_success $LINENO $? "slave server $HOSTGROUP_SLAVEREADER_ID:${ws_address} set to ONLINE status in ProxySQL. (io:$slave_io_running sql:$slave_sql_running)"
           if [[ $ws_hg_id -ne $HOSTGROUP_SLAVEREADER_ID ]]; then
             log $LINENO "slave server (${node_id}) current status '$ws_status' in ProxySQL. (io:$slave_io_running sql:$slave_sql_running)"
           fi
@@ -1416,10 +1539,10 @@ function set_slave_status() {
       # So leave it ONLINE in this state.
       #
       if [[ $ws_status == "ONLINE" ]]; then
-        log $LINENO "slave server ${ws_ip}:${ws_port} status:'${ws_status}' maintained in case the cluster is down. (io:$slave_io_running sql:$slave_sql_running)"
+        log $LINENO "slave server ${ws_address} status:'${ws_status}' maintained in case the cluster is down. (io:$slave_io_running sql:$slave_sql_running)"
       else
         proxysql_exec $LINENO -Ns "UPDATE mysql_servers SET status = 'OFFLINE_SOFT' WHERE hostname='$ws_ip' and port=$ws_port;"
-        log $LINENO "slave server ${ws_ip}:${ws_port} status:'OFFLINE_SOFT'. (io:$slave_io_running sql:$slave_sql_running)"
+        log $LINENO "slave server ${ws_address} status:'OFFLINE_SOFT'. (io:$slave_io_running sql:$slave_sql_running)"
         echo "1" > ${reload_check_file}
       fi
     fi
@@ -1488,6 +1611,8 @@ function update_readers() {
     local wsrep_status
     local pxc_main_mode
     local result
+    local address
+    address=$(combine_ip_port_into_address "$server" "$port")
     result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
     wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
     pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
@@ -1501,13 +1626,13 @@ function update_readers() {
       pxc_main_mode="DISABLED"
     fi
 
-    log "" "--> Checking READ server $hostgroup:$server:$port, current status $stat, wsrep_local_state $wsrep_status"
+    log "" "--> Checking READ server $hostgroup:$address, current status $stat, wsrep_local_state $wsrep_status"
 
     if [[ $WRITER_IS_READER == "ondemand" && $writer_stat == "ONLINE" ]] ; then
       if [ $online_readonly_nodes_found -eq 0 ] ; then
         # WSREP:ok  PXC:ok  STATUS:online
         if [ "${wsrep_status}" = "4" -a "$stat" == "ONLINE" -a "${pxc_main_mode}" == "DISABLED" ] ; then
-          log "" "server $hostgroup:$server:$port is already ONLINE, is also write node in ONLINE state, not enough non-ONLINE readers found"
+          log "" "server $hostgroup:$address is already ONLINE, is also write node in ONLINE state, not enough non-ONLINE readers found"
         fi
 
         # WSREP:ok  PXC:ok  STATUS:not online
@@ -1516,7 +1641,7 @@ function update_readers() {
           # Enable the first one found as ONLINE
           # (when writer-is-reader=ondemand)
           #
-          change_server_status $LINENO $HOSTGROUP_READER_ID "$server" $port "ONLINE" ""\
+          change_server_status $LINENO $HOSTGROUP_READER_ID "$server" "$port" "ONLINE" ""\
                                "marking ONLINE write node as read ONLINE state, not enough non-ONLINE readers found"
           echo "1" > ${reload_check_file}
         fi
@@ -1524,29 +1649,29 @@ function update_readers() {
         # WSREP:ok  PXC:ok  STATUS:online
         if [ "${wsrep_status}" = "4" -a "$stat" == "ONLINE" -a "${pxc_main_mode}" == "DISABLED" ] ; then
           # Else disable the other READ nodes
-          change_server_status $LINENO $HOSTGROUP_READER_ID "$server" $port "OFFLINE_SOFT" ""\
+          change_server_status $LINENO $HOSTGROUP_READER_ID "$server" "$port" "OFFLINE_SOFT" ""\
                                "making ONLINE writer node as read OFFLINE_SOFT as well because writers should not be readers"
           echo "1" > ${reload_check_file}
         fi
         # WSREP:ok  PXC:ok  STATUS:not online
         if [ "${wsrep_status}" = "4" -a "$stat" != "ONLINE" -a "${pxc_main_mode}" == "DISABLED" ] ; then
-          log "" "server $hostgroup:$server:$port is $stat, keeping node as $stat,as it is an ONLINE writer and we prefer not to have writers as readers (writer-is-reader:ondemand)"
+          log "" "server $hostgroup:$address is $stat, keeping node as $stat,as it is an ONLINE writer and we prefer not to have writers as readers (writer-is-reader:ondemand)"
         fi
       fi
     else
       # WSREP:ok  PXC:ok  STATUS:online
       if [ "${wsrep_status}" = "4" -a "$stat" == "ONLINE" -a "${pxc_main_mode}" == "DISABLED" ] ; then
-        log "" "server $hostgroup:$server:$port is already ONLINE"
+        log "" "server $hostgroup:$address is already ONLINE"
         online_readonly_nodes_found=$(( $online_readonly_nodes_found + 1 ))
       # WSREP:ok  PXC:not ok  STATUS:not online
       elif [ "${wsrep_status}" = "4" -a "$stat" != "ONLINE" -a "${pxc_main_mode}" != "DISABLED" ] ; then
-        log "" "server $hostgroup:$server:$port is $stat"
+        log "" "server $hostgroup:$address is $stat"
       fi
 
       # WSREP status OK, but node is not marked ONLINE
       # WSREP:ok  PXC:ok  STATUS:not online
       if [ "${wsrep_status}" = "4" -a "$stat" != "ONLINE" -a "${pxc_main_mode}" == "DISABLED" ] ; then
-        change_server_status $LINENO $HOSTGROUP_READER_ID "$server" $port "ONLINE" ""\
+        change_server_status $LINENO $HOSTGROUP_READER_ID "$server" "$port" "ONLINE" ""\
                               "changed state"
         echo "1" > ${reload_check_file}
         online_readonly_nodes_found=$(( $online_readonly_nodes_found + 1 ))
@@ -1556,17 +1681,17 @@ function update_readers() {
     # WSREP status is not ok, but the node is marked online, we should put it offline
     # WSREP:not ok  STATUS:online
     if [ "${wsrep_status}" != "4" -a "$stat" = "ONLINE" ]; then
-      change_server_status $LINENO $HOSTGROUP_READER_ID "$server" $port "OFFLINE_SOFT" ""\
+      change_server_status $LINENO $HOSTGROUP_READER_ID "$server" "$port" "OFFLINE_SOFT" ""\
                            "WSREP status is ${wsrep_status} which is not ok"
       echo "1" > ${reload_check_file}
     # PXC:not ok  STATUS:online
     elif [ "${pxc_main_mode}" != "DISABLED" -a "$stat" = "ONLINE" ];then
-      change_server_status $LINENO $HOSTGROUP_READER_ID "$server" $port "OFFLINE_SOFT" ""\
+      change_server_status $LINENO $HOSTGROUP_READER_ID "$server" "$port" "OFFLINE_SOFT" ""\
                            "pxc_maint_mode is $pxc_main_mode" 2>>${ERR_FILE}
       echo "1" > ${reload_check_file}
     # WSREP:not ok  STATUS:offline soft
     elif [ "${wsrep_status}" != "4" -a "$stat" = "OFFLINE_SOFT" ]; then
-      log "" "server $hostgroup:$server:$port is already OFFLINE_SOFT, WSREP status is ${wsrep_status} which is not ok"
+      log "" "server $hostgroup:$address is already OFFLINE_SOFT, WSREP status is ${wsrep_status} which is not ok"
     fi
   done
 }
@@ -1608,6 +1733,8 @@ function search_for_desynced_writers() {
         local wsrep_status
         local pxc_main_mode
         local result
+        local address
+        address=$(combine_ip_port_into_address "$server" "$port")
         result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
         wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
         pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
@@ -1623,11 +1750,11 @@ function search_for_desynced_writers() {
 
         # Nodes in maintenance are not allowed
         if [[ $pxc_main_mode != "DISABLED" ]]; then
-          log "" "Skipping $hostgroup:$server:$port node is in pxc_maint_mode:$pxc_main_mode"
+          log "" "Skipping $hostgroup:$address node is in pxc_maint_mode:$pxc_main_mode"
           break
         fi
 
-        log "" "Checking $hostgroup:$server:$port for node in DONOR state, status $stat , wsrep_local_state $wsrep_status"
+        log "" "Checking $hostgroup:$address for node in DONOR state, status $stat , wsrep_local_state $wsrep_status"
         if [ "${wsrep_status}" = "2" -a "$stat" != "ONLINE" ]; then
           # if we are on Donor/Desync and not online in mysql_servers -> proceed
 
@@ -1638,9 +1765,9 @@ function search_for_desynced_writers() {
             proxysql_exec $LINENO -Ns \
               "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment)
                   VALUES ('$server',$HOSTGROUP_WRITER_ID,$port,1000000,'WRITE');"
-            log $LINENO "Adding server $HOSTGROUP_WRITER_ID:$server:$port with status ONLINE. Reason: WSREP status is DESYNC/DONOR, as this is the only node we will put this one online"
+            log $LINENO "Adding server $HOSTGROUP_WRITER_ID:$address with status ONLINE. Reason: WSREP status is DESYNC/DONOR, as this is the only node we will put this one online"
           else
-            change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" $port "ONLINE" ""\
+            change_server_status $LINENO $HOSTGROUP_WRITER_ID "$server" "$port" "ONLINE" ""\
                                  "WSREP status is DESYNC/DONOR, as this is the only node we will put this one online"
           fi
           cnt=$(( $cnt + 1 ))
@@ -1694,6 +1821,8 @@ function search_for_desynced_readers() {
         local wsrep_status
         local pxc_main_mode
         local result
+        local address
+        address=$(combine_ip_port_into_address "$server" "$port")
         result=$(mysql_exec $LINENO "$server" "$port" -Nns "SHOW STATUS LIKE 'wsrep_local_state'; SHOW VARIABLES LIKE 'pxc_maint_mode';" 2>>${DEBUG_ERR_FILE})
         wsrep_status=$(echo "$result" | grep "wsrep_local_state" | awk '{ print $2 }')
         pxc_main_mode=$(echo "$result" | grep "pxc_maint_mode" | awk '{ print $2 }')
@@ -1709,14 +1838,14 @@ function search_for_desynced_readers() {
 
         # Nodes in maintenance are not allowed
         if [[ $pxc_main_mode != "DISABLED" ]]; then
-          log "" "Skipping $hostgroup:$server:$port node is in pxc_maint_mode:$pxc_main_mode"
+          log "" "Skipping $hostgroup:$address node is in pxc_maint_mode:$pxc_main_mode"
           break
         fi
 
-        log "" "Checking $hostgroup:$server:$port for node in DONOR state, status $stat , wsrep_local_state $wsrep_status"
+        log "" "Checking $hostgroup:$address for node in DONOR state, status $stat , wsrep_local_state $wsrep_status"
         if [ "${wsrep_status}" = "2" -a "$stat" != "ONLINE" ];then
           # if we are on Donor/Desync an not online in mysql_servers -> proceed
-          change_server_status $LINENO $HOSTGROUP_READER_ID "$server" $port "ONLINE" ""\
+          change_server_status $LINENO $HOSTGROUP_READER_ID "$server" "$port" "ONLINE" ""\
                                "WSREP status is DESYNC/DONOR, as this is the only node we will put this one online"
           cnt=$(( $cnt + 1 ))
 
@@ -1863,8 +1992,9 @@ function add_slave_to_write_hostgroup() {
                                            AND hostgroup_id='$HOSTGROUP_SLAVEREADER_ID'
                                            ORDER BY random() LIMIT 1")
       if [[ -n $next_host ]]; then
-        host=$(echo "$next_host" | awk '{ print $1 }')
-        port=$(echo "$next_host" | awk '{ print $2 }')
+        local host=$(echo "$next_host" | awk '{ print $1 }')
+        local port=$(echo "$next_host" | awk '{ print $2 }')
+        local address=$(combine_ip_port_into_address "$host" "$port")
 
         # Found a node, update the READER to ONLINE
         proxysql_exec $LINENO -Ns "UPDATE mysql_servers
@@ -1872,20 +2002,21 @@ function add_slave_to_write_hostgroup() {
                                     WHERE hostgroup_id=$HOSTGROUP_SLAVEREADER_ID
                                       AND hostname='$host'
                                       AND port=$port"
-        log_if_success $LINENO $? "slave server ${HOSTGROUP_SLAVEREADER_ID}:$host:$port set to ONLINE status in ProxySQL."
+        log_if_success $LINENO $? "slave server ${HOSTGROUP_SLAVEREADER_ID}:$address set to ONLINE status in ProxySQL."
         echo 1 > "${reload_check_file}"
       fi
     fi
 
     if [[ -n $next_host ]]; then
-      host=$(echo "$next_host" | awk '{ print $1 }')
-      port=$(echo "$next_host" | awk '{ print $2 }')
+      local host=$(echo "$next_host" | awk '{ print $1 }')
+      local port=$(echo "$next_host" | awk '{ print $2 }')
+      local address=$(combine_ip_port_into_address "$host" "$port")
 
       proxysql_exec $LINENO -Ns "INSERT INTO mysql_servers
             (hostname,hostgroup_id,port,weight,status,comment)
             VALUES ('$host',$HOSTGROUP_WRITER_ID,$port,1000000,'ONLINE','SLAVEREAD');"
-      check_cmd $LINENO $? "Cannot add Percona XtraDB Cluster node $host:$port to ProxySQL, Please check ProxySQL login credentials"
-      log_if_success $LINENO $? "slave server ${HOSTGROUP_WRITER_ID}:$host:$port set to ONLINE status in ProxySQL."
+      check_cmd $LINENO $? "Cannot add Percona XtraDB Cluster node $address to ProxySQL, Please check ProxySQL login credentials"
+      log_if_success $LINENO $? "slave server ${HOSTGROUP_WRITER_ID}:$address set to ONLINE status in ProxySQL."
       echo 1 > "${reload_check_file}"
     else
       log $LINENO "Could not find any slave readers to promote to a writer"
@@ -1935,8 +2066,11 @@ function main() {
   MYSQL_PASSWORD=$(echo $mysql_credentials | awk '{print $2}')
 
   # Search for the scheduler id that corresponds to our write hostgroup
-  scheduler_id=$(proxysql_exec $LINENO -Ns "SELECT id FROM scheduler where arg1 LIKE '%--write-hg=$HOSTGROUP_WRITER_ID %'")
-  cluster_name=$(proxysql_exec $LINENO -Ns "SELECT comment FROM scheduler WHERE id=${scheduler_id}")
+  scheduler_id=$(proxysql_exec $LINENO -Ns "SELECT id FROM scheduler where arg1 LIKE '%--write-hg=$HOSTGROUP_WRITER_ID %' OR arg1 LIKE '%-w $HOSTGROUP_WRITER_ID %'")
+  if [[ -z $scheduler_id ]]; then
+    error $LINENO "Cannot find the scheduler row with write hostgroup : $HOSTGROUP_WRITER_ID"
+  fi
+  cluster_name=$(proxysql_exec $LINENO -Ns "SELECT comment FROM scheduler WHERE id=${scheduler_id}" 2>>$ERR_FILE)
   if [[ -z $cluster_name ]]; then
     #
     # Could not find the cluster name from the scheduler,
@@ -2165,7 +2299,11 @@ function main() {
 
     log $LINENO "###### ASYNC-SLAVE ACTIVITY ######"
 
-    if [[ $number_readers_online -eq 0 && $number_writers_online -eq 0 ]]; then
+    # If use-slave-as-writer is set, then we do not allow slaves to
+    # be added, however we still call the remove slave writers
+    # in case the option was just changed.
+
+    if [[ $SLAVE_IS_WRITER == "yes" && $number_readers_online -eq 0 && $number_writers_online -eq 0 ]]; then
       # No cluster nodes active, add a slave to the writer hostgroup
       debug $LINENO "Nothing in the cluster, checking slavereaders"
       add_slave_to_write_hostgroup "${reload_check_file}"

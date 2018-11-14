@@ -41,7 +41,12 @@ else
   PORT_2=4220
   PORT_NOPRIO=4210
 fi
-PRIORITY_LIST="127.0.0.1:${PORT_1},127.0.0.1:${PORT_2}"
+if [[ $USE_IPVERSION == "v4" ]]; then
+  LOCALHOST_IP="127.0.0.1"
+else
+  LOCALHOST_IP="[::1]"
+fi
+PRIORITY_LIST="${LOCALHOST_IP}:${PORT_1},${LOCALHOST_IP}:${PORT_2}"
 
 
 # Sets up the general priority tests

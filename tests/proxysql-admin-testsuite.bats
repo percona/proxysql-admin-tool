@@ -85,6 +85,8 @@ echo "$output"
 @test "run the check for updating runtime_mysql_servers table ($WSREP_CLUSTER_NAME)" {
   #skip
   # check initial writer info
+  # Give proxysql a change to run the galera_checker script
+  sleep 5
   first_writer_port=$(proxysql_exec "select port from mysql_servers where hostgroup_id='$WRITE_HOSTGROUP_ID';" 2>/dev/null)
   first_writer_status=$(proxysql_exec "select status from mysql_servers where hostgroup_id='$WRITE_HOSTGROUP_ID';" 2>/dev/null)
   first_writer_weight=$(proxysql_exec "select weight from mysql_servers where hostgroup_id='$WRITE_HOSTGROUP_ID';" 2>/dev/null)
@@ -94,8 +96,6 @@ echo "$output"
   [ "$first_writer_status" = "ONLINE" ]
   [ "$first_writer_weight" = "1000000" ]
   [ "$first_writer_comment" = "WRITE" ]
-
-  echo "first_writer_start_cmd = $first_writer_start_cmd" >&2
 
   # check that the tables are equal at start
   mysql_servers=$(proxysql_exec "select * from mysql_servers where hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID) order by port;" 2>/dev/null)

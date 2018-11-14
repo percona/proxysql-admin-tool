@@ -1,4 +1,4 @@
-## proxysql_GALERA_CHECKER host priority tests
+# proxysql_GALERA_CHECKER host priority tests
 #
 # Testing Hints:
 # If there is a problem in the test, it's useful to enable the "debug"
@@ -39,8 +39,14 @@ else
   PORT_2=4220
   PORT_NOPRIO=4210
 fi
-PRIORITY_LIST="127.0.0.1:${PORT_1},127.0.0.1:${PORT_2}"
 
+if [[ $USE_IPVERSION == "v4" ]]; then
+  LOCALHOST_IP="127.0.0.1"
+else
+  LOCALHOST_IP="[::1]"
+fi
+PRIORITY_LIST="${LOCALHOST_IP}:${PORT_1},${LOCALHOST_IP}:${PORT_2}"
+PRIORITY_LIST_re=$(printf '%s' "$PRIORITY_LIST" | sed 's/[.[\*^$]/\\&/g')
 
 # Sets up the general priority tests
 #   (1) Deactivates the scheduler
@@ -2338,13 +2344,14 @@ function verify_initial_state() {
   retrieve_writer_info
   host=${write_host[0]}
 
-  local new_priority_list="127.0.0.1:9000,127.0.0.1:9001"
+  local new_priority_list="${LOCALHOST_IP}:9000,${LOCALHOST_IP}:9001"
+  local new_priority_list_re=$(printf '%s' "$new_priority_list" | sed 's/[.[\*^$]/\\&/g')
 
   # Swap the old priority list for the new priority list in the
   # galera_checker
   GALERA_CHECKER=$(proxysql_exec "SELECT filename FROM scheduler WHERE id=$SCHEDULER_ID")
   GALERA_CHECKER_ARGS=$(proxysql_exec "SELECT arg1 FROM scheduler WHERE id=$SCHEDULER_ID")
-  GALERA_CHECKER_ARGS=$(echo "$GALERA_CHECKER_ARGS" | sed "s/${PRIORITY_LIST}/${new_priority_list}/g")
+  GALERA_CHECKER_ARGS=$(echo "$GALERA_CHECKER_ARGS" | sed "s/${PRIORITY_LIST_re}/${new_priority_list_re}/g")
 
   echo $GALERA_CHECKER_ARGS >&2
 
@@ -2460,13 +2467,14 @@ function verify_initial_state() {
   retrieve_writer_info
   host=${write_host[0]}
 
-  local new_priority_list="127.0.0.1:9000,127.0.0.1:9001"
+  local new_priority_list="${LOCALHOST_IP}:9000,${LOCALHOST_IP}:9001"
+  local new_priority_list_re=$(printf '%s' "$new_priority_list" | sed 's/[.[\*^$]/\\&/g')
 
   # Swap the old priority list for the new priority list in the
   # galera_checker
   GALERA_CHECKER=$(proxysql_exec "SELECT filename FROM scheduler WHERE id=$SCHEDULER_ID")
   GALERA_CHECKER_ARGS=$(proxysql_exec "SELECT arg1 FROM scheduler WHERE id=$SCHEDULER_ID")
-  GALERA_CHECKER_ARGS=$(echo "$GALERA_CHECKER_ARGS" | sed "s/${PRIORITY_LIST}/${new_priority_list}/g")
+  GALERA_CHECKER_ARGS=$(echo "$GALERA_CHECKER_ARGS" | sed "s/${PRIORITY_LIST_re}/${new_priority_list_re}/g")
 
   echo $GALERA_CHECKER_ARGS >&2
 
@@ -2623,13 +2631,14 @@ function verify_initial_state() {
   host=${write_host[0]}
   writer_port=${write_port[0]}
 
-  local new_priority_list="127.0.0.1:9000,127.0.0.1:9001"
+  local new_priority_list="${LOCALHOST_IP}:9000,${LOCALHOST_IP}:9001"
+  local new_priority_list_re=$(printf '%s' "$new_priority_list" | sed 's/[.[\*^$]/\\&/g')
 
   # Swap the old priority list for the new priority list in the
   # galera_checker
   GALERA_CHECKER=$(proxysql_exec "SELECT filename FROM scheduler WHERE id=$SCHEDULER_ID")
   GALERA_CHECKER_ARGS=$(proxysql_exec "SELECT arg1 FROM scheduler WHERE id=$SCHEDULER_ID")
-  GALERA_CHECKER_ARGS=$(echo "$GALERA_CHECKER_ARGS" | sed "s/${PRIORITY_LIST}/${new_priority_list}/g")
+  GALERA_CHECKER_ARGS=$(echo "$GALERA_CHECKER_ARGS" | sed "s/${PRIORITY_LIST_re}/${new_priority_list_re}/g")
 
   echo $GALERA_CHECKER_ARGS >&2
 
@@ -2782,13 +2791,14 @@ function verify_initial_state() {
   retrieve_writer_info
   host=${write_host[0]}
 
-  local new_priority_list="127.0.0.1:9000,127.0.0.1:9001"
+  local new_priority_list="${LOCALHOST_IP}:9000,${LOCALHOST_IP}:9001"
+  local new_priority_list_re=$(printf '%s' "$new_priority_list" | sed 's/[.[\*^$]/\\&/g')
 
   # Swap the old priority list for the new priority list in the
   # galera_checker
   GALERA_CHECKER=$(proxysql_exec "SELECT filename FROM scheduler WHERE id=$SCHEDULER_ID")
   GALERA_CHECKER_ARGS=$(proxysql_exec "SELECT arg1 FROM scheduler WHERE id=$SCHEDULER_ID")
-  GALERA_CHECKER_ARGS=$(echo "$GALERA_CHECKER_ARGS" | sed "s/${PRIORITY_LIST}/${new_priority_list}/g")
+  GALERA_CHECKER_ARGS=$(echo "$GALERA_CHECKER_ARGS" | sed "s/${PRIORITY_LIST_re}/${new_priority_list_re}/g")
 
   echo $GALERA_CHECKER_ARGS >&2
 
@@ -2944,7 +2954,8 @@ function verify_initial_state() {
   retrieve_writer_info
   host=${write_host[0]}
 
-  local new_priority_list="127.0.0.1:9000,127.0.0.1:${PORT_2},127.0.0.1:9001"
+  local new_priority_list="${LOCALHOST_IP}:9000,${LOCALHOST_IP}:${PORT_2},${LOCALHOST_IP}:9001"
+  local new_priority_list_re=$(printf '%s' "$new_priority_list" | sed 's/[.[\*^$]/\\&/g')
 
   # Swap the old priority list for the new priority list in the
   # galera_checker
@@ -2983,7 +2994,7 @@ function verify_initial_state() {
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
 
-  GALERA_CHECKER_ARGS=$(echo "$GALERA_CHECKER_ARGS" | sed "s/${PRIORITY_LIST}/${new_priority_list}/g")
+  GALERA_CHECKER_ARGS=$(echo "$GALERA_CHECKER_ARGS" | sed "s/${PRIORITY_LIST_re}/${new_priority_list_re}/g")
 
   # Run the checker, node 2 should be the writer (new priority list)
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")

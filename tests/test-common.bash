@@ -200,12 +200,12 @@ function retrieve_slavenode_status() {
   status=$(mysql_exec "${host}" "${port}" 'SHOW SLAVE STATUS\G' "--silent" | sed 's/ //g')
 
   result=""
-  result+=$(echo "$status" | grep "^Master_Host:" | cut -d: -f2)
-  result+=":"
+  result+=$(echo "$status" | grep "^Master_Host:" | cut -d: -f2-)
+  result+="\t"
   result+=$(echo "$status" | grep "^Slave_IO_Running:" | cut -d: -f2)
-  result+=":"
+  result+="\t"
   result+=$(echo "$status" | grep "^Slave_SQL_Running:" | cut -d: -f2)
-  result+=":"
+  result+="\t"
   result+=$(echo "$status" | grep "^Seconds_Behind_Master:" | cut -d: -f2)
 
   echo "$result"
