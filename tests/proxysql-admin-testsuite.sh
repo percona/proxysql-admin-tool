@@ -397,8 +397,12 @@ LOCALHOST_NAME=$(cat /etc/hosts | grep "^${LOCALHOST_IP}" | awk '{ print $2 }')
 declare ROOT_FS=$WORKDIR
 mkdir -p $WORKDIR/logs
 
+echo "Shutting down currently running mysqld instances"
 ps -ef | egrep "mysqld" | grep "$(whoami)" | egrep -v "grep" | xargs kill -9 2>/dev/null
 ps -ef | egrep "node..sock" | grep "$(whoami)" | egrep -v "grep" | xargs kill -9 2>/dev/null
+
+echo "Shutting down currently running proxysql instances"
+sudo ps -ef | egrep "proxysql" | grep "$(whoami)" | egrep -v "grep" | xargs kill -9 2>/dev/null
 
 #
 # Check file locations before doing anything
@@ -607,7 +611,7 @@ if [[ $RUN_TEST -eq 1 ]]; then
       ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=$LOCALHOST_IP --port=6032 --protocol=tcp \
         -e "select hostgroup_id,hostname,port,status,comment from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
       echo "********************************"
-      echo "* $test_file failed, the servers (ProxySQL+PXC)will be left running"
+      echo "* $test_file failed, the servers (ProxySQL+PXC) will be left running"
       echo "* for debugging purposes."
       echo "********************************"
       ALLOW_SHUTDOWN="No"
