@@ -2313,6 +2313,30 @@ function main() {
       remove_slave_from_write_hostgroup "${reload_check_file}"
     fi
 
+    local query_result
+    local -i num_slave_writers=0
+    local -i num_slave_readers=0
+
+    query_result=$(proxysql_exec $LINENO -Ns "SELECT hostgroup_id FROM mysql_servers
+                                            WHERE hostgroup_id IN ($HOSTGROUP_WRITER_ID, $HOSTGROUP_READER_ID, $HOSTGROUP_SLAVEREADER_ID)
+                                            AND comment = 'SLAVEREAD'
+                                            AND status = 'ONLINE'")
+    check_cmd $LINENO $? "Could not get the list of slave nodes. Please check the ProxySQL credentials."
+    while read line; do
+      if [[ -z $line ]]; then
+        continue
+      fi
+
+      if [[ $line = "$HOSTGROUP_WRITER_ID" ]]; then
+        num_slave_writers+=1
+      elif [[ $line = "$HOSTGROUP_READER_ID" ]]; then
+        num_slave_readers+=1
+      fi
+    done< <(printf "$query_result\n")
+
+    log "" "--> Number of slave writers that are 'ONLINE': ${num_slave_writers} : hostgroup: ${HOSTGROUP_WRITER_ID}"
+    [[ ${HOSTGROUP_READER_ID} -ne -1 ]] && log "" "--> Number of slave readers that are 'ONLINE': ${num_slave_readers} : hostgroup: ${HOSTGROUP_READER_ID}"
+
     restore_reload_check "${reload_check_file}" $save_reload_state
   fi
 
