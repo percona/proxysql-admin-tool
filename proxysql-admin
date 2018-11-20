@@ -1350,13 +1350,14 @@ function adduser(){
 #
 function get_proxysql_users() {
   local proxysql_users
-  proxysql_users=$(proxysql_exec "$LINENO" "SELECT username,password FROM mysql_users where password!='' and default_hostgroup=$WRITE_HOSTGROUP_ID" "" "hide_output" |
+  proxysql_users=$(proxysql_exec "$LINENO" "SELECT username,password FROM mysql_users where password!='' and default_hostgroup=$WRITE_HOSTGROUP_ID" "" "hide_output")
+  check_cmd $? $LINENO "Failed to load user list from ProxySQL database."\
+                       "\n-- Please check the ProxySQL connection parameters and status."
+  proxysql_users=$(echo "$proxysql_users" |
                       sed 's/\t/,/g' |
                       egrep -v "username,password" |
                       sort |
                       uniq )
-  check_cmd $? $LINENO "Failed to load user list from ProxySQL database."\
-                       "\n-- Please check the ProxySQL connection parameters and status."
   printf "$proxysql_users"
 }
 
