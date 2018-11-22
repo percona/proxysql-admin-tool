@@ -30,7 +30,7 @@ declare     NRED=""
 #
 # Global variables used by the script
 #
-declare     ERR_FILE="/dev/null"
+declare     ERR_FILE="/dev/stderr"
 declare     NODE_MONITOR_LOG_FILE=""
 declare     CONFIG_FILE="/etc/proxysql-admin.cnf"
 declare     HOST_PRIORITY_FILE=""
@@ -129,7 +129,7 @@ function error() {
   local lineno=$1
   shift
 
-  log "$lineno" "Error ($lineno): $*"
+  log "$lineno" "proxysql_galera_checker : Error ($lineno): $*"
 }
 
 function warning() {
@@ -612,7 +612,7 @@ function parse_args() {
     --name="$(basename "$0")" -- "$@")"
     if [[ $? -ne 0 ]]; then
       # no place to send output
-      echo "Script error: getopt() failed" >&2
+      echo "proxysql_galera_checker : Script error: getopt() failed" >&2
       exit 1
     fi
     eval set -- "$go_out"
@@ -862,7 +862,7 @@ function check_is_galera_checker_running() {
     if ps -p $GPID -o args=ARGS | grep $ERR_FILE | grep -o proxysql_galera_check >/dev/null 2>&1 ; then
       ps -p $GPID > /dev/null 2>&1
       if [[ $? -eq 0 ]]; then
-        log "$LINENO" "ProxySQL galera checker process already running."
+        log "$LINENO" "ProxySQL galera checker process already running. (pid:$GPID  this pid:$$)"
 
         # We don't want to remove this file on cleanup
         CHECKER_PIDFILE=""
@@ -2347,9 +2347,6 @@ function main() {
   else
       log "" "###### Not loading mysql_servers, no change needed ######"
   fi
-
-  rm -f $CHECKER_PIDFILE
-  CHECKER_PIDFILE=""
 }
 
 
