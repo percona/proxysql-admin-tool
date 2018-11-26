@@ -415,8 +415,14 @@ function separate_ip_port_from_address()
   #
   local address=$1
 
-  ip_addr=${address%:*}
-  port=${address##*:}
+  # Has to have at least one ':' to separate the port from the ip address
+  if [[ $address =~ : ]]; then
+    ip_addr=${address%:*}
+    port=${address##*:}
+  else
+    ip_addr=$address
+    port=""
+  fi
 
   # Remove any braces that surround the ip address portion
   ip_addr=${ip_addr#\[}
