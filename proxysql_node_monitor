@@ -418,8 +418,14 @@ function separate_ip_port_from_address()
   #
   local address=$1
 
-  ip_addr=${address%:*}
-  port=${address##*:}
+  # Has to have at least one ':' to separate the port from the ip address
+  if [[ $address =~ : ]]; then
+    ip_addr=${address%:*}
+    port=${address##*:}
+  else
+    ip_addr=$address
+    port=""
+  fi
 
   # Remove any braces that surround the ip address portion
   ip_addr=${ip_addr#\[}
@@ -507,8 +513,8 @@ function update_cluster() {
       fi
       net_address=$(echo $line | cut -d' ' -f1)
       net_address=$(separate_ip_port_from_address $net_address)
-      local ip_addr=$(echo $net_address | cut -d' ' -f1)
-      local port=$(echo $net_address | cut -d' ' -f2)
+      local ip_addr=$(echo "$net_address" | cut -d' ' -f1)
+      local port=$(echo "$net_address" | cut -d' ' -f2)
       net_address=$(combine_ip_port_into_address "$ip_addr" "$port")
       current_hosts+="$net_address "
     done< <(printf "$host_info\n")
@@ -544,8 +550,8 @@ function update_cluster() {
 
     log $LINENO "Cluster node (${i}) does not exist in ProxySQL, adding as a $MODE_COMMENT node"
     ws_address=$(separate_ip_port_from_address "$i")
-    ws_ip=$(echo $ws_address | cut -d' ' -f1)
-    ws_port=$(echo $ws_address | cut -d' ' -f2)
+    ws_ip=$(echo "$ws_address" | cut -d' ' -f1)
+    ws_port=$(echo "$ws_address" | cut -d' ' -f2)
 
     # Add the node as a reader
     local hostgroup
@@ -586,8 +592,8 @@ function update_cluster() {
     # set it OFFLINE_SOFT unless its a slave node
     #
     ws_address=$(separate_ip_port_from_address "$i")
-    ws_ip=$(echo $ws_address | cut -d' ' -f1)
-    ws_port=$(echo $ws_address | cut -d' ' -f2)
+    ws_ip=$(echo "$ws_address" | cut -d' ' -f1)
+    ws_port=$(echo "$ws_address" | cut -d' ' -f2)
 
     # This is supported by status, so OFFLINE should come before ONLINE
     # Note that the status is in DESC order, so "ONLINE : OFFLINE_SOFT : OFFLINE_HARD"
@@ -633,8 +639,8 @@ function update_cluster() {
       local host
 
       ws_address=$(separate_ip_port_from_address "$i")
-      ws_ip=$(echo $ws_address | cut -d' ' -f1)
-      ws_port=$(echo $ws_address | cut -d' ' -f2)
+      ws_ip=$(echo "$ws_address" | cut -d' ' -f1)
+      ws_port=$(echo "$ws_address" | cut -d' ' -f2)
 
       # properly escape the characters for grep
       local re_i="$(printf '%s' "$ws_ip:$ws_port" | sed 's/[.[\*^$]/\\&/g')"
@@ -645,8 +651,8 @@ function update_cluster() {
       log "" "Cluster node (${ws_hg_id}:${i}) current status '$ws_status' in ProxySQL."
     else
       ws_address=$(separate_ip_port_from_address "$i")
-      ws_ip=$(echo $ws_address | cut -d' ' -f1)
-      ws_port=$(echo $ws_address | cut -d' ' -f2)
+      ws_ip=$(echo "$ws_address" | cut -d' ' -f1)
+      ws_port=$(echo "$ws_address" | cut -d' ' -f2)
       ws_hg_status=$(proxysql_exec $LINENO "SELECT hostgroup_id,status from mysql_servers WHERE hostname='$ws_ip' and port=$ws_port")
       ws_hg_id=$(echo $ws_hg_status | cut -d' ' -f1)
       ws_status=$(echo $ws_hg_status | cut -d' ' -f2)
