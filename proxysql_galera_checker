@@ -1606,6 +1606,10 @@ function update_readers() {
   echo "$query_result" \
              | while read hostgroup server port stat comment writer_stat || [[ -n $writer_stat ]]
   do
+    if [[ -z $server || -z $port ]]; then
+      continue
+    fi
+
     if [[ $comment == "SLAVEREAD" ]]; then
       set_slave_status "${reload_check_file}" $hostgroup $server $port $stat
       continue
@@ -2067,7 +2071,14 @@ function main() {
   local mysql_credentials
   local scheduler_id
 
+  # If this call fails, exit out.  We can't do anything without the monitor
+  # credentials.  (Or if we can't connect to proxysql).
   mysql_credentials=$(proxysql_exec $LINENO -Ns "SELECT variable_value FROM global_variables WHERE variable_name IN ('mysql-monitor_username','mysql-monitor_password') ORDER BY variable_name DESC" "hide_output")
+  if [[ $? -ne 0 ]]; then
+    error $LINENO "Unable to obtain credentials from proxysql"
+    log $LINENO "Please check proxysql credentials and status.  Exiting"
+    exit 1
+  fi
   MYSQL_USERNAME=$(echo $mysql_credentials | awk '{print $1}')
   MYSQL_PASSWORD=$(echo $mysql_credentials | awk '{print $2}')
 
@@ -2411,7 +2422,7 @@ else
       case $param in
         -h | --help)
           usage
-          exit
+          exit 0
           ;;
         --debug)
           DEBUG=1
