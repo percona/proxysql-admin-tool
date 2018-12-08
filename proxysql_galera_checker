@@ -18,7 +18,7 @@ set -o nounset    # no undefined variables
 # Script parameters/constants
 #
 declare  -i DEBUG=0
-readonly    PROXYSQL_ADMIN_VERSION="1.4.12"
+readonly    PROXYSQL_ADMIN_VERSION="1.4.13"
 
 #Timeout exists for instances where mysqld may be hung
 declare  -i TIMEOUT=10
@@ -84,9 +84,9 @@ function log() {
 
   if [[ -n $ERR_FILE ]]; then
     if [[ -n $lineno && $DEBUG -ne 0 ]]; then
-      echo -e "[$(date +%Y-%m-%d\ %H:%M:%S)] (line $lineno) $*" >> $ERR_FILE
+      echo -e "[$(date +%Y-%m-%d\ %H:%M:%S)] $$ (line $lineno) $*" >> $ERR_FILE
     else
-      echo -e "[$(date +%Y-%m-%d\ %H:%M:%S)] $*" >> $ERR_FILE
+      echo -e "[$(date +%Y-%m-%d\ %H:%M:%S)] $$ $*" >> $ERR_FILE
     fi
   fi
 }
@@ -2063,7 +2063,7 @@ function remove_slave_from_write_hostgroup() {
 #   NUMBER_WRITERS
 #
 function main() {
-  local cluster_name
+  local cluster_name=""
   local mysql_credentials
   local scheduler_id
 
@@ -2075,8 +2075,10 @@ function main() {
   scheduler_id=$(proxysql_exec $LINENO -Ns "SELECT id FROM scheduler where arg1 LIKE '%--write-hg=$HOSTGROUP_WRITER_ID %' OR arg1 LIKE '%-w $HOSTGROUP_WRITER_ID %'")
   if [[ -z $scheduler_id ]]; then
     error $LINENO "Cannot find the scheduler row with write hostgroup : $HOSTGROUP_WRITER_ID"
+  else
+    cluster_name=$(proxysql_exec $LINENO -Ns "SELECT comment FROM scheduler WHERE id=${scheduler_id}" 2>>$ERR_FILE)
   fi
-  cluster_name=$(proxysql_exec $LINENO -Ns "SELECT comment FROM scheduler WHERE id=${scheduler_id}" 2>>$ERR_FILE)
+
   if [[ -z $cluster_name ]]; then
     #
     # Could not find the cluster name from the scheduler,
@@ -2101,12 +2103,21 @@ function main() {
       #
       # We've found the cluster name so update the scheduler args
       #
-      local arg1 my_path
-      arg1=$(proxysql_exec $LINENO -Ns "SELECT arg1 from scheduler where id=${scheduler_id}")
-      my_path=$(echo ${PROXYSQL_DATADIR}/${cluster_name}_proxysql_galera_check.log | sed  's#\/#\\\/#g')
-      arg1=$(echo $arg1 | sed "s/--log=.*/--log=$my_path/g")
+      if [[ -z $scheduler_id ]]; then
+        warning "$LINENO" "Cannot update scheduler due to missing scheduler_id"
+      else
+        local arg1 my_path
+        log "$LINENO" "Updating scheduler for cluster:${cluster_name} write_hg:$HOSTGROUP_WRITER_ID"
+        arg1=$(proxysql_exec $LINENO -Ns "SELECT arg1 from scheduler where id=${scheduler_id}")
+        if [[ -z $arg1 ]]; then
+          warning $LINENO "Cannot update scheduler due to missing arguments (arg1 is empty)"
+        else
+          my_path=$(echo ${PROXYSQL_DATADIR}/${cluster_name}_proxysql_galera_check.log | sed  's#\/#\\\/#g')
+          arg1=$(echo $arg1 | sed "s/--log=.*/--log=$my_path/g")
 
-      proxysql_exec $LINENO -Ns "UPDATE scheduler set comment='$cluster_name',arg1='$arg1' where id=${scheduler_id};load scheduler to runtime;save scheduler to disk"
+          proxysql_exec $LINENO -Ns "UPDATE scheduler set comment='$cluster_name',arg1='$arg1' where id=${scheduler_id};load scheduler to runtime;save scheduler to disk"
+        fi
+      fi
     fi
   fi
 
