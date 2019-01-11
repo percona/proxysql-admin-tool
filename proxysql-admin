@@ -1444,6 +1444,9 @@ function syncusers() {
     10.2)
       password_field="Password"
       ;;
+    10.3)
+      password_field="Password"
+      ;;
     *)
       error $LINENO "Unexpected database server version: ${mysql_version}"\
                     "\n-- This version of proxysql-admin needs to be updated."
