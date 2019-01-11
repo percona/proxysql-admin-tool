@@ -49,7 +49,7 @@ fi
 #
 # Script parameters/constants
 #
-readonly    PROXYSQL_ADMIN_VERSION="1.4.12"
+readonly    PROXYSQL_ADMIN_VERSION="1.4.13"
 declare  -i DEBUG=0
 
 #
@@ -531,8 +531,14 @@ function separate_ip_port_from_address()
   #
   local address=$1
 
-  ip_addr=${address%:*}
-  port=${address##*:}
+  # Has to have at least one ':' to separate the port from the ip address
+  if [[ $address =~ : ]]; then
+    ip_addr=${address%:*}
+    port=${address##*:}
+  else
+    ip_addr=$address
+    port=""
+  fi
 
   # Remove any braces that surround the ip address portion
   ip_addr=${ip_addr#\[}
@@ -1021,8 +1027,8 @@ function enable_proxysql() {
     echo -e "\nVerifying specified slave nodes"
     for i in $SLAVE_NODES; do
       ws_address=$(separate_ip_port_from_address "$i")
-      SLAVE_HOSTNAME=`echo $ws_address | cut -d' ' -f1`
-      SLAVE_PORT=`echo $ws_address | cut -d' ' -f2`
+      SLAVE_HOSTNAME=$(echo "$ws_address" | cut -d' ' -f1)
+      SLAVE_PORT=$(echo "$ws_address" | cut -d' ' -f2)
 
       # Verify we can connect to the slave
       slave_exec "$LINENO" 'show slave status\G' > /dev/null
@@ -1037,8 +1043,8 @@ function enable_proxysql() {
                         tr '\n' ':' |
                         sed 's/:$//g')
       local slave_master_address=$(separate_ip_port_from_address "$slave_master")
-      local slave_master_ip=$(echo $slave_master_address | cut -d' ' -f1)
-      local slave_master_port=$(echo $slave_master_address | cut -d' ' -f2)
+      local slave_master_ip=$(echo "$slave_master_address" | cut -d' ' -f1)
+      local slave_master_port=$(echo "$slave_master_address" | cut -d' ' -f2)
       slave_master_address=$(combine_ip_port_into_address "$slave_master_ip", "$slave_master_port")
       if [[ ${wsrep_address[*]} != *"$slave_master"* ]]; then
         error $LINENO "The slave node's master ($slave_master_address) is not in the list"\
@@ -1350,13 +1356,14 @@ function adduser(){
 #
 function get_proxysql_users() {
   local proxysql_users
-  proxysql_users=$(proxysql_exec "$LINENO" "SELECT username,password FROM mysql_users where password!='' and default_hostgroup=$WRITE_HOSTGROUP_ID" "" "hide_output" |
+  proxysql_users=$(proxysql_exec "$LINENO" "SELECT username,password FROM mysql_users where password!='' and default_hostgroup=$WRITE_HOSTGROUP_ID" "" "hide_output")
+  check_cmd $? $LINENO "Failed to load user list from ProxySQL database."\
+                       "\n-- Please check the ProxySQL connection parameters and status."
+  proxysql_users=$(echo "$proxysql_users" |
                       sed 's/\t/,/g' |
                       egrep -v "username,password" |
                       sort |
                       uniq )
-  check_cmd $? $LINENO "Failed to load user list from ProxySQL database."\
-                       "\n-- Please check the ProxySQL connection parameters and status."
   printf "$proxysql_users"
 }
 
@@ -1742,15 +1749,10 @@ function parse_args() {
         shift 2
         ;;
       --write-node )
-  #    if [ `grep -o ',' <<< $2 | wc -l` -gt 0 ];then
-        # TODO Validate input
         P_HOST_PRIORITY=$2
-        WRITE_NODES=`echo "$2" | sed 's/,/ /g'`
-        WRITE_NODE=`echo "$WRITE_NODES" | cut -d' ' -f1`
+        WRITE_NODES=$(echo "$2" | sed 's/,/ /g')
+        WRITE_NODE=$(echo "$WRITE_NODES" | cut -d' ' -f1)
         ENABLE_PRIORITY=1
-  #    else
-  #      WRITE_NODE="$2"
-  #    fi
         shift 2
         ;;
       --include-slaves )
@@ -1781,6 +1783,24 @@ function parse_args() {
     esac
   done
 
+  # WRITE_NODES validity check (check to see if the port is included)
+  local ws_address
+  local ws_port
+  if [[ -n $WRITE_NODES ]]; then
+    for node in $WRITE_NODES
+    do
+      ws_address=$(separate_ip_port_from_address "$node")
+      ws_port=$(echo "$ws_address" | cut -d' ' -f2)
+
+      # Check that we have a port and that it only contains digits
+      if [[ -z $ws_port || ! $ws_port =~ ^[[:digit:]]*$ ]]; then
+        error "$LINENO" "--write-node : expected 'address:port' found '$node'"
+        exit 1
+      fi
+
+    done
+  fi
+
   # Check user permission to proxysql datadir
   if [[ -z $PROXYSQL_DATADIR ]]; then
     if [[ -d /var/lib/proxysql ]]; then
@@ -1788,7 +1808,7 @@ function parse_args() {
     elif [[ -d /usr/share/proxysql ]]; then
       PROXYSQL_DATADIR="/usr/share/proxysql"
     else
-      debug "" "Cannot find the ProyxSQL datadir"
+      error "$LINENO" "Could not find the ProxySQL datadir.  Please specify using --proxysql-datadir"
       exit 1
     fi
   fi

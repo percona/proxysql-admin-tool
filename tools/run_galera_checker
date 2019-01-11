@@ -119,7 +119,7 @@ function parse_args() {
         --node-monitor-log )
           NODE_MONITOR_LOG=$value
           if [[ -z $value ]]; then
-            echo "Error: no value provided with --node-monitir-log"
+            echo "Error: no value provided with --node-monitor-log"
             exit 1
           fi
           ;;

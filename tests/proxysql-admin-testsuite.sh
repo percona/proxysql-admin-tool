@@ -45,6 +45,8 @@ declare USE_IPVERSION="v4"
 
 declare ALLOW_SHUTDOWN="Yes"
 
+declare PROXYSQL_EXTRA_OPTIONS=""
+
 #
 # Useful functions
 # ================================================
@@ -85,6 +87,9 @@ Options:
                       May be used with --no-test to startup only one cluster.
   --ipv4              Run the tests using IPv4 addresses (default)
   --ipv6              Run the tests using IPv6 addresses
+  --proxysql-options=OPTIONS
+                      Specify additional options that will be passed
+                      to proxysql.
 EOF
 }
 
@@ -118,6 +123,9 @@ function parse_args() {
           ;;
         --ipv6)
           USE_IPVERSION="v6"
+          ;;
+        --proxysql-options)
+          PROXYSQL_EXTRA_OPTIONS=$value
           ;;
         *)
           echo "ERROR: unknown parameter \"$param\""
@@ -397,8 +405,12 @@ LOCALHOST_NAME=$(cat /etc/hosts | grep "^${LOCALHOST_IP}" | awk '{ print $2 }')
 declare ROOT_FS=$WORKDIR
 mkdir -p $WORKDIR/logs
 
+echo "Shutting down currently running mysqld instances"
 ps -ef | egrep "mysqld" | grep "$(whoami)" | egrep -v "grep" | xargs kill -9 2>/dev/null
 ps -ef | egrep "node..sock" | grep "$(whoami)" | egrep -v "grep" | xargs kill -9 2>/dev/null
+
+echo "Shutting down currently running proxysql instances"
+sudo ps -ef | egrep "proxysql" | grep "$(whoami)" | egrep -v "grep" | xargs kill -9 2>/dev/null
 
 #
 # Check file locations before doing anything
@@ -482,7 +494,7 @@ if [[ ! -x $PROXYSQL_BASE/usr/bin/proxysql ]]; then
   echo "ERROR! Could not find proxysql executable : $PROXYSQL_BASE/usr/bin/proxysql"
   exit 1
 fi
-$PROXYSQL_BASE/usr/bin/proxysql -D $WORKDIR/proxysql_db  $WORKDIR/proxysql_db/proxysql.log &
+$PROXYSQL_BASE/usr/bin/proxysql -D $WORKDIR/proxysql_db $PROXYSQL_EXTRA_OPTIONS $WORKDIR/proxysql_db/proxysql.log &
 echo "....ProxySQL started"
 
 
@@ -607,7 +619,7 @@ if [[ $RUN_TEST -eq 1 ]]; then
       ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=$LOCALHOST_IP --port=6032 --protocol=tcp \
         -e "select hostgroup_id,hostname,port,status,comment from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
       echo "********************************"
-      echo "* $test_file failed, the servers (ProxySQL+PXC)will be left running"
+      echo "* $test_file failed, the servers (ProxySQL+PXC) will be left running"
       echo "* for debugging purposes."
       echo "********************************"
       ALLOW_SHUTDOWN="No"
