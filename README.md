@@ -58,7 +58,7 @@ One of the options below must be provided.
 ```
 Prerequisites
 --------------
-* PsroxySQL and Percona XtraDB Cluster should be up and running.
+* ProxySQL and Percona XtraDB Cluster should be up and running.
 * For security purposes, please change the default user settings in the ProxySQL configuration file.
 * _ProxySQL configuration file(/etc/proxysql-admin.cnf)_
 ```bash
