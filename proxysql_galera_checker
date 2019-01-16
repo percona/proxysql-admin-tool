@@ -565,7 +565,7 @@ function upgrade_scheduler(){
 
       # Get the list of hosts from the host_priority file ignoring blanks
       # and any lines that start with '#'
-      p_priority_hosts=$(cat $HOST_PRIORITY_FILE | grep ^[^#] | sed ':a;N;$!ba;s/\n/,/g')
+      p_priority_hosts=$(cat $HOST_PRIORITY_FILE | grep '^[^#]' | sed ':a;N;$!ba;s/\n/,/g')
       if [[ ! -z $p_priority_hosts ]] ; then
         s_host_priority="--priority=$p_priority_hosts"
       fi
@@ -1212,7 +1212,7 @@ function get_host_priority_list() {
     # Get the list of hosts from the host_priority file ignoring blanks and
     # any lines that start with '#'
     debug $LINENO "Found a host priority file: $HOST_PRIORITY_FILE"
-    priority_hosts=$(cat "$HOST_PRIORITY_FILE" | grep ^[^#])
+    priority_hosts=$(cat "$HOST_PRIORITY_FILE" | grep '^[^#]')
     if [[ -n $priority_hosts ]]; then
       priority_hosts=($(echo $priority_hosts))
     fi
