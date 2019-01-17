@@ -81,6 +81,7 @@ function mysql_exec() {
 #   COMMENTS
 #   HOSTGROUPS
 #   WEIGHTS
+#   MAX_CONNECTIONS
 #
 # Arguments:
 #   1: hostgroup
@@ -96,6 +97,7 @@ function get_node_data() {
   COMMENTS=()
   HOSTGROUPS=()
   WEIGHTS=()
+  MAX_CONNECTIONS=()
 
   if [[ -n $hostgroup ]]; then
     if [[ $hostgroup =~ ',' ]]; then
@@ -111,7 +113,7 @@ function get_node_data() {
   fi
   query+="comment <> 'SLAVEREAD'"
 
-  data=$(proxysql_exec "SELECT hostname,port,status,comment,hostgroup_id,weight FROM mysql_servers WHERE $query ORDER BY status,hostname,port,hostgroup_id")
+  data=$(proxysql_exec "SELECT hostname,port,status,comment,hostgroup_id,weight,max_connections FROM mysql_servers WHERE $query ORDER BY status,hostname,port,hostgroup_id")
   local rc=$?
 
   if [[ $rc -ne 0 ]]; then
@@ -125,6 +127,7 @@ function get_node_data() {
     COMMENTS+=($(echo $line | awk '{ print $4 }'))
     HOSTGROUPS+=($(echo $line | awk '{ print $5 }'))
     WEIGHTS+=($(echo $line | awk '{ print $6 }'))
+    MAX_CONNECTIONS+=($(echo $line | awk '{ print $7 }'))
   done< <(printf "%s\n" "$data")
 }
 
@@ -136,6 +139,7 @@ function retrieve_reader_info() {
   read_comment=("${COMMENTS[@]}")
   read_hostgroup=("${HOSTGROUPS[@]}")
   read_weight=("${WEIGHTS[@]}")
+  read_max_connections=("${MAX_CONNECTIONS[@]}")
 }
 
 function retrieve_writer_info() {
@@ -146,6 +150,7 @@ function retrieve_writer_info() {
   write_comment=("${COMMENTS[@]}")
   write_hostgroup=("${HOSTGROUPS[@]}")
   write_weight=("${WEIGHTS[@]}")
+  write_max_connections=("${MAX_CONNECTIONS[@]}")
 }
 
 
@@ -245,9 +250,10 @@ function wait_for_server_shutdown() {
   for X in $( seq 0 30 ); do
     sleep 1
     if ! ${PXC_BASEDIR}/bin/mysqladmin -uroot -S${socket} ping > /dev/null 2>&1; then
-      break
+      return 0
     fi
   done
+  return 1
 }
 
 

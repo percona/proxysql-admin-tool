@@ -28,3 +28,7 @@ export MODE="singlewrite"
 
 # Writer-is-reader configuration
 export WRITER_IS_READER="ondemand"
+
+# max_connections default (used only when INSERTing a new mysql_servers entry)
+export MAX_CONNECTIONS="1000"
+

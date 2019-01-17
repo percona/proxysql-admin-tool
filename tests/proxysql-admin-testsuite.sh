@@ -14,6 +14,7 @@ TEST_SUITES+=("host-priority-testsuite.bats")
 TEST_SUITES+=("desynced-host-testsuite.bats")
 TEST_SUITES+=("async-slave-testsuite.bats")
 TEST_SUITES+=("loadbal-testsuite.bats")
+TEST_SUITES+=("node-monitor-testsuite.bats")
 
 
 #
@@ -103,7 +104,7 @@ function parse_args() {
 
       # possible positional parameter
       if [[ ! $param =~ ^--[^[[:space:]]]* ]]; then
-        positional_params+="$param "
+        positional_params+="$1 "
         shift
         continue
       fi
@@ -590,6 +591,7 @@ sudo sed -i "0,/^[ \t]*export CLUSTER_HOSTNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER
 sudo sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_one\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$|export WRITE_HOSTGROUP_ID=\"10\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$|export READ_HOSTGROUP_ID=\"11\"|" /etc/proxysql-admin.cnf
+sudo sed -i "0,/^[ \t]*export MAX_CONNECTIONS[ \t]*=.*$/s|^[ \t]*export MAX_CONNECTIONS[ \t]*=.*$|export MAX_CONNECTIONS=\"1111\"|" /etc/proxysql-admin.cnf
 
 if [[ $RUN_TEST -eq 1 ]]; then
   echo ""
@@ -617,7 +619,7 @@ if [[ $RUN_TEST -eq 1 ]]; then
 
     if [[ $rc -ne 0 ]]; then
       ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=$LOCALHOST_IP --port=6032 --protocol=tcp \
-        -e "select hostgroup_id,hostname,port,status,comment from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
+        -e "select hostgroup_id,hostname,port,status,comment,max_connections from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
       echo "********************************"
       echo "* $test_file failed, the servers (ProxySQL+PXC) will be left running"
       echo "* for debugging purposes."
@@ -687,6 +689,7 @@ sudo sed -i "0,/^[ \t]*export CLUSTER_PORT[ \t]*=.*$/s|^[ \t]*export CLUSTER_POR
 sudo sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_two\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$|export WRITE_HOSTGROUP_ID=\"20\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$|export READ_HOSTGROUP_ID=\"21\"|" /etc/proxysql-admin.cnf
+sudo sed -i "0,/^[ \t]*export MAX_CONNECTIONS[ \t]*=.*$/s|^[ \t]*export MAX_CONNECTIONS[ \t]*=.*$|export MAX_CONNECTIONS=\"1111\"|" /etc/proxysql-admin.cnf
 echo "================================================================"
 echo ""
 
@@ -709,11 +712,12 @@ if [[ $RUN_TEST -eq 1 ]]; then
 
     if [[ $rc -ne 0 ]]; then
       ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=$LOCALHOST_IP --port=6032 --protocol=tcp \
-        -e "select hostgroup_id,hostname,port,status,comment from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
+        -e "select hostgroup_id,hostname,port,status,comment,max_connections from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
       echo "********************************"
       echo "* $test_file failed, the servers (ProxySQL+PXC)will be left running"
       echo "* for debugging purposes."
       echo "********************************"
+      ALLOW_SHUTDOWN="No"
       exit 1
     fi
     echo "================================================================"
