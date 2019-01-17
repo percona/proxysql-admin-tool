@@ -73,7 +73,7 @@ function parse_args() {
       # Assume that all options start with a '-'
       # otherwise treat as a positional parameter
       if [[ ! $param =~ ^- ]]; then
-        positional_params+="$param "
+        positional_params+="$1 "
         shift
         continue
       fi
@@ -126,4 +126,5 @@ if [[ -z $QUERY ]]; then
   exit 1
 fi
 
+echo "Query : $QUERY"
 exec_sql "$QUERY_OPTIONS" "$QUERY"

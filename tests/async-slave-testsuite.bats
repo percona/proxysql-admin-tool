@@ -24,6 +24,7 @@ declare STATUS=()
 declare HOSTGROUPS=()
 declare COMMENTS=()
 declare WEIGHTS=()
+declare MAX_CONNECTIONS=()
 declare slave_host
 declare slave_port
 declare slave_status

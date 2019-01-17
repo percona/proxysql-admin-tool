@@ -136,6 +136,30 @@ echo "$output"
         [ "$status" -eq 1 ]
 }
 
+@test 'run proxysql-admin --max-connections without parameters' {
+run sudo $WORKDIR/proxysql-admin --max-connections
+echo "$output"
+        [ "$status" -eq 1 ]
+}
+
+@test 'run proxysql-admin --max-connections without parameters' {
+run sudo $WORKDIR/proxysql-admin --max-connections=
+echo "$output"
+        [ "$status" -eq 1 ]
+}
+
+@test 'run proxysql-admin --max-connections with non-number parameter' {
+run sudo $WORKDIR/proxysql-admin --max-connections=abc
+echo "$output"
+        [ "$status" -eq 1 ]
+}
+
+@test 'run proxysql-admin --max-connections with negative values' {
+run sudo $WORKDIR/proxysql-admin --max-connections=-1
+echo "$output"
+        [ "$status" -eq 1 ]
+}
+
 @test "run proxysql-admin --version check" {
   admin_version=$(sudo $WORKDIR/proxysql-admin -v | grep --extended-regexp -oe '[1-9]\.[0-9]\.[0-9]+')
   proxysql_version=$(sudo $PROXYSQL_BASE/usr/bin/proxysql --help | grep --extended-regexp -oe '[1-9]\.[0-9]\.[0-9]+')
