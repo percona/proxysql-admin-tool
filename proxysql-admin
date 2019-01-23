@@ -2058,8 +2058,22 @@ function main() {
       syncusers
       echo -e "\nSynced PXC users to the ProxySQL database!"
     fi
-  elif [[ $DISABLE -eq 1 ]]; then  
 
+    if [[ -n $MAX_CONNECTIONS_ARGS ]]; then
+      # --max-connections was specified on the command-line, issue a warning
+      # if the incoming connection limit is smaller than the backend connection limit.
+      local incoming_max
+      incoming_max=$(proxysql_exec "$LINENO" "select variable_value from global_variables where variable_name like 'mysql-max_connections'")
+      if [[ -n $incoming_max && $incoming_max -lt $MAX_CONNECTIONS ]]; then
+        warning $LINENO "The value of the '--max-connections' option($MAX_CONNECTIONS) exceeds"
+        echo "-- the limit on incoming client connections($incoming_max). The limit on incoming"
+        echo "-- connections may be increased by changing the value of 'mysql-max_connections'"
+        echo "-- in the ProxySQL global_variables table."
+        echo ""
+      fi
+    fi
+
+  elif [[ $DISABLE -eq 1 ]]; then
     disable_proxysql
     echo "ProxySQL configuration removed!"
 
