@@ -1,6 +1,6 @@
 # proxysql_galera_checker usage info.
 
-`proxysql_galera_checker` script will check Percona XtraDB Cluster desynced nodes, and temporarily deactivate them. Currently, this script is developed to work with proxysql-admin [script](https://github.com/percona/proxysql-admin-tool/blob/v1.4.13-dev/README.md)
+`proxysql_galera_checker` script will check Percona XtraDB Cluster desynced nodes, and temporarily deactivate them. Currently, this script is developed to work with proxysql-admin [script](https://github.com/percona/proxysql-admin-tool/blob/v1.4.14-dev/README.md)
 
 This script will also call `proxysql_node_monitor` script. Monitor script will check cluster node membership, and re-configure ProxySQL if cluster membership changes occur. 
 
