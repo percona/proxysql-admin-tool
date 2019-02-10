@@ -49,7 +49,7 @@ fi
 #
 # Script parameters/constants
 #
-readonly    PROXYSQL_ADMIN_VERSION="1.4.13"
+readonly    PROXYSQL_ADMIN_VERSION="1.4.14"
 declare  -i DEBUG=0
 
 #
@@ -95,6 +95,17 @@ declare -i USE_EXISTING_MONITOR_PASSWORD=0
 declare -i WITH_CLUSTER_APP_USER=1
 
 declare    WRITER_IS_READER="ondemand"
+
+#
+# Default value for max_connections in mysql_servers
+#
+declare    MAX_CONNECTIONS="1000"
+
+#
+# This is the options string to be set in the proxysql_galera_checker
+# command.  This is only set if MAX_CONNECTIONS is set via the command-line
+#
+declare    MAX_CONNECTIONS_ARGS=""
 
 #-------------------------------------------------------------------------------
 #
@@ -192,6 +203,10 @@ Options:
                                      'ondemand' means that the writer node only accepts reads
                                      if there are no other readers.
                                      (default: 'ondemand')
+  --max-connections=<NUMBER>         Value for max_connections in the mysql_servers table.
+                                     This is the maximum number of connections that
+                                     ProxySQL will open to the backend servers.
+                                     (default: 1000)
   --debug                            Enables additional debug logging.
   --help                             Dispalys this help text.
 
@@ -1087,7 +1102,7 @@ function enable_proxysql() {
       local ws_ip=$(echo "$ws_address" | cut -d' ' -f1)
       local ws_port=$(echo "$ws_address" | cut -d' ' -f2)
       ws_address=$(combine_ip_port_into_address "$ws_ip" "$ws_port")
-      proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment) VALUES ('$ws_ip',$WRITE_HOSTGROUP_ID,$ws_port,1000,'READWRITE');"
+      proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment,max_connections) VALUES ('$ws_ip',$WRITE_HOSTGROUP_ID,$ws_port,1000,'READWRITE',$MAX_CONNECTIONS);"
       check_cmd $? $LINENO "Failed to add the PXC server node $ws_address."\
                            "\n-- Please check the ProxySQL connection parameters and status."
     done
@@ -1167,14 +1182,14 @@ function enable_proxysql() {
       local ws_ip=$(echo "$ws_address" | cut -d' ' -f1)
       local ws_port=$(echo "$ws_address" | cut -d' ' -f2)
       if [ "$ws_ip" == "$writer_ws_ip" ] && [ "$ws_port" == "$writer_ws_port" ]; then
-        proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment) VALUES ('$writer_ws_ip',$WRITE_HOSTGROUP_ID,$writer_ws_port,1000000,'WRITE');"
+        proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment,max_connections) VALUES ('$writer_ws_ip',$WRITE_HOSTGROUP_ID,$writer_ws_port,1000000,'WRITE',$MAX_CONNECTIONS);"
         check_cmd $? $LINENO "Failed to add the PXC server node $ws_address."\
                              "\n-- Please check the ProxySQL connection parameters and status."
         echo -e "\nWrite node info"
         proxysql_exec "$LINENO" "SELECT hostname,hostgroup_id,port,weight,comment FROM mysql_servers WHERE hostgroup_id=$WRITE_HOSTGROUP_ID" "-t"
         echo ""
       else
-        proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment) VALUES ('$ws_ip',$READ_HOSTGROUP_ID,$ws_port,1000,'READ');"
+        proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment,max_connections) VALUES ('$ws_ip',$READ_HOSTGROUP_ID,$ws_port,1000,'READ',$MAX_CONNECTIONS);"
         check_cmd $? $LINENO "Failed to add the PXC server node $i."\
                               "\n-- Please check the ProxySQL connection parameters and status."
       fi
@@ -1195,7 +1210,7 @@ function enable_proxysql() {
       local ws_address=$(separate_ip_port_from_address "$i")
       local ws_ip=$(echo "$ws_address" | cut -d' ' -f1)
       local ws_port=$(echo "$ws_address" | cut -d' ' -f2)
-      proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment) VALUES ('$ws_ip',$SLAVEREAD_HOSTGROUP_ID,$ws_port,1000,'SLAVEREAD');"
+      proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment,max_connections) VALUES ('$ws_ip',$SLAVEREAD_HOSTGROUP_ID,$ws_port,1000,'SLAVEREAD',$MAX_CONNECTIONS);"
       check_cmd $? $LINENO "Failed to add the slave node $i."\
                            "\n-- Please check the ProxySQL connection parameters and status."
 
@@ -1215,7 +1230,7 @@ function enable_proxysql() {
   else
     number_writers=0
   fi
-  proxysql_exec "$LINENO" "INSERT INTO SCHEDULER (active,interval_ms,filename,arg1,comment) VALUES (1,$NODE_CHECK_INTERVAL,'$proxysql_galera_check','--config-file=$CONFIG_FILE --writer-is-reader=$WRITER_IS_READER --write-hg=$WRITE_HOSTGROUP_ID --read-hg=$READ_HOSTGROUP_ID --writer-count=$number_writers --mode=$MODE $host_priority --use-slave-as-writer=$SLAVE_IS_WRITER --log=$PROXYSQL_DATADIR/${cluster_name}_proxysql_galera_check.log','$cluster_name');"
+  proxysql_exec "$LINENO" "INSERT INTO SCHEDULER (active,interval_ms,filename,arg1,comment) VALUES (1,$NODE_CHECK_INTERVAL,'$proxysql_galera_check','--config-file=$CONFIG_FILE --writer-is-reader=$WRITER_IS_READER --write-hg=$WRITE_HOSTGROUP_ID --read-hg=$READ_HOSTGROUP_ID --writer-count=$number_writers --mode=$MODE $host_priority --use-slave-as-writer=$SLAVE_IS_WRITER $MAX_CONNECTIONS_ARGS --log=$PROXYSQL_DATADIR/${cluster_name}_proxysql_galera_check.log','$cluster_name');"
   check_cmd $? $LINENO "Failed to add the PXC monitoring scheduler in ProxySQL."\
                        "\n-- Please check the ProxySQL connection parameters and status."
 
@@ -1553,7 +1568,7 @@ function parse_args() {
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,include-slaves:,use-slave-as-writer:,use-existing-monitor-password,without-cluster-app-user,writer-is-reader:,enable,disable,adduser,syncusers,sync-multi-cluster-users,version,debug,help \
+    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,include-slaves:,use-slave-as-writer:,use-existing-monitor-password,without-cluster-app-user,writer-is-reader:,enable,disable,adduser,syncusers,sync-multi-cluster-users,max-connections:,version,debug,help \
     --name="$(basename "$0")" -- "$@")"
     check_cmd $? $LINENO "Script error: getopt() failed with arguments: $@"
     eval set -- "$go_out"
@@ -1771,6 +1786,31 @@ function parse_args() {
         QUICK_DEMO=1
         ENABLE=1
         ;;
+      --max-connections )
+        MAX_CONNECTIONS="$2"
+        shift 2
+
+        # Verify that we have an integer >= 0
+        if [[ -n $MAX_CONNECTIONS ]]; then
+          if ! [ "$MAX_CONNECTIONS" -eq "$MAX_CONNECTIONS" ] 2>/dev/null
+          then
+            error "" "option '--max-connections' requires a number : $MAX_CONNECTIONS"
+            exit 1
+          fi
+
+          if [[ $MAX_CONNECTIONS -lt 0 ]]; then
+            error "" "option '--max-connections' requires a number >=0 : $MAX_CONNECTIONS"
+            exit 1
+          fi
+        else
+            error "" "option '--max-connections' requires an argument"
+            exit 1
+        fi
+
+        # If set by the command-line, use it in the arguments
+        # for proxysql_galera_checker (so that it overrides the config file)
+        MAX_CONNECTIONS_ARGS="--max-connections=$MAX_CONNECTIONS"
+        ;;
       -v | --version )
         # Detection of this setting is done before this
         shift
@@ -1967,6 +2007,9 @@ function parse_args() {
   readonly WITH_CHECK_MONITOR_USER
   readonly WITH_CLUSTER_APP_USER
   readonly WRITER_IS_READER
+
+  readonly MAX_CONNECTIONS
+  readonly MAX_CONNECTIONS_ARGS
 }
 
 # Main function
@@ -2015,8 +2058,22 @@ function main() {
       syncusers
       echo -e "\nSynced PXC users to the ProxySQL database!"
     fi
-  elif [[ $DISABLE -eq 1 ]]; then  
 
+    if [[ -n $MAX_CONNECTIONS_ARGS ]]; then
+      # --max-connections was specified on the command-line, issue a warning
+      # if the incoming connection limit is smaller than the backend connection limit.
+      local incoming_max
+      incoming_max=$(proxysql_exec "$LINENO" "select variable_value from global_variables where variable_name like 'mysql-max_connections'")
+      if [[ -n $incoming_max && $incoming_max -lt $MAX_CONNECTIONS ]]; then
+        warning $LINENO "The value of the '--max-connections' option($MAX_CONNECTIONS) exceeds"
+        echo "-- the limit on incoming client connections($incoming_max). The limit on incoming"
+        echo "-- connections may be increased by changing the value of 'mysql-max_connections'"
+        echo "-- in the ProxySQL global_variables table."
+        echo ""
+      fi
+    fi
+
+  elif [[ $DISABLE -eq 1 ]]; then
     disable_proxysql
     echo "ProxySQL configuration removed!"
 

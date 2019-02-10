@@ -21,7 +21,7 @@ declare NRED=""
 #
 
 declare -i  DEBUG=0
-readonly    PROXYSQL_ADMIN_VERSION="1.4.13"
+readonly    PROXYSQL_ADMIN_VERSION="1.4.14"
 
 declare     CONFIG_FILE="/etc/proxysql-admin.cnf"
 declare     ERR_FILE="/dev/null"
@@ -51,6 +51,9 @@ declare -i  CLUSTER_TIMEOUT=3
 # Extra text that will be logged with the output
 # (useful for debugging/testing)
 declare     LOG_TEXT=""
+
+# Default value for max_connections in mysql_servers
+declare     MAX_CONNECTIONS="1000"
 
 
 #-------------------------------------------------------------------------------
@@ -126,6 +129,10 @@ Options:
                                       whenever this script is run (useful for debugging).
   --reload-check-file=PATH            Specify file used to notify proysql_galera_checker
                                       of a change in server configuration
+  --max-connections=<NUMBER>          Value for max_connections in the mysql_servers table.
+                                      This is the maximum number of connections that
+                                      ProxySQL will open to the backend servers.
+                                      (default: 1000)
   --debug                             Enables additional debug logging.
   -h, --help                          Display script usage information
   -v, --version                       Print version info
@@ -566,7 +573,7 @@ function update_cluster() {
       log_if_success $LINENO $? "Updated ${hostgroup}:${i} node in the ProxySQL database."
     else
       # Insert a reader if new PXC node not in ProxySQL
-      proxysql_exec $LINENO "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment) VALUES ('$ws_ip',$DEFAULT_HOSTGROUP_ID,$ws_port,1000,'$MODE_COMMENT');"
+      proxysql_exec $LINENO "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment,max_connections) VALUES ('$ws_ip',$DEFAULT_HOSTGROUP_ID,$ws_port,1000,'$MODE_COMMENT',$MAX_CONNECTIONS);"
       check_cmd $LINENO $? "Cannot add Percona XtraDB Cluster node $ws_address (hostgroup $DEFAULT_HOSTGROUP_ID) to ProxySQL database, Please check ProxySQL login credentials"
       log_if_success $LINENO $? "Added ${DEFAULT_HOSTGROUP_ID}:${i} node into ProxySQL database."
     fi
@@ -629,7 +636,7 @@ function update_cluster() {
     fi
 
     node_status=$(proxysql_exec $LINENO "SELECT status from mysql_servers WHERE hostname='$ws_ip' and port=$ws_port ORDER BY status LIMIT 1")
-    log $LINENO "Non-PXC node (${i}) current status '$node_status' in ProxySQL database!"
+    log $LINENO "Non-PXC node (${i}) current status '$node_status' in ProxySQL."
   done
 
   # Update the ProxySQL status for the new nodes
@@ -760,7 +767,7 @@ function mode_change_check(){
 function parse_args() {
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=w:r:c:l:m:p:vh --longoptions=write-hg:,read-hg:,mode:,priority:,config-file:,log:,reload-check-file:,log-text:,debug,version,help \
+    go_out="$(getopt --options=w:r:c:l:m:p:vh --longoptions=write-hg:,read-hg:,mode:,priority:,config-file:,log:,reload-check-file:,log-text:,max-connections:,debug,version,help \
     --name="$(basename "$0")" -- "$@")"
     if [[ $? -ne 0 ]]; then
       # no place to send output
@@ -882,6 +889,10 @@ function parse_args() {
         LOG_TEXT="$2"
         shift 2
       ;;
+      --max-connections )
+        MAX_CONNECTIONS="$2"
+        shift 2
+      ;;
       --debug )
         shift;
       ;;
@@ -951,6 +962,13 @@ function parse_args() {
   fi
   check_permission -r $LINENO "$RELOAD_CHECK_FILE"
 
+  # Verify that we have an integer
+  if ! [ "$MAX_CONNECTIONS" -eq "$MAX_CONNECTIONS" ] 2>/dev/null
+  then
+    error $LINENO "Invalid --max-connections value (must be a number) : $MAX_CONNECTIONS"
+    exit 1
+  fi
+
   readonly WRITE_HOSTGROUP_ID
   readonly READ_HOSTGROUP_ID
   readonly SLAVEREAD_HOSTGROUP_ID
@@ -959,6 +977,7 @@ function parse_args() {
   readonly WRITE_WEIGHT
   readonly CLUSTER_NAME
   readonly RELOAD_CHECK_FILE
+  readonly MAX_CONNECTIONS
 }
 
 # Returns the address of an available (online) cluster host

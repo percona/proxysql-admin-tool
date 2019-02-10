@@ -18,7 +18,7 @@ set -o nounset    # no undefined variables
 # Script parameters/constants
 #
 declare  -i DEBUG=0
-readonly    PROXYSQL_ADMIN_VERSION="1.4.13"
+readonly    PROXYSQL_ADMIN_VERSION="1.4.14"
 
 #Timeout exists for instances where mysqld may be hung
 declare  -i TIMEOUT=10
@@ -71,6 +71,9 @@ declare     SLAVE_SECONDS_BEHIND=3600
 # Some extra text that will be logged
 # (useful for debugging)
 declare     LOG_TEXT=""
+
+# Default value for max_connections in mysql_servers
+declare     MAX_CONNECTIONS=1000
 
 
 #-------------------------------------------------------------------------------
@@ -203,6 +206,10 @@ Options:
                                       be added to the write hostgroup if all other
                                       cluster nodes are down.
                                       (default: 'yes')
+  --max-connections=<NUMBER>          Value for max_connections in the mysql_servers table.
+                                      This is the maximum number of connections that
+                                      ProxySQL will open to the backend servers.
+                                      (default: 1000)
   --debug                             Enables additional debug logging.
   -h, --help                          Display script usage information
   -v, --version                       Print version info
@@ -621,8 +628,8 @@ function change_server_status() {
   # to upgrade, but we do have a READER entry, so upgrade that
   if [[ $reader_status == "PRIORITY_NODE" ]]; then
     proxysql_exec $lineno -Ns "INSERT INTO mysql_servers
-          (hostname,hostgroup_id,port,weight,status,comment)
-          VALUES ('$server',$hostgroup,$port,1000000,'$status','WRITE');"
+          (hostname,hostgroup_id,port,weight,status,comment,max_connections)
+          VALUES ('$server',$hostgroup,$port,1000000,'$status','WRITE',$MAX_CONNECTIONS);"
     check_cmd_and_exit $LINENO $? "Could not create new mysql_servers row (query failed). Exiting."
     log "$lineno" "Adding server $hostgroup:$address with status $status. Reason: $comment"
   else
@@ -643,7 +650,7 @@ function parse_args() {
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=w:r:c:l:n:m:p:vh --longoptions=write-hg:,read-hg:,config-file:,log:,node-monitor-log:,writer-count:,mode:,priority:,writer-is-reader:,use-slave-as-writer:,log-text:,version,debug,help \
+    go_out="$(getopt --options=w:r:c:l:n:m:p:vh --longoptions=write-hg:,read-hg:,config-file:,log:,node-monitor-log:,writer-count:,mode:,priority:,writer-is-reader:,use-slave-as-writer:,log-text:,max-connections:,version,debug,help \
     --name="$(basename "$0")" -- "$@")"
     if [[ $? -ne 0 ]]; then
       # no place to send output
@@ -774,6 +781,10 @@ function parse_args() {
         SLAVE_IS_WRITER="$2"
         shift 2
       ;;
+      --max-connections )
+        MAX_CONNECTIONS="$2"
+        shift 2
+      ;;
       --debug )
         # Not handled here, see above
         shift
@@ -850,6 +861,16 @@ function parse_args() {
   unset READ_HOSTGROUP_ID
   unset SLAVEREAD_HOSTGROUP_ID
 
+
+  # Verify that we have an integer
+  if [[ -n $MAX_CONNECTIONS ]]; then
+    if ! [ "$MAX_CONNECTIONS" -eq "$MAX_CONNECTIONS" ] 2>/dev/null
+    then
+      error "" "option '--max-connections' parameter (must be a number) : $MAX_CONNECTIONS"
+      exit 1
+    fi
+  fi
+
   readonly ERR_FILE
   readonly CONFIG_FILE
   readonly DEBUG_ERR_FILE
@@ -865,6 +886,7 @@ function parse_args() {
   readonly P_PRIORITY
   readonly P_MODE
 
+  readonly MAX_CONNECTIONS
 }
 
 
@@ -998,7 +1020,7 @@ function writer_is_reader_check() {
         else
           comment="OFFLINE_SOFT"
         fi
-        proxysql_exec $LINENO -Ns "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,status,comment) VALUES ('$server',$HOSTGROUP_READER_ID,$port,1000,'$comment','READ');"
+        proxysql_exec $LINENO -Ns "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,status,comment,max_connections) VALUES ('$server',$HOSTGROUP_READER_ID,$port,1000,'$comment','READ',$MAX_CONNECTIONS);"
         check_cmd_and_exit $LINENO $? "writer-is-reader($WRITER_IS_READER): Failed to add $HOSTGROUP_READER_ID:$address (query failed). Exiting."
         log_if_success $LINENO $? "writer-is-reader($WRITER_IS_READER): Adding reader $HOSTGROUP_READER_ID:$address with status OFFLINE_SOFT"
         echo "1" > ${reload_check_file}
@@ -1151,8 +1173,8 @@ function ensure_one_writer_node() {
       if [[ -z $write_stat || $write_stat == "NULL" ]]; then
         # Writer does not exist, add an ONLINE writer
         proxysql_exec $LINENO -Ns \
-          "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,status,comment)
-           VALUES ('$host',$HOSTGROUP_WRITER_ID,$port,1000000,'ONLINE','WRITE');"
+          "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,status,comment,max_connections)
+           VALUES ('$host',$HOSTGROUP_WRITER_ID,$port,1000000,'ONLINE','WRITE',$MAX_CONNECTIONS);"
         check_cmd_and_exit $LINENO $? "Cannot add a PXC writer node to ProxySQL (query failed). Exiting."
         log_if_success $LINENO $? "Added $HOSTGROUP_WRITER_ID:$address as a writer."
       else
@@ -1844,8 +1866,8 @@ function search_for_desynced_writers() {
 
           if [[ $writer_count -eq 0 ]]; then
             proxysql_exec $LINENO -Ns \
-              "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment)
-                  VALUES ('$server',$HOSTGROUP_WRITER_ID,$port,1000000,'WRITE');"
+              "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment,max_connections)
+                  VALUES ('$server',$HOSTGROUP_WRITER_ID,$port,1000000,'WRITE',$MAX_CONNECTIONS);"
             check_cmd_and_exit $LINENO $? "Could not add writer node (query failed). Exiting."
             log $LINENO "Adding server $HOSTGROUP_WRITER_ID:$address with status ONLINE. Reason: WSREP status is DESYNC/DONOR, as this is the only node we will put this one online"
           else
@@ -2115,8 +2137,8 @@ function add_slave_to_write_hostgroup() {
       local address=$(combine_ip_port_into_address "$host" "$port")
 
       proxysql_exec $LINENO -Ns "INSERT INTO mysql_servers
-            (hostname,hostgroup_id,port,weight,status,comment)
-            VALUES ('$host',$HOSTGROUP_WRITER_ID,$port,1000000,'ONLINE','SLAVEREAD');"
+            (hostname,hostgroup_id,port,weight,status,comment,max_connections)
+            VALUES ('$host',$HOSTGROUP_WRITER_ID,$port,1000000,'ONLINE','SLAVEREAD',$MAX_CONNECTIONS);"
       check_cmd_and_exit $LINENO $? "Cannot add Percona XtraDB Cluster node $address to ProxySQL (query failed). Exiting."
       log_if_success $LINENO $? "slave server ${HOSTGROUP_WRITER_ID}:$address set to ONLINE status in ProxySQL."
       echo 1 > "${reload_check_file}"
@@ -2308,6 +2330,7 @@ function main() {
                                      --mode=$mode \
                                      --reload-check-file="$reload_check_file" \
                                      --log-text="$LOG_TEXT" \
+                                     --max-connections="$MAX_CONNECTIONS" \
                                      --log="$proxysql_monitor_log" $more_monitor_options
 
   # print information prior to a run if ${ERR_FILE} is defined
