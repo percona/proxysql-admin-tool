@@ -204,14 +204,17 @@ fi
 
 if [[ $DUMP_ALL -eq 1 || $DUMP_FILES -eq 1 ]]; then
     if [[ -z $TABLE_FILTER ]]; then
-        echo "............ DUMPING HOST PRIORITY FILE ............"
-        cat /var/lib/proxysql/host_priority.conf 2>&1
-        echo "............ END OF DUMPING HOST PRIORITY FILE ............"
-        echo ""
-
-        echo "............ DUMPING PROXYSQL ADMIN CNF FILE ............"
-        cat /etc/proxysql-admin.cnf 2>&1
-        echo "............ END OF DUMPING PROXYSQL ADMIN CNF FILE ............"
-        echo ""
+        if [[ -r /var/lib/proxysql/host_priority.conf ]]; then
+            echo "............ DUMPING HOST PRIORITY FILE ............"
+            cat /var/lib/proxysql/host_priority.conf 2>&1
+            echo "............ END OF DUMPING HOST PRIORITY FILE ............"
+            echo ""
+        fi
+        if [[ -r /etc/proxysql-admin.cnf ]]; then
+            echo "............ DUMPING PROXYSQL ADMIN CNF FILE ............"
+            cat /etc/proxysql-admin.cnf 2>&1
+            echo "............ END OF DUMPING PROXYSQL ADMIN CNF FILE ............"
+            echo ""
+        fi
     fi
 fi
