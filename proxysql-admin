@@ -76,8 +76,10 @@ declare    SLAVE_IS_WRITER=""
 declare    MODE="singlewrite"
 declare -i NODE_CHECK_INTERVAL=3000
 
-declare -i WRITE_HOSTGROUP_ID=10
-declare -i READ_HOSTGROUP_ID=11
+declare -i READ_HOSTGROUP_ID=10
+declare -i WRITE_HOSTGROUP_ID=11
+declare -i BACKUP_WRITE_HOSTGROUP_ID=12
+declare -i OFFLINE_HOSTGROUP_ID=13
 
 declare    WRITE_NODE=""
 declare    WRITE_NODES=""
@@ -94,7 +96,7 @@ declare -i SYNCMULTICLUSTERUSERS=0
 declare -i USE_EXISTING_MONITOR_PASSWORD=0
 declare -i WITH_CLUSTER_APP_USER=1
 
-declare    WRITER_IS_READER="ondemand"
+declare    WRITER_IS_READER="2"
 
 #
 # Default value for max_connections in mysql_servers
@@ -876,7 +878,7 @@ function proxysql_load_to_runtime_save_to_disk() {
 # Auto configure Percona XtraDB Cluster nodes into ProxySQL
 #
 # Globals:
-#   READ_HOSTGROUP_ID, WRITE_HOSTGROUP_ID
+#   READ_HOSTGROUP_ID, WRITE_HOSTGROUP_ID, BACKUP_WRITE_HOSTGROUP_ID, OFFLINE_HOSTGROUP_ID
 #   CLUSTER_NETWORK
 #   CLUSTER_PORT
 #   USER_HOST_RANGE
@@ -938,9 +940,9 @@ function enable_proxysql() {
   debug $LINENO "PXC cluster name is : $cluster_name"
 
   local check_hgs
-  check_hgs=$(proxysql_exec "$LINENO" "SELECT hostgroup_id FROM mysql_servers where hostgroup_id in ($READ_HOSTGROUP_ID,$WRITE_HOSTGROUP_ID)")
+  check_hgs=$(proxysql_exec "$LINENO" "SELECT hostgroup_id FROM mysql_servers where hostgroup_id in ($READ_HOSTGROUP_ID,$WRITE_HOSTGROUP_ID,$BACKUP_WRITE_HOSTGROUP_ID,$OFFLINE_HOSTGROUP_ID)")
   if [[ ! -z "$check_hgs" ]]; then
-    error $LINENO "READ/WRITE hostgroups($READ_HOSTGROUP_ID,$WRITE_HOSTGROUP_ID) are already being used by ProxySQL."\
+    error $LINENO "READ/WRITE hostgroups($READ_HOSTGROUP_ID,$WRITE_HOSTGROUP_ID,$BACKUP_WRITE_HOSTGROUP_ID,$OFFLINE_HOSTGROUP_ID) are already being used by ProxySQL."\
                   "\n-- To avoid conflicts, please use different values for the hostgroups."
     exit 1
   fi
@@ -1110,12 +1112,12 @@ function enable_proxysql() {
     proxysql_load_to_runtime_save_to_disk "MYSQL SERVERS" $LINENO
 
   elif [[ $MODE == "singlewrite" ]]; then
-    proxysql_exec "$LINENO" "DELETE FROM mysql_servers WHERE hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID)"
-    check_cmd $? $LINENO "Failed to delete the existing servers with hostgroup: ${WRITE_HOSTGROUP_ID},${READ_HOSTGROUP_ID}"\
+    proxysql_exec "$LINENO" "DELETE FROM mysql_servers WHERE hostgroup_id in ($READ_HOSTGROUP_ID,$WRITE_HOSTGROUP_ID,$BACKUP_WRITE_HOSTGROUP_ID,$OFFLINE_HOSTGROUP_ID)"
+    check_cmd $? $LINENO "Failed to delete the existing servers with hostgroup: $READ_HOSTGROUP_ID,$WRITE_HOSTGROUP_ID,$BACKUP_WRITE_HOSTGROUP_ID,$OFFLINE_HOSTGROUP_ID"\
                          "\n-- Please check the ProxySQL connection parameters and status."
 
-    proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE destination_hostgroup in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID)"
-    check_cmd $? $LINENO "Failed to delete the existing query rules for hostgroup: ${WRITE_HOSTGROUP_ID},${READ_HOSTGROUP_ID}"\
+    proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE destination_hostgroup in ($READ_HOSTGROUP_ID,$WRITE_HOSTGROUP_ID,$BACKUP_WRITE_HOSTGROUP_ID,$OFFLINE_HOSTGROUP_ID)"
+    check_cmd $? $LINENO "Failed to delete the existing query rules for hostgroup: $READ_HOSTGROUP_ID,$WRITE_HOSTGROUP_ID,$BACKUP_WRITE_HOSTGROUP_ID,$OFFLINE_HOSTGROUP_ID"\
                          "\n-- Please check the ProxySQL connection parameters and status."
     if [[ $QUICK_DEMO -eq 0 ]]; then
       local writer_ws_ip
@@ -1142,7 +1144,7 @@ function enable_proxysql() {
         if [ $? -ne 0 ]; then 
           error $LINENO "Failed to establish a connection to the write node $writer_ws_address."\
                         "\n-- Please check that the write node is alive and the connection parameters are correct"; 
-          proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE default_hostgroup in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID);"
+          proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE default_hostgroup in ($READ_HOSTGROUP_ID,$WRITE_HOSTGROUP_ID,$BACKUP_WRITE_HOSTGROUP_ID,$OFFLINE_HOSTGROUP_ID);"
           check_cmd $? $LINENO "Failed to delete PXC user from ProxySQL."\
                                "\n-- Please check the ProxySQL connection parameters and status."
           exit 1
@@ -1189,16 +1191,16 @@ function enable_proxysql() {
         proxysql_exec "$LINENO" "SELECT hostname,hostgroup_id,port,weight,comment FROM mysql_servers WHERE hostgroup_id=$WRITE_HOSTGROUP_ID" "-t"
         echo ""
       else
-        proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment,max_connections) VALUES ('$ws_ip',$READ_HOSTGROUP_ID,$ws_port,1000,'READ',$MAX_CONNECTIONS);"
+        proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment,max_connections) VALUES ('$ws_ip',$WRITE_HOSTGROUP_ID,$ws_port,1000,'READ',$MAX_CONNECTIONS);"
         check_cmd $? $LINENO "Failed to add the PXC server node $i."\
                               "\n-- Please check the ProxySQL connection parameters and status."
       fi
     done
-    if [[ $WITH_CLUSTER_APP_USER -eq 1 ]]; then
-      proxysql_exec "$LINENO" "INSERT INTO mysql_query_rules (username,destination_hostgroup,active,match_digest,apply) values('$CLUSTER_APP_USERNAME',$WRITE_HOSTGROUP_ID,1,'^SELECT.*FOR UPDATE',1),('$CLUSTER_APP_USERNAME',$READ_HOSTGROUP_ID,1,'^SELECT ',1);"
-      check_cmd $? $LINENO "Failed to add the read query rule to ProxySQL."\
-                           "\n-- Please check the ProxySQL connection parameters and status."
-    fi
+    proxysql_exec "$LINENO" "INSERT INTO mysql_query_rules (destination_hostgroup,active,apply,match_digest)
+                                                    values (   $READ_HOSTGROUP_ID,     1,    0,'^SELECT.*'),
+                                                           (  $WRITE_HOSTGROUP_ID,     1,    1,'^SELECT.* FOR UPDATE');"
+    check_cmd $? $LINENO "Failed to add the read query rule to ProxySQL."\
+                         "\n-- Please check the ProxySQL connection parameters and status."
     proxysql_load_to_runtime_save_to_disk "MYSQL SERVERS" $LINENO
     proxysql_load_to_runtime_save_to_disk "MYSQL QUERY RULES" $LINENO
   fi
@@ -1221,7 +1223,7 @@ function enable_proxysql() {
 
   # Adding Percona XtraDB Cluster monitoring scripts
   # Adding proxysql galera check scheduler
-  proxysql_exec "$LINENO" "DELETE FROM SCHEDULER WHERE COMMENT='$cluster_name';"
+  proxysql_exec "$LINENO" "DELETE FROM mysql_galera_hostgroups WHERE COMMENT='$cluster_name';"
   check_cmd $? $LINENO "Failed to delete the PXC nodes from ProxySQL."\
                        "\n-- Please check the ProxySQL connection parameters and status."
   local number_writers
@@ -1230,20 +1232,24 @@ function enable_proxysql() {
   else
     number_writers=0
   fi
-  proxysql_exec "$LINENO" "INSERT INTO SCHEDULER (active,interval_ms,filename,arg1,comment) VALUES (1,$NODE_CHECK_INTERVAL,'$proxysql_galera_check','--config-file=$CONFIG_FILE --writer-is-reader=$WRITER_IS_READER --write-hg=$WRITE_HOSTGROUP_ID --read-hg=$READ_HOSTGROUP_ID --writer-count=$number_writers --mode=$MODE $host_priority --use-slave-as-writer=$SLAVE_IS_WRITER $MAX_CONNECTIONS_ARGS --log=$PROXYSQL_DATADIR/${cluster_name}_proxysql_galera_check.log','$cluster_name');"
+  proxysql_exec "$LINENO" "INSERT INTO mysql_galera_hostgroups
+                     (   writer_hostgroup,   backup_writer_hostgroup,  reader_hostgroup,    offline_hostgroup,active,    max_writers,writer_is_also_reader,comment)
+              VALUES ($WRITE_HOSTGROUP_ID,$BACKUP_WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID,$OFFLINE_HOSTGROUP_ID,     1,$number_writers,    $WRITER_IS_READER,'$cluster_name');"
   check_cmd $? $LINENO "Failed to add the PXC monitoring scheduler in ProxySQL."\
                        "\n-- Please check the ProxySQL connection parameters and status."
 
-  proxysql_load_to_runtime_save_to_disk "SCHEDULER" $LINENO
+  proxysql_load_to_runtime_save_to_disk "MYSQL SERVERS" $LINENO
 }
 
 # Removing Percona XtraDB Cluster configuration from proxysql
 #
 # Globals:
 #   CLUSTER_HOSTNAME, CLUSTER_PORT
-#   CLUSTER_APP_USERNAME
+#   WITH_CLUSTER_APP_USER, CLUSTER_APP_USERNAME
 #   WRITE_HOSTGROUP_ID
 #   READ_HOSTGROUP_ID
+#   BACKUP_WRITE_HOSTGROUP_ID
+#   OFFLINE_HOSTGROUP_ID
 #
 # Arguments:
 #
@@ -1259,29 +1265,30 @@ function disable_proxysql(){
                        "\n-- Please check the PXC connection parameters and status."
   readonly cluster_name
 
-  echo "Removing default cluster application user from ProxySQL database."
-  proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE username='$CLUSTER_APP_USERNAME';"
-  check_cmd $? $LINENO "Failed to delete the PXC user ($CLUSTER_APP_USERNAME) from ProxySQL."\
-                       "\n-- Please check the ProxySQL connection parameters and status."
+  if [[ $WITH_CLUSTER_APP_USER -eq 1 ]]; then
+    echo "Removing default cluster application user from ProxySQL database."
+    proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE username='$CLUSTER_APP_USERNAME';"
+    check_cmd $? $LINENO "Failed to delete the PXC user ($CLUSTER_APP_USERNAME) from ProxySQL."\
+                         "\n-- Please check the ProxySQL connection parameters and status."
+  fi
 
   echo "Removing cluster nodes from ProxySQL database."
-  proxysql_exec "$LINENO" "DELETE FROM mysql_servers WHERE hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID);"
+  proxysql_exec "$LINENO" "DELETE FROM mysql_servers WHERE hostgroup_id in ($READ_HOSTGROUP_ID,$WRITE_HOSTGROUP_ID,$BACKUP_WRITE_HOSTGROUP_ID,$OFFLINE_HOSTGROUP_ID);"
   check_cmd $? $LINENO "Failed to delete the PXC nodes from ProxySQL."\
                        "\n-- Please check the ProxySQL connection parameters and status."
 
   echo "Removing scheduler script from ProxySQL database."
-  proxysql_exec "$LINENO" "DELETE FROM SCHEDULER WHERE COMMENT='$cluster_name';"
+  proxysql_exec "$LINENO" "DELETE FROM mysql_galera_hostgroups WHERE COMMENT='$cluster_name';"
   check_cmd $? $LINENO "Failed to delete the Galera checker from ProxySQL."\
                        "\n-- Please check the ProxySQL connection parameters and status."
 
   echo "Removing query rules from ProxySQL database if any."
-  proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE destination_hostgroup in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID)"
+  proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE destination_hostgroup in ($READ_HOSTGROUP_ID,$WRITE_HOSTGROUP_ID,$BACKUP_WRITE_HOSTGROUP_ID,$OFFLINE_HOSTGROUP_ID)"
   check_cmd $? $LINENO "Failed to delete the query rules from ProxySQL."\
                        "\n-- Please check the ProxySQL connection parameters amd status."
 
 
   proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO
-  proxysql_load_to_runtime_save_to_disk "SCHEDULER" $LINENO
   proxysql_load_to_runtime_save_to_disk "MYSQL SERVERS" $LINENO
   proxysql_load_to_runtime_save_to_disk "MYSQL QUERY RULES" $LINENO
 }
@@ -1964,9 +1971,9 @@ function parse_args() {
     SLAVEREAD_HOSTGROUP_ID=$READ_HOSTGROUP_ID
   fi
 
-  if [[ ! $WRITER_IS_READER =~ ^(always|never|ondemand)$ ]]; then
+  if [[ ! $WRITER_IS_READER =~ ^(0|1|2)$ ]]; then
     error "" "Invalid --writer-is-reader option: '$WRITER_IS_READER'"
-    echo "Please choose one of these values: always, never, or ondemand"
+    echo "Please choose one of these values: 0(disabled), 1(always), or 2(only backup writer is reader)"
     exit 1
   fi
 
@@ -1987,6 +1994,8 @@ function parse_args() {
 
   readonly WRITE_HOSTGROUP_ID
   readonly READ_HOSTGROUP_ID
+  readonly BACKUP_WRITE_HOSTGROUP_ID
+  readonly OFFLINE_HOSTGROUP_ID
   readonly SLAVEREAD_HOSTGROUP_ID
 
   readonly WRITE_NODE
@@ -2047,12 +2056,14 @@ function main() {
                             grep -o -P '(?<=:).*' |
                             cut -d';' -f1 )
     echo -e "ProxySQL has been successfully configured to use with Percona XtraDB Cluster\n"
-    echo -e "You can use the following login credentials to connect your application through ProxySQL\n"
-    if [[ $QUICK_DEMO -eq 1 ]]; then
-      echo -e "${BD}mysql --user=$CLUSTER_APP_USERNAME --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_CLIENT_PORT --protocol=tcp ${NBD}\n"
-    else
-      echo -e "${BD}mysql --user=$CLUSTER_APP_USERNAME -p --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_CLIENT_PORT --protocol=tcp ${NBD}\n"
-    fi 
+    if [[ $WITH_CLUSTER_APP_USER -eq 1 ]]; then
+      echo -e "You can use the following login credentials to connect your application through ProxySQL\n"
+      if [[ $QUICK_DEMO -eq 1 ]]; then
+        echo -e "${BD}mysql --user=$CLUSTER_APP_USERNAME --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_CLIENT_PORT --protocol=tcp ${NBD}\n"
+      else
+        echo -e "${BD}mysql --user=$CLUSTER_APP_USERNAME -p --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_CLIENT_PORT --protocol=tcp ${NBD}\n"
+      fi
+    fi
 
     if [[ $SYNCUSERS -eq 1 ]] || [[ $SYNCMULTICLUSTERUSERS -eq 1 ]]; then
       syncusers
