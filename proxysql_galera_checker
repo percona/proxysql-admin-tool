@@ -2545,6 +2545,7 @@ else
       # Assume that all options start with a '-'
       # otherwise treat as a positional parameter
       if [[ ! $param =~ ^- ]]; then
+        shift
         continue
       fi
       case $param in
