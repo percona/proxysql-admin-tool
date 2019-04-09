@@ -9,12 +9,11 @@
 #
 TEST_SUITES=()
 TEST_SUITES+=("proxysql-admin-testsuite.bats")
-TEST_SUITES+=("writer-is-reader-testsuite.bats")
-TEST_SUITES+=("host-priority-testsuite.bats")
-TEST_SUITES+=("desynced-host-testsuite.bats")
+#TEST_SUITES+=("writer-is-reader-testsuite.bats")
+#TEST_SUITES+=("host-priority-testsuite.bats")
+#TEST_SUITES+=("desynced-host-testsuite.bats")
 TEST_SUITES+=("async-slave-testsuite.bats")
 TEST_SUITES+=("loadbal-testsuite.bats")
-TEST_SUITES+=("node-monitor-testsuite.bats")
 
 
 #
@@ -48,6 +47,9 @@ declare ALLOW_SHUTDOWN="Yes"
 
 declare PROXYSQL_EXTRA_OPTIONS=""
 
+declare MYSQL_VERSION
+declare MYSQL_CLIENT_VERSION
+
 #
 # Useful functions
 # ================================================
@@ -55,7 +57,7 @@ declare PROXYSQL_EXTRA_OPTIONS=""
 function usage() {
   cat << EOF
 Usage example:
-  $ ${SCRIPT_PATH##*/} /sda/proxysql-testing [<options>]
+  $ ${SCRIPT_PATH##*/} <workdir> [<options>]
 
 This test script expects a certain directory layout for the workdir.
 
@@ -144,6 +146,60 @@ function parse_args() {
   done
 }
 
+# Extracts the version from a version string
+#
+# Globals
+#   None
+#
+# Arguments
+#   Parameter 1: the path to the mysqld binary
+#
+# Outputs
+#   Writes a string with the major/minor version numbers
+#   Such as "5.7" or "8.0"
+function get_mysql_version() {
+  local mysqld_path="$1"
+  local mysqld_version=$(${mysqld_path} --version)
+  if echo "$mysqld_version" | grep -qe "[[:space:]]5\.5\."; then
+    echo "5.5"
+  elif echo "$mysqld_version" | grep -qe "[[:space:]]5\.6\."; then
+    echo "5.6"
+  elif echo "$mysqld_version" | grep -qe "[[:space:]]5\.7\."; then
+    echo "5.7"
+  elif echo "$mysqld_version" | grep -qe "[[:space:]]8\.0\."; then
+    echo "8.0"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.2\."; then
+    echo "10.2"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.3\."; then
+    echo "10.3"
+  else
+    echo "Line $LINENO: Cannot determine the MySQL version: $mysqld_version"
+    echo "This script needs to be updated."
+    exit 1
+  fi
+}
+
+function version_is_less_than()
+{
+  local v1=$1
+  local v2=$2
+
+  local v1_major=$(echo "$v1" | cut -d'.' -f1)
+  local v1_minor=$(echo "$v1" | cut -d'.' -f2)
+  local v2_major=$(echo "$v2" | cut -d'.' -f1)
+  local v2_minor=$(echo "$v2" | cut -d'.' -f2)
+
+  # normalize the strings for easy string comparison
+  local v1_normalized=$(printf "%02d%02d" "$v1_major" "$v1_minor")
+  local v2_normalized=$(printf "%02d%02d" "$v2_major" "$v2_minor")
+
+  if [[ "$v1_normalized" < "$v2_normalized" ]]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
 function start_pxc_node(){
   local cluster_name=$1
   local baseport=$2
@@ -159,7 +215,9 @@ function start_pxc_node(){
   echo "basedir=${PXC_BASEDIR}" >> my.cnf
   echo "innodb_file_per_table" >> my.cnf
   echo "innodb_autoinc_lock_mode=2" >> my.cnf
-  echo "innodb_locks_unsafe_for_binlog=1" >> my.cnf
+  if version_is_less_than "$MYSQL_VERSION" "8.0"; then
+    echo "innodb_locks_unsafe_for_binlog=1" >> my.cnf
+  fi
   echo "wsrep-provider=${PXC_BASEDIR}/lib/libgalera_smm.so" >> my.cnf
   echo "wsrep_node_incoming_address=$addr" >> my.cnf
   echo "wsrep_sst_method=rsync" >> my.cnf
@@ -175,12 +233,17 @@ function start_pxc_node(){
   echo "log-slave-updates" >> my.cnf
   echo "log-bin" >> my.cnf
   echo "user=$OS_USER" >> my.cnf
-  if [[ $MYSQL_VERSION != "5.6" ]]; then
+  if version_is_less_than "5.6" "$MYSQL_VERSION"; then
     echo "wsrep_slave_threads=2" >> my.cnf
     echo "pxc_maint_transition_period=1" >> my.cnf
   fi
   if [[ $USE_IPVERSION == "v6" ]]; then
     echo "bind-address = ::" >> my.cnf
+  fi
+
+  # test that $MYSQL_VERSION >= 8.0
+  if ! version_is_less_than "8.0" "$MYSQL_VERSION"; then
+    echo "log-error-verbosity=3" >> my.cnf
   fi
 
   WSREP_CLUSTER=""
@@ -228,15 +291,8 @@ function start_pxc_node(){
     # clear the datadir
     rm -rf "$node"
 
-    if [ "$(${PXC_BASEDIR}/bin/mysqld --version | grep -oe '5\.[567]' | head -n1 )" != "5.7" ]; then
-      mkdir -p $node
-      if  [ ! "$(ls -A $node)" ]; then
-        ${MID} --datadir=$node  > $WORKDIR/logs/startup_${cluster_name}${i}.err 2>&1 || exit 1;
-      fi
-    fi
-    if [ ! -d $node ]; then
-      ${MID} --datadir=$node  > $WORKDIR/logs/startup_${cluster_name}${i}.err 2>&1 || exit 1;
-    fi
+    mkdir -p "$node"
+    ${MID} --datadir=$node  > $WORKDIR/logs/startup_${cluster_name}${i}.err 2>&1 || exit 1;
 
     if [ $i -eq 1 ]; then
       WSREP_NEW_CLUSTER=" --wsrep-new-cluster "
@@ -286,7 +342,9 @@ function start_async_slave() {
   echo "basedir=${PXC_BASEDIR}" >> my-slave.cnf
   echo "innodb_file_per_table" >> my-slave.cnf
   echo "innodb_autoinc_lock_mode=2" >> my-slave.cnf
-  echo "innodb_locks_unsafe_for_binlog=1" >> my-slave.cnf
+  if version_is_less_than "$MYSQL_VERSION" "8.0"; then
+    echo "innodb_locks_unsafe_for_binlog=1" >> my.cnf
+  fi
   echo "core-file" >> my-slave.cnf
   echo "log-output=none" >> my-slave.cnf
   echo "server-id=$baseport" >> my-slave.cnf
@@ -300,6 +358,9 @@ function start_async_slave() {
   echo "user=$OS_USER" >> my-slave.cnf
   if [[ $USE_IPVERSION == "v6" ]]; then
     echo "bind-address = ::" >> my-slave.cnf
+  fi
+  if ! version_is_less_than "8.0" "$MYSQL_VERSION"; then
+    echo "log-error-verbosity=3" >> my-slave.cnf
   fi
 
   # This is a requirement for proxysql-admin
@@ -341,39 +402,9 @@ function start_async_slave() {
 function cleanup_handler() {
   if [[ $ALLOW_SHUTDOWN == "Yes" ]]; then
     if [[ $RUN_TEST -ne 0 ]]; then
-      if [[ -e /tmp/cluster_one_slave.sock ]]; then
-        echo "Shutting down cluster_one_slave"
-        ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one_slave.sock  -u root shutdown
-      fi
-      if [[ -e /tmp/cluster_one3.sock ]]; then
-        echo "Shutting down cluster_one3"
-        ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one3.sock  -u root shutdown
-      fi
-      if [[ -e /tmp/cluster_one2.sock ]]; then
-        echo "Shutting down cluster_one2"
-        ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one2.sock  -u root shutdown
-      fi
-      if [[ -e /tmp/cluster_one1.sock ]]; then
-        echo "Shutting down cluster_one1"
-        ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_one1.sock  -u root shutdown
-      fi
-
-      if [[ -e /tmp/cluster_two_slave.sock ]]; then
-        echo "Shutting down cluster_two_slave"
-        ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_two_slave.sock  -u root shutdown
-      fi
-      if [[ -e /tmp/cluster_two3.sock ]]; then
-        echo "Shutting down cluster_two3"
-        ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_two3.sock  -u root shutdown
-      fi
-      if [[ -e /tmp/cluster_two2.sock ]]; then
-        echo "Shutting down cluster_two2"
-        ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_two2.sock  -u root shutdown
-      fi
-      if [[ -e /tmp/cluster_two1.sock ]]; then
-        echo "Shutting down cluster_two1"
-        ${PXC_BASEDIR}/bin/mysqladmin  --socket=/tmp/cluster_two1.sock  -u root shutdown
-      fi
+      echo "NOTICE: Killing all mysqld and proxysql processes"
+      pkill -9 -x mysqld
+      pkill -9 -x proxysql
     fi
   fi
 }
@@ -407,11 +438,10 @@ declare ROOT_FS=$WORKDIR
 mkdir -p $WORKDIR/logs
 
 echo "Shutting down currently running mysqld instances"
-ps -ef | egrep "mysqld" | grep "$(whoami)" | egrep -v "grep" | xargs kill -9 2>/dev/null
-ps -ef | egrep "node..sock" | grep "$(whoami)" | egrep -v "grep" | xargs kill -9 2>/dev/null
+sudo pkill -9 -x mysqld
 
 echo "Shutting down currently running proxysql instances"
-sudo ps -ef | egrep "proxysql" | grep "$(whoami)" | egrep -v "grep" | xargs kill -9 2>/dev/null
+sudo pkill -9 -x proxysql
 
 #
 # Check file locations before doing anything
@@ -507,13 +537,23 @@ echo "Creating link: $WORKDIR/proxysql-bin --> $PROXYSQL_BASE"
 rm -f $WORKDIR/proxysql-bin
 ln -s "$PROXYSQL_BASE" "$WORKDIR/proxysql-bin"
 
+
+MYSQL_VERSION=$(get_mysql_version "${PXC_BASEDIR}/bin/mysqld")
+MYSQL_CLIENT_VERSION=$(get_mysql_version "${PXC_BASEDIR}/bin/mysql")
+
+echo "MySQL Version is $MYSQL_VERSION"
+echo "MySQL Client Version is $MYSQL_CLIENT_VERSION"
+
 echo "Initializing PXC..."
-if [ "$(${PXC_BASEDIR}/bin/mysqld --version | grep -oe '5\.[567]' | head -n1)" == "5.7" ]; then
-  MYSQL_VERSION="5.7"
-  MID="${PXC_BASEDIR}/bin/mysqld --no-defaults --initialize-insecure --basedir=${PXC_BASEDIR}"
-elif [ "$(${PXC_BASEDIR}/bin/mysqld --version | grep -oe '5\.[567]' | head -n1)" == "5.6" ]; then
-  MYSQL_VERSION="5.6"
+if [[ $MYSQL_VERSION == "5.6" ]]; then
   MID="${PXC_BASEDIR}/scripts/mysql_install_db --no-defaults --basedir=${PXC_BASEDIR}"
+elif [[ $MYSQL_VERSION == "5.7" ]]; then
+  MID="${PXC_BASEDIR}/bin/mysqld --no-defaults --initialize-insecure --basedir=${PXC_BASEDIR}"
+elif [[ $MYSQL_VERSION == "8.0" ]]; then
+  MID="${PXC_BASEDIR}/bin/mysqld --no-defaults --initialize-insecure --basedir=${PXC_BASEDIR}"
+else
+  echo "Unknown/unexpected MySQL version: $MYSQL_VERSION"
+  exit 1
 fi
 echo "....PXC initialized"
 
@@ -538,10 +578,19 @@ CREATE USER '${REPL_USER}'@'${LOCALHOST_NAME}' IDENTIFIED BY '${REPL_PASSWORD}';
 GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'${LOCALHOST_NAME}';
 FLUSH PRIVILEGES;
 EOF
-else
+elif [[ $MYSQL_VERSION == "5.7" ]]; then
   ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock <<EOF
-GRANT ALL ON *.* TO admin@'%' identified by 'admin' WITH GRANT OPTION;
+GRANT ALL ON *.* TO admin@'%' IDENTIFIED BY 'admin' WITH GRANT OPTION;
 CREATE USER '${REPL_USER}'@'%' IDENTIFIED BY '${REPL_PASSWORD}';
+GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'%';
+FLUSH PRIVILEGES;
+EOF
+elif [[ $MYSQL_VERSION > "8.0" || $MYSQL_VERSION == "8.0" ]]; then
+  # For 8.0 separate out the user creation from the grant
+  ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock <<EOF
+CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH mysql_native_password BY 'admin';
+GRANT ALL ON *.* TO admin@'%' WITH GRANT OPTION;
+CREATE USER '${REPL_USER}'@'%' IDENTIFIED WITH mysql_native_password BY '${REPL_PASSWORD}';
 GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'%';
 FLUSH PRIVILEGES;
 EOF
@@ -557,9 +606,17 @@ GRANT REPLICATION CLIENT ON *.* TO 'monitor'@'${LOCALHOST_NAME}' IDENTIFIED BY '
 CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4110, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1;
 FLUSH PRIVILEGES;
 EOF
-else
+elif [[ $MYSQL_VERSION == "5.7" ]]; then
   ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_one_slave.sock -uroot <<EOF
-GRANT ALL ON *.* TO admin@'%' identified by 'admin' WITH GRANT OPTION;
+GRANT ALL ON *.* TO admin@'%' IDENTIFIED BY 'admin' WITH GRANT OPTION;
+CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4110, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1 FOR CHANNEL 'master-a';
+FLUSH PRIVILEGES;
+EOF
+elif [[ $MYSQL_VERSION > "8.0" || $MYSQL_VERSION == "8.0" ]]; then
+  # For 8.0 separate out the user creation from the grant
+  ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_one_slave.sock -uroot <<EOF
+CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH mysql_native_password BY 'admin';
+GRANT ALL ON *.* TO 'admin'@'%' WITH GRANT OPTION;
 CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4110, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1 FOR CHANNEL 'master-a';
 FLUSH PRIVILEGES;
 EOF
@@ -591,7 +648,6 @@ sudo sed -i "0,/^[ \t]*export CLUSTER_HOSTNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER
 sudo sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_one\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$|export WRITE_HOSTGROUP_ID=\"10\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$|export READ_HOSTGROUP_ID=\"11\"|" /etc/proxysql-admin.cnf
-sudo sed -i "0,/^[ \t]*export MAX_CONNECTIONS[ \t]*=.*$/s|^[ \t]*export MAX_CONNECTIONS[ \t]*=.*$|export MAX_CONNECTIONS=\"1111\"|" /etc/proxysql-admin.cnf
 
 if [[ $RUN_TEST -eq 1 ]]; then
   echo ""
@@ -619,7 +675,7 @@ if [[ $RUN_TEST -eq 1 ]]; then
 
     if [[ $rc -ne 0 ]]; then
       ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=$LOCALHOST_IP --port=6032 --protocol=tcp \
-        -e "select hostgroup_id,hostname,port,status,comment,max_connections from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
+        -e "select hostgroup_id,hostname,port,status,comment from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
       echo "********************************"
       echo "* $test_file failed, the servers (ProxySQL+PXC) will be left running"
       echo "* for debugging purposes."
@@ -657,10 +713,19 @@ CREATE USER '${REPL_USER}'@'${LOCALHOST_NAME}' IDENTIFIED BY '${REPL_PASSWORD}';
 GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'${LOCALHOST_NAME}';
 FLUSH PRIVILEGES;
 EOF
-else
+elif [[ $MYSQL_VERSION == "5.7" ]]; then
   ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock <<EOF
-GRANT ALL ON *.* TO admin@'%' identified by 'admin' WITH GRANT OPTION;
+GRANT ALL ON *.* TO admin@'%' IDENTIFIED BY 'admin' WITH GRANT OPTION;
 CREATE USER '${REPL_USER}'@'%' IDENTIFIED BY '${REPL_PASSWORD}';
+GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'%';
+FLUSH PRIVILEGES;
+EOF
+elif [[ $MYSQL_VERSION > "8.0" || $MYSQL_VERSION == "8.0" ]]; then
+  # For 8.0 separate out the user creation from the grant
+  ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock <<EOF
+CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH mysql_native_password BY 'admin';
+GRANT ALL ON *.* TO admin@'%' WITH GRANT OPTION;
+CREATE USER '${REPL_USER}'@'%' IDENTIFIED WITH mysql_native_password BY '${REPL_PASSWORD}';
 GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'%';
 FLUSH PRIVILEGES;
 EOF
@@ -675,9 +740,17 @@ GRANT REPLICATION CLIENT ON *.* TO 'monitor'@'${LOCALHOST_NAME}' IDENTIFIED BY '
 CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4210, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1;
 FLUSH PRIVILEGES;
 EOF
-else
+elif [[ $MYSQL_VERSION == "5.7" ]]; then
   ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_two_slave.sock -uroot <<EOF
-GRANT ALL ON *.* TO admin@'%' identified by 'admin' WITH GRANT OPTION;
+GRANT ALL ON *.* TO admin@'%' IDENTIFIED BY 'admin' WITH GRANT OPTION;
+CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4210, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1 FOR CHANNEL 'master-a';
+FLUSH PRIVILEGES;
+EOF
+elif [[ $MYSQL_VERSION > "8.0" || $MYSQL_VERSION == "8.0" ]]; then
+  # For 8.0 separate out the user creation from the grant
+  ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_two_slave.sock -uroot <<EOF
+CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH mysql_native_password BY 'admin';
+GRANT ALL ON *.* TO admin@'%' WITH GRANT OPTION;
 CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4210, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1 FOR CHANNEL 'master-a';
 FLUSH PRIVILEGES;
 EOF
@@ -689,7 +762,6 @@ sudo sed -i "0,/^[ \t]*export CLUSTER_PORT[ \t]*=.*$/s|^[ \t]*export CLUSTER_POR
 sudo sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_two\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$|export WRITE_HOSTGROUP_ID=\"20\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$|export READ_HOSTGROUP_ID=\"21\"|" /etc/proxysql-admin.cnf
-sudo sed -i "0,/^[ \t]*export MAX_CONNECTIONS[ \t]*=.*$/s|^[ \t]*export MAX_CONNECTIONS[ \t]*=.*$|export MAX_CONNECTIONS=\"1111\"|" /etc/proxysql-admin.cnf
 echo "================================================================"
 echo ""
 
@@ -712,12 +784,11 @@ if [[ $RUN_TEST -eq 1 ]]; then
 
     if [[ $rc -ne 0 ]]; then
       ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=$LOCALHOST_IP --port=6032 --protocol=tcp \
-        -e "select hostgroup_id,hostname,port,status,comment,max_connections from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
+        -e "select hostgroup_id,hostname,port,status,comment from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
       echo "********************************"
       echo "* $test_file failed, the servers (ProxySQL+PXC)will be left running"
       echo "* for debugging purposes."
       echo "********************************"
-      ALLOW_SHUTDOWN="No"
       exit 1
     fi
     echo "================================================================"

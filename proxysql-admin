@@ -49,8 +49,11 @@ fi
 #
 # Script parameters/constants
 #
-readonly    PROXYSQL_ADMIN_VERSION="1.4.14"
+readonly    PROXYSQL_ADMIN_VERSION="2.0.2"
 declare  -i DEBUG=0
+
+# default timeout is 10 seconds
+declare  -i TIMEOUT=10
 
 #
 # Global variables used by the script
@@ -95,6 +98,8 @@ declare -i USE_EXISTING_MONITOR_PASSWORD=0
 declare -i WITH_CLUSTER_APP_USER=1
 
 declare    WRITER_IS_READER="ondemand"
+declare    MYSQL_CLIENT_VERSION=""
+
 
 #
 # Default value for max_connections in mysql_servers
@@ -311,6 +316,7 @@ function check_permission() {
 #
 # Globals:
 #   DEBUG
+#   TIMEOUT
 #
 # Arguments:
 #   1: lineno
@@ -338,6 +344,7 @@ function exec_sql() {
   local more_options=""
   local retvalue
   local retoutput
+  local default_auth=""
 
   if [[ $# -ge 7 ]]; then
     args=$7
@@ -349,9 +356,21 @@ function exec_sql() {
 
   debug "$lineno" "exec_sql : $user@$hostname:$port ==> $query"
 
-  retoutput=$(printf "[client]\nuser=${user//%/%%}\npassword=\"${password//%/%%}\"\nhost=${hostname//%/%%}\nport=${port//%/%%}"  \
-      | mysql --defaults-file=/dev/stdin --protocol=tcp \
-           --unbuffered --batch --silent ${args} -e "${query}")
+  if [[ $MYSQL_CLIENT_VERSION == "8.0" ]]; then
+    default_auth="default-auth=mysql_native_password"
+  fi
+
+  retoutput=$(mysql --defaults-file=/dev/stdin --protocol=tcp \
+           --unbuffered --batch --silent ${args} -e "$query" <<EOF
+[client]
+user=${user//%/%%}
+password="${password//%/%%}"
+host=${hostname//%/%%}
+port=${port//%/%%}
+connect-timeout=${TIMEOUT}
+${default_auth}
+EOF
+)
   retvalue=$?
 
   if [[ $DEBUG -eq 1 ]]; then
@@ -395,7 +414,7 @@ function exec_sql() {
 # Arguments:
 #   1: lineno
 #   2: The SQL query
-#   2: (optional) Additional arguments to the mysql client for the query
+#   3: (optional) Additional arguments to the mysql client for the query
 #   4: (optional) more options, see exec_sql
 #
 function proxysql_exec() {
@@ -777,8 +796,8 @@ function user_input_check() {
       check_cmd $? $LINENO "Failed to query ProxySQL for the user."\
                            "\n-- Please check the ProxySQL connection parameters and status."
 
-      if [[ -z "$precheck_user" ]]; then  
-        mysql_exec "$LINENO" "CREATE USER $username@'$USER_HOST_RANGE' IDENTIFIED BY '$password';"
+      if [[ -z "$precheck_user" ]]; then
+        mysql_exec "$LINENO" "CREATE USER $username@'$USER_HOST_RANGE' IDENTIFIED WITH mysql_native_password BY '$password';"
         check_cmd $? $LINENO "Failed to add the PXC application user to PXC: $username" \
                              "\n-- Please check if '$CLUSTER_USERNAME'@'$CLUSTER_HOSTNAME' has the proper permissions to create the montioring user"
 
@@ -966,7 +985,7 @@ function enable_proxysql() {
                        "\n-- Please check the PXC cluster connection parameters and status."
   if [[ -z "$check_user" ]]; then
     # No monitor user found in MySQL, create the monitor user
-    mysql_exec "$LINENO" "CREATE USER '$MONITOR_USERNAME'@'$USER_HOST_RANGE' IDENTIFIED BY '$MONITOR_PASSWORD';"
+    mysql_exec "$LINENO" "CREATE USER '$MONITOR_USERNAME'@'$USER_HOST_RANGE' IDENTIFIED WITH mysql_native_password BY '$MONITOR_PASSWORD';"
     check_cmd $? $LINENO  "Failed to create the ProxySQL monitoring user."\
                           "\n-- Please check that '$CLUSTER_USERNAME'@'$CLUSTER_HOSTNAME' has the proper permissions to create the montioring user"
 
@@ -1230,7 +1249,7 @@ function enable_proxysql() {
   else
     number_writers=0
   fi
-  proxysql_exec "$LINENO" "INSERT INTO SCHEDULER (active,interval_ms,filename,arg1,comment) VALUES (1,$NODE_CHECK_INTERVAL,'$proxysql_galera_check','--config-file=$CONFIG_FILE --writer-is-reader=$WRITER_IS_READER --write-hg=$WRITE_HOSTGROUP_ID --read-hg=$READ_HOSTGROUP_ID --writer-count=$number_writers --mode=$MODE $host_priority --use-slave-as-writer=$SLAVE_IS_WRITER $MAX_CONNECTIONS_ARGS --log=$PROXYSQL_DATADIR/${cluster_name}_proxysql_galera_check.log','$cluster_name');"
+  proxysql_exec "$LINENO" "INSERT INTO SCHEDULER (active,interval_ms,filename,arg1,comment) VALUES (1,$NODE_CHECK_INTERVAL,'$proxysql_galera_check','--config-file=$CONFIG_FILE --writer-is-reader=$WRITER_IS_READER --write-hg=$WRITE_HOSTGROUP_ID --read-hg=$READ_HOSTGROUP_ID --writer-count=$number_writers --mode=$MODE $host_priority --use-slave-as-writer=$SLAVE_IS_WRITER --log=$PROXYSQL_DATADIR/${cluster_name}_proxysql_galera_check.log','$cluster_name');"
   check_cmd $? $LINENO "Failed to add the PXC monitoring scheduler in ProxySQL."\
                        "\n-- Please check the ProxySQL connection parameters and status."
 
@@ -1375,11 +1394,9 @@ function get_proxysql_users() {
   check_cmd $? $LINENO "Failed to load user list from ProxySQL database."\
                        "\n-- Please check the ProxySQL connection parameters and status."
   proxysql_users=$(echo "$proxysql_users" |
-                      sed 's/\t/,/g' |
-                      egrep -v "username,password" |
                       sort |
                       uniq )
-  printf "$proxysql_users"
+  printf "%s" "$proxysql_users"
 }
 
 
@@ -1453,7 +1470,7 @@ function syncusers() {
     5.6)
       password_field="Password"
       ;;
-    5.7)
+    5.7 | 8.0)
       password_field="authentication_string"
       ;;
     10.2)
@@ -1470,8 +1487,7 @@ function syncusers() {
   esac
   
   mysql_users=$(mysql_exec "$LINENO" "SELECT User,${password_field} FROM mysql.user where ${password_field}!=''" "" "hide_output" |
-                  sed 's/\t/,/g' |
-                  egrep -v "User,${password_field}|mysql.sys|mysql.session" |
+                  egrep -v "mysql.sys|mysql.session|mysql.infoschema" |
                   sort |
                   uniq )
   check_cmd $? $LINENO "Failed to load the user list from PXC."\
@@ -1484,29 +1500,53 @@ function syncusers() {
   echo -e "\nSyncing user accounts from PXC to ProxySQL"
 
   # TEST FOR USERS THAT EXIST IN MYSQL BUT NOT IN PROXYSQL HERE AND ADD
-  for mysql_user in $mysql_users;do
+
+  # Escape all backslashes here, because the read will evaluate
+  # the escaped chars
+  mysql_users=${mysql_users//\\/\\\\}
+  while read line; do
+    if [[ -z $line ]]; then
+      continue
+    fi
+
+    mysql_user=$line
+
     local match=0
-    for proxysql_user in $proxysql_users;do
-      if [ "$proxysql_user" == "$mysql_user" ];then
+    proxysql_users=${proxysql_users//\\/\\\\}
+    while read pline; do
+      if [[ -z $pline ]]; then
+        continue
+      fi
+      if [ "$pline" == "$mysql_user" ];then
         match=1
         break
       fi
-    done
-    if [[ $match -eq 0 ]]; then
-      local user=$(echo $mysql_user | cut -d, -f1)
-      local password=$(echo $mysql_user | cut -d, -f2)
+    done< <(printf "%s\n" "${proxysql_users}")
 
-      # Check if same username exists with a different password, delete the user to recreate.
-      for proxysql_user in $proxysql_users; do
-        echo $proxysql_user | grep "^${user}," > /dev/null
-        if [ "$?" == 0 ];then
-          # Remove the user
+    if [[ $match -eq 0 ]]; then
+      local user=$(echo "$mysql_user" | cut -f1)
+      local password=$(echo "$mysql_user" | cut -f2)
+
+      # escape SQL input
+      # Since we're using single quotes within the SQL statement, only need
+      # to escape the single quotes for SQL
+      password=${password//\'/\'\'}
+
+      # Check if same username exists with a different password
+      # delete the user to recreate.
+      while read pline; do
+        if [[ -z $pline ]]; then
+          continue
+        fi
+        local puser=$(echo "$pline" | cut -f1)
+        if [[ "$puser" == "$user" ]]; then
           echo "Removing existing user from ProxySQL: $user"
           proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE username='${user}' and default_hostgroup=$WRITE_HOSTGROUP_ID"
           check_cmd $? $LINENO "Failed to delete the user ($user) from ProxySQL database."\
                                "\n-- Please check the ProxySQL connection parameters and status."
+          break
         fi
-      done
+      done< <(printf "%s\n" "${proxysql_users}")
 
       local is_proxysql_admin_user
       is_proxysql_admin_user=$(proxysql_admin_user_check $user)
@@ -1526,30 +1566,40 @@ function syncusers() {
         fi
       fi
     fi
-  done
+  done< <(printf "%s\n" "${mysql_users}")
 
   if [[ $SYNCUSERS -eq 1 ]]; then
     # TEST FOR USERS THAT EXIST IN PROXYSQL BUT NOT IN MYSQL HERE AND REMOVE
     # Again get all users
     proxysql_users=$(get_proxysql_users)
-    for proxysql_user in $proxysql_users; do
+
+    pusers=${proxysql_users//\\/\\\\}
+    while read pline; do
+      if [[ -z $pline ]]; then
+        continue
+      fi
+      proxysql_user=$pline
+
       local match=0
-      for mysql_user in $mysql_users;do
-        if [ "$proxysql_user" == "$mysql_user" ];then
+      while read line; do
+        if [[ -z $line ]]; then
+          continue
+        fi
+        if [ "$proxysql_user" == "$line" ];then
           match=1
           break
         fi
-      done
+      done< <(printf "%s\n", "$mysql_users")
 
-      if [ "$match" == 0 ];then
+      if [ "$match" -eq 0 ];then
         # Delete the ProxySQL user
-        user=$(echo $proxysql_user | cut -d, -f1)
-        echo -e "\nRemoving user from ProxySQL: $proxysql_user"
+        local user=$(echo "$proxysql_user" | cut -f1)
+        echo -e "\nRemoving user from ProxySQL: $user"
         proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE username='${user}' and default_hostgroup=$WRITE_HOSTGROUP_ID"
         check_cmd $? $LINENO "Failed to delete the user ($user) from ProxySQL database."\
                              "\n-- Please check the ProxySQL connection parameters and status."
       fi
-    done
+    done< <(printf "%s\n" "$proxysql_users")
   fi
   proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO
 }
@@ -1893,7 +1943,7 @@ function parse_args() {
     exit 1
   fi
 
-  # Check the options gathered from the command line
+   # Check the options gathered from the command line
   if [[ $QUICK_DEMO -eq 0 ]]; then
     if [[ -z "$PROXYSQL_USERNAME" ]];then
       error "" "The ProxySQL username (--proxysql-username) is required!"
@@ -2010,7 +2060,7 @@ function parse_args() {
 
   readonly MAX_CONNECTIONS
   readonly MAX_CONNECTIONS_ARGS
-}
+ }
 
 # Main function
 #
@@ -2074,6 +2124,7 @@ function main() {
     fi
 
   elif [[ $DISABLE -eq 1 ]]; then
+
     disable_proxysql
     echo "ProxySQL configuration removed!"
 
@@ -2095,6 +2146,43 @@ function main() {
   fi
 }
 
+# Outputs the version string (major.minor) for the path passed in
+#
+# Globals
+#   None
+#
+# Arguments
+#   Parameter 1 : Path to the client
+#
+# Outputs
+#   The version number (major.minor).  The version numbers are not
+#   normalized, so they cannot be directly compared.
+#
+function get_mysql_version()
+{
+
+  local mysql_path=$1
+  local version_string
+  version_string=$(${mysql_path} --version)
+
+  if echo "$version_string" | grep -qe "[[:space:]]5\.5\."; then
+    echo "5.5"
+  elif echo "$version_string" | grep -qe "[[:space:]]5\.6\."; then
+    echo "5.6"
+  elif echo "$version_string" | grep -qe "[[:space:]]5\.7\."; then
+    echo "5.7"
+  elif echo "$version_string" | grep -qe "[[:space:]]8\.0\."; then
+    echo "8.0"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.2\."; then
+    echo "10.2"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.3\."; then
+    echo "10.3"
+  else
+    echo "$version_string"
+    return 1
+  fi
+  return 0
+}
 
 #-------------------------------------------------------------------------------
 #
@@ -2107,6 +2195,21 @@ if [ -e "/dummypathnonexisting/.mylogin.cnf" ]; then
   exit 1
 else
   export HOME="/dummypathnonexisting"
+fi
+
+#
+# Check that we can find the mysql client
+#
+if [[ ! -e $(which mysql 2> /dev/null) ]] ;then
+  error $LINENO "The mysql client was not found, please install the mysql client package."
+  exit 1
+fi
+
+MYSQL_CLIENT_VERSION=$(get_mysql_version "mysql")
+if [[ $? -ne 0 ]]; then
+  error $LINENO "Cannot determine the MySQL client version from the version string"
+  echo "-- Version string : $MYSQL_CLIENT_VERSION"
+  exit 1
 fi
 
 parse_args "$@"
