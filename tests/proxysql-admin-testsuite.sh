@@ -10,7 +10,6 @@
 TEST_SUITES=()
 TEST_SUITES+=("proxysql-admin-testsuite.bats")
 #TEST_SUITES+=("writer-is-reader-testsuite.bats")
-#TEST_SUITES+=("desynced-host-testsuite.bats")
 TEST_SUITES+=("loadbal-testsuite.bats")
 
 
