@@ -857,20 +857,7 @@ function enable_proxysql() {
                   "\n-- Please install the ProxySQL package."
     exit 1
   fi
-  if [[ ! -e $(which proxysql_galera_checker 2> /dev/null) ]] ;then
-    error $LINENO "The proxysql_galera_checker binary was not found."\
-                  "\n-- Please check the ProxySQL package installation."
-    exit 1
-  fi
-  if [[ ! -e $(which proxysql_node_monitor 2> /dev/null) ]]; then
-    error $LINENO "The proxysql_node_monitor binary was not found."\
-                  "\n-- Please check the ProxySQL package installation."
-    exit 1
-  fi
 
-  local proxysql_galera_check
-  proxysql_galera_check=$(which proxysql_galera_checker)
-  debug $LINENO "Found the proxysql_galera_checker at $proxysql_galera_check"
   # Check for existing proxysql process
   proxysql_connection_check
   
@@ -1092,22 +1079,12 @@ function enable_proxysql() {
     proxysql_load_to_runtime_save_to_disk "MYSQL QUERY RULES" $LINENO
   fi
 
-  # Adding Percona XtraDB Cluster monitoring scripts
-  # Adding proxysql galera check scheduler
-  proxysql_exec "$LINENO" "DELETE FROM SCHEDULER WHERE COMMENT='$cluster_name';"
-  check_cmd $? $LINENO "Failed to delete the PXC nodes from ProxySQL."\
-                       "\n-- Please check the ProxySQL connection parameters and status."
   local number_writers
   if [ $MODE == "singlewrite" ]; then
     number_writers=1
   else
     number_writers=0
   fi
-  proxysql_exec "$LINENO" "INSERT INTO SCHEDULER (active,interval_ms,filename,arg1,comment) VALUES (1,$NODE_CHECK_INTERVAL,'$proxysql_galera_check','--config-file=$CONFIG_FILE --writer-is-reader=$WRITER_IS_READER --write-hg=$WRITE_HOSTGROUP_ID --read-hg=$READ_HOSTGROUP_ID --writer-count=$number_writers --mode=$MODE --log=$PROXYSQL_DATADIR/${cluster_name}_proxysql_galera_check.log','$cluster_name');"
-  check_cmd $? $LINENO "Failed to add the PXC monitoring scheduler in ProxySQL."\
-                       "\n-- Please check the ProxySQL connection parameters and status."
-
-  proxysql_load_to_runtime_save_to_disk "SCHEDULER" $LINENO
 }
 
 # Removing Percona XtraDB Cluster configuration from proxysql
@@ -1142,11 +1119,6 @@ function disable_proxysql(){
   check_cmd $? $LINENO "Failed to delete the PXC nodes from ProxySQL."\
                        "\n-- Please check the ProxySQL connection parameters and status."
 
-  echo "Removing scheduler script from ProxySQL database."
-  proxysql_exec "$LINENO" "DELETE FROM SCHEDULER WHERE COMMENT='$cluster_name';"
-  check_cmd $? $LINENO "Failed to delete the Galera checker from ProxySQL."\
-                       "\n-- Please check the ProxySQL connection parameters and status."
-
   echo "Removing query rules from ProxySQL database if any."
   proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE destination_hostgroup in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID)"
   check_cmd $? $LINENO "Failed to delete the query rules from ProxySQL."\
@@ -1154,7 +1126,6 @@ function disable_proxysql(){
 
 
   proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO
-  proxysql_load_to_runtime_save_to_disk "SCHEDULER" $LINENO
   proxysql_load_to_runtime_save_to_disk "MYSQL SERVERS" $LINENO
   proxysql_load_to_runtime_save_to_disk "MYSQL QUERY RULES" $LINENO
 }
