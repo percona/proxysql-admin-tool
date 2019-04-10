@@ -77,11 +77,6 @@ declare -i NODE_CHECK_INTERVAL=3000
 declare -i WRITE_HOSTGROUP_ID=10
 declare -i READ_HOSTGROUP_ID=11
 
-declare    WRITE_NODE=""
-declare    WRITE_NODES=""
-declare    ENABLE_PRIORITY=""
-declare    P_HOST_PRIORITY=""
-
 declare -i QUICK_DEMO=0
 declare -i ENABLE=0
 declare -i DISABLE=0
@@ -157,7 +152,6 @@ function dump_arguments() {
 # Dispay script usage details
 #
 function usage() {
-  ### Consider adding a select or prompt option for --write-node that will let you select from discovered nodes during setup ###
   local path=$0
   cat << EOF
 Usage: ${path##*/} [ options ]
@@ -184,10 +178,6 @@ Options:
   --mode=[loadbal|singlewrite]       ProxySQL read/write configuration mode
                                      currently supporting: 'loadbal' and 'singlewrite'
                                      (default: 'singlewrite')
-  --write-node=host_name:port        Writer node to accept write statments.
-                                     This option is supported only when using --mode=singlewrite
-                                     Can accept comma delimited list with the first listed being
-                                     the highest priority.
   --writer-is-reader=<value>         Defines if the writer node also accepts writes.
                                      Possible values are 'always', 'never', and 'ondemand'.
                                      'ondemand' means that the writer node only accepts reads
@@ -855,15 +845,11 @@ function proxysql_load_to_runtime_save_to_disk() {
 #   WITH_CLUSTER_APP_USER
 #   QUICK_DEMO
 #   MODE
-#   WRITE_NODE
-#   WRITE_NODES
-#   P_HOST_PRIORITY
 #
 # Arguments:
 #   None
 #
 function enable_proxysql() {
-  local host_priority=""
   debug $LINENO "enable_proxysql ( $(dump_arguments "$@") )"
   # Checking proxysql binary location
   if [[ ! -e $(which proxysql 2> /dev/null) ]]; then
@@ -1080,16 +1066,6 @@ function enable_proxysql() {
       exit 1
     fi
 
-    # Create the host priority file if multiple write nodes were specified
-    host_priority=""
-    if [ -n "$ENABLE_PRIORITY" ];then
-      echo -e "\nConfiguring $MODE mode with the following nodes designated as priority order:"
-        for i in $WRITE_NODES;do
-          echo " $i"
-        done
-      host_priority="--priority=$P_HOST_PRIORITY"
-    fi
-
     for i in "${wsrep_address[@]}"; do
       local ws_address=$(separate_ip_port_from_address $i)
       local ws_ip=$(echo "$ws_address" | cut -d' ' -f1)
@@ -1127,7 +1103,7 @@ function enable_proxysql() {
   else
     number_writers=0
   fi
-  proxysql_exec "$LINENO" "INSERT INTO SCHEDULER (active,interval_ms,filename,arg1,comment) VALUES (1,$NODE_CHECK_INTERVAL,'$proxysql_galera_check','--config-file=$CONFIG_FILE --writer-is-reader=$WRITER_IS_READER --write-hg=$WRITE_HOSTGROUP_ID --read-hg=$READ_HOSTGROUP_ID --writer-count=$number_writers --mode=$MODE $host_priority --log=$PROXYSQL_DATADIR/${cluster_name}_proxysql_galera_check.log','$cluster_name');"
+  proxysql_exec "$LINENO" "INSERT INTO SCHEDULER (active,interval_ms,filename,arg1,comment) VALUES (1,$NODE_CHECK_INTERVAL,'$proxysql_galera_check','--config-file=$CONFIG_FILE --writer-is-reader=$WRITER_IS_READER --write-hg=$WRITE_HOSTGROUP_ID --read-hg=$READ_HOSTGROUP_ID --writer-count=$number_writers --mode=$MODE --log=$PROXYSQL_DATADIR/${cluster_name}_proxysql_galera_check.log','$cluster_name');"
   check_cmd $? $LINENO "Failed to add the PXC monitoring scheduler in ProxySQL."\
                        "\n-- Please check the ProxySQL connection parameters and status."
 
@@ -1496,7 +1472,7 @@ function parse_args() {
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,writer-is-reader:,enable,disable,adduser,syncusers,sync-multi-cluster-users,max-connections:,version,debug,help \
+    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,use-existing-monitor-password,without-cluster-app-user,writer-is-reader:,enable,disable,adduser,syncusers,sync-multi-cluster-users,max-connections:,version,debug,help \
     --name="$(basename "$0")" -- "$@")"
     check_cmd $? $LINENO "Script error: getopt() failed with arguments: $@"
     eval set -- "$go_out"
@@ -1694,13 +1670,6 @@ function parse_args() {
         MODE="$2"
         shift 2
         ;;
-      --write-node )
-        P_HOST_PRIORITY=$2
-        WRITE_NODES=$(echo "$2" | sed 's/,/ /g')
-        WRITE_NODE=$(echo "$WRITE_NODES" | cut -d' ' -f1)
-        ENABLE_PRIORITY=1
-        shift 2
-        ;;
       --quick-demo )
         shift
         QUICK_DEMO=1
@@ -1745,24 +1714,6 @@ function parse_args() {
         ;;
     esac
   done
-
-  # WRITE_NODES validity check (check to see if the port is included)
-  local ws_address
-  local ws_port
-  if [[ -n $WRITE_NODES ]]; then
-    for node in $WRITE_NODES
-    do
-      ws_address=$(separate_ip_port_from_address "$node")
-      ws_port=$(echo "$ws_address" | cut -d' ' -f2)
-
-      # Check that we have a port and that it only contains digits
-      if [[ -z $ws_port || ! $ws_port =~ ^[[:digit:]]*$ ]]; then
-        error "$LINENO" "--write-node : expected 'address:port' found '$node'"
-        exit 1
-      fi
-
-    done
-  fi
 
   # Check user permission to proxysql datadir
   if [[ -z $PROXYSQL_DATADIR ]]; then
@@ -1889,11 +1840,6 @@ function parse_args() {
 
   readonly WRITE_HOSTGROUP_ID
   readonly READ_HOSTGROUP_ID
-
-  readonly WRITE_NODE
-  readonly WRITE_NODES
-  readonly ENABLE_PRIORITY
-  readonly P_HOST_PRIORITY
 
   readonly ENABLE
   readonly DISABLE
