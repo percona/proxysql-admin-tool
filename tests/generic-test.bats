@@ -130,12 +130,6 @@ echo "$output"
         [[ "${lines[0]}" =~ ERROR.*--write-node.*expected.* ]]
 }
 
-@test 'run proxysql-admin --include-slaves without --use-slave-as-writer' {
-run sudo $WORKDIR/proxysql-admin --include-slave=127.0.0.1:4110
-echo "$output"
-        [ "$status" -eq 1 ]
-}
-
 @test 'run proxysql-admin --max-connections without parameters' {
 run sudo $WORKDIR/proxysql-admin --max-connections
 echo "$output"
