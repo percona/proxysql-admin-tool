@@ -92,6 +92,7 @@ declare -i DISABLE=0
 declare -i ADDUSER=0
 declare -i SYNCUSERS=0
 declare -i SYNCMULTICLUSTERUSERS=0
+declare -i USE_SSL=0
 
 declare -i USE_EXISTING_MONITOR_PASSWORD=0
 declare -i WITH_CLUSTER_APP_USER=1
@@ -209,6 +210,7 @@ Options:
                                      This is the maximum number of connections that
                                      ProxySQL will open to the backend servers.
                                      (default: 1000)
+  --use-ssl                          Require SSL/TLS for backend connections
   --debug                            Enables additional debug logging.
   --help                             Dispalys this help text.
 
@@ -893,6 +895,7 @@ function proxysql_load_to_runtime_save_to_disk() {
 #   WRITE_NODE
 #   WRITE_NODES
 #   P_HOST_PRIORITY
+#   USE_SSL
 #
 # Arguments:
 #   None
@@ -1104,7 +1107,7 @@ function enable_proxysql() {
       local ws_ip=$(echo "$ws_address" | cut -d' ' -f1)
       local ws_port=$(echo "$ws_address" | cut -d' ' -f2)
       ws_address=$(combine_ip_port_into_address "$ws_ip" "$ws_port")
-      proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment,max_connections) VALUES ('$ws_ip',$WRITE_HOSTGROUP_ID,$ws_port,1000,'READWRITE',$MAX_CONNECTIONS);"
+      proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment,max_connections,use_ssl) VALUES ('$ws_ip',$WRITE_HOSTGROUP_ID,$ws_port,1000,'READWRITE',$MAX_CONNECTIONS,$USE_SSL);"
       check_cmd $? $LINENO "Failed to add the PXC server node $ws_address."\
                            "\n-- Please check the ProxySQL connection parameters and status."
     done
@@ -1184,14 +1187,14 @@ function enable_proxysql() {
       local ws_ip=$(echo "$ws_address" | cut -d' ' -f1)
       local ws_port=$(echo "$ws_address" | cut -d' ' -f2)
       if [ "$ws_ip" == "$writer_ws_ip" ] && [ "$ws_port" == "$writer_ws_port" ]; then
-        proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment,max_connections) VALUES ('$writer_ws_ip',$WRITE_HOSTGROUP_ID,$writer_ws_port,1000000,'WRITE',$MAX_CONNECTIONS);"
+        proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment,max_connections,use_ssl) VALUES ('$writer_ws_ip',$WRITE_HOSTGROUP_ID,$writer_ws_port,1000000,'WRITE',$MAX_CONNECTIONS,$USE_SSL);"
         check_cmd $? $LINENO "Failed to add the PXC server node $ws_address."\
                              "\n-- Please check the ProxySQL connection parameters and status."
         echo -e "\nWrite node info"
         proxysql_exec "$LINENO" "SELECT hostname,hostgroup_id,port,weight,comment FROM mysql_servers WHERE hostgroup_id=$WRITE_HOSTGROUP_ID" "-t"
         echo ""
       else
-        proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment,max_connections) VALUES ('$ws_ip',$WRITE_HOSTGROUP_ID,$ws_port,1000,'READ',$MAX_CONNECTIONS);"
+        proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment,max_connections,use_ssl) VALUES ('$ws_ip',$WRITE_HOSTGROUP_ID,$ws_port,1000,'READ',$MAX_CONNECTIONS,$USE_SSL);"
         check_cmd $? $LINENO "Failed to add the PXC server node $i."\
                               "\n-- Please check the ProxySQL connection parameters and status."
       fi
@@ -1212,7 +1215,7 @@ function enable_proxysql() {
       local ws_address=$(separate_ip_port_from_address "$i")
       local ws_ip=$(echo "$ws_address" | cut -d' ' -f1)
       local ws_port=$(echo "$ws_address" | cut -d' ' -f2)
-      proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment,max_connections) VALUES ('$ws_ip',$SLAVEREAD_HOSTGROUP_ID,$ws_port,1000,'SLAVEREAD',$MAX_CONNECTIONS);"
+      proxysql_exec "$LINENO" "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,comment,max_connections,use_ssl) VALUES ('$ws_ip',$SLAVEREAD_HOSTGROUP_ID,$ws_port,1000,'SLAVEREAD',$MAX_CONNECTIONS,$USE_SSL);"
       check_cmd $? $LINENO "Failed to add the slave node $i."\
                            "\n-- Please check the ProxySQL connection parameters and status."
 
@@ -1575,7 +1578,7 @@ function parse_args() {
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,include-slaves:,use-slave-as-writer:,use-existing-monitor-password,without-cluster-app-user,writer-is-reader:,enable,disable,adduser,syncusers,sync-multi-cluster-users,max-connections:,version,debug,help \
+    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,include-slaves:,use-slave-as-writer:,use-existing-monitor-password,without-cluster-app-user,writer-is-reader:,enable,disable,adduser,syncusers,sync-multi-cluster-users,use-ssl,max-connections:,version,debug,help \
     --name="$(basename "$0")" -- "$@")"
     check_cmd $? $LINENO "Script error: getopt() failed with arguments: $@"
     eval set -- "$go_out"
@@ -1792,6 +1795,10 @@ function parse_args() {
         shift
         QUICK_DEMO=1
         ENABLE=1
+        ;;
+      --use-ssl )
+        USE_SSL=1
+        shift
         ;;
       --max-connections )
         MAX_CONNECTIONS="$2"
