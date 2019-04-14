@@ -19,16 +19,17 @@ export MONITOR_PASSWORD='monit0r'
 export CLUSTER_APP_USERNAME='proxysql_user'
 export CLUSTER_APP_PASSWORD='passw0rd'
 
-# ProxySQL read/write hostgroup 
-export WRITE_HOSTGROUP_ID='10'
-export READ_HOSTGROUP_ID='11'
+# ProxySQL hostgroup IDs
+export WRITER_HOSTGROUP_ID='10'
+export READER_HOSTGROUP_ID='11'
+export BACKUP_WRITER_HOSTGROUP_ID='12'
+export OFFLINE_HOSTGROUP_ID='13'
 
 # ProxySQL read/write configuration mode.
 export MODE="singlewrite"
 
-# Writer-is-reader configuration
-export WRITER_IS_READER="ondemand"
-
 # max_connections default (used only when INSERTing a new mysql_servers entry)
 export MAX_CONNECTIONS="1000"
 
+# Connections to the backend servers (from ProxySQL) will use SSL
+export USE_SSL="no"
