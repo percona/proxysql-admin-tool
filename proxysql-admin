@@ -74,7 +74,7 @@ declare    CLUSTER_PORT=""
 declare    WRITE_NODE=""
 
 declare    MODE="singlewrite"
-declare -i NODE_CHECK_INTERVAL=3000
+declare -i NODE_CHECK_INTERVAL=-1
 
 declare -i WRITER_HOSTGROUP_ID=-1
 declare -i READER_HOSTGROUP_ID=-1
@@ -87,11 +87,11 @@ declare -i DISABLE=0
 declare -i ADDUSER=0
 declare -i SYNCUSERS=0
 declare -i SYNCMULTICLUSTERUSERS=0
+declare -i UPDATE_CLUSTER=0
 
 declare -i USE_EXISTING_MONITOR_PASSWORD=0
 declare -i WITH_CLUSTER_APP_USER=1
 
-declare    WRITER_IS_READER="always"
 declare    MYSQL_CLIENT_VERSION=""
 
 declare    USE_SSL="no"
@@ -103,10 +103,9 @@ declare -i USE_SSL_OPTION=0
 declare    MAX_CONNECTIONS="1000"
 
 #
-# This is the options string to be set in the proxysql_galera_checker
-# command.  This is only set if MAX_CONNECTIONS is set via the command-line
+# Default value for max-transactions-behind
 #
-declare    MAX_CONNECTIONS_ARGS=""
+declare -i MAX_TRANSACTIONS_BEHIND=100
 
 #-------------------------------------------------------------------------------
 #
@@ -116,7 +115,7 @@ declare    MAX_CONNECTIONS_ARGS=""
 function error() {
   local lineno=$1
   shift
-  if [[ -n $lineno ]]; then
+  if [[ -n "$lineno" ]]; then
     printf "${BD}ERROR${NBD} (line:$lineno) : ${*//%/%%}\n" 1>&2
   else
     printf "${BD}ERROR${NBD} : ${*//%/%%}\n" 1>&2
@@ -126,7 +125,7 @@ function error() {
 function warning() {
   local lineno=$1
   shift
-  if [[ -n $lineno ]]; then
+  if [[ -n "$lineno" ]]; then
     printf "${BD}WARNING${NBD} (line:$lineno) : ${*//%/%%}\n" 1>&2
   else
     printf "${BD}WARNING${NBD}: ${*//%/%%}\n" 1>&2
@@ -137,7 +136,7 @@ function debug() {
   if [[ $DEBUG -eq 1 ]]; then
     local lineno=$1
     shift
-    if [[ -n $lineno ]]; then
+    if [[ -n "$lineno" ]]; then
       printf "${RED}${BD}debug (line:$lineno) : ${*//%/%%}${NBD}${NRED}\n" 1>&2
     else
       printf "${RED}debug: ${*//%/%%}${NRED}\n" 1>&2
@@ -196,7 +195,7 @@ Options:
   --monitor-password[=password]      Password for monitoring Percona XtraDB Cluster nodes through ProxySQL
   --use-existing-monitor-password    Do not prompt for a new monitor password if one is provided.
 
-  --node-check-interval=3000         Interval for monitoring node checker script (in milliseconds)
+  --node-check-interval=<NUMBER>     Interval for monitoring node checker script (in milliseconds)
                                      (default: 3000)
   --mode=[loadbal|singlewrite]       ProxySQL read/write configuration mode
                                      currently supporting: 'loadbal' and 'singlewrite'
@@ -209,6 +208,10 @@ Options:
                                      This is the maximum number of connections that
                                      ProxySQL will open to the backend servers.
                                      (default: 1000)
+  --max-transactions-behind=<NUMBER> Determines the maximum number of writesets a node
+                                     can have queued before the node is SHUNNED to avoid
+                                     stale reads.
+                                     (default: 100)
   --use-ssl=[yes|no]                 If set to 'yes', then connections between ProxySQL
                                      and the backend servers will use SSL.
                                      (default: no)
@@ -220,6 +223,8 @@ One of the options below must be provided.
   --adduser                          Adds the Percona XtraDB Cluster application user to the ProxySQL database
   --disable, -d                      Remove any Percona XtraDB Cluster configurations from ProxySQL
   --enable, -e                       Auto-configure Percona XtraDB Cluster nodes into ProxySQL
+  --update-cluster                   Updates the cluster membership, adds new cluster nodes
+                                     to the configuration.
   --quick-demo                       Setup a quick demo with no authentication
   --syncusers                        Sync user accounts currently configured in MySQL to ProxySQL
                                      May be used with --enable.
@@ -227,7 +232,7 @@ One of the options below must be provided.
   --sync-multi-cluster-users         Sync user accounts currently configured in MySQL to ProxySQL
                                      May be used with --enable.
                                      (doesn't delete ProxySQL users not in MySQL)
-  --version, -v                      Print version info
+  --version, -v                      Prints the version info
 
 EOF
 }
@@ -281,31 +286,31 @@ function check_permission() {
 
   if [ ! $permission "$path_to_check" ] ; then
     if [[ $permission == "-r" ]]; then
-      error $lineno "You do not have READ permission for: $path_to_check"
+      error "$lineno" "You do not have READ permission for: $path_to_check"
     elif [[ $permission == "-w" ]]; then
-      error $lineno "You do not have WRITE permission for: $path_to_check"
+      error "$lineno" "You do not have WRITE permission for: $path_to_check"
     elif [[ $permission == "-x" ]]; then
-      error $lineno "You do not have EXECUTE permission for: $path_to_check"
+      error "$lineno" "You do not have EXECUTE permission for: $path_to_check"
     elif [[ $permission == "-e" ]]; then
       if [[ -n $description ]]; then
-        error $lineno "Could not find the $description: $path_to_check"
+        error "$lineno" "Could not find the $description: $path_to_check"
       else
-        error $lineno "Could not find: $path_to_check"
+        error "$lineno" "Could not find: $path_to_check"
       fi
     elif [[ $permission == "-d" ]]; then
       if [[ -n $description ]]; then
-        error $lineno "Could not find the $description: $path_to_check"
+        error "$lineno" "Could not find the $description: $path_to_check"
       else
-        error $lineno "Could not find the directory: $path_to_check"
+        error "$lineno" "Could not find the directory: $path_to_check"
       fi
     elif [[ $permission == "-f" ]]; then
       if [[ -n $description ]]; then
-        error $lineno "Could not find the $description: $path_to_check"
+        error "$lineno" "Could not find the $description: $path_to_check"
       else
-        error $lineno "Could not find the file: $path_to_check"
+        error "$lineno" "Could not find the file: $path_to_check"
       fi
     else
-      error $lineno "You do not have the correct permissions for: $path_to_check"
+      error "$lineno" "You do not have the correct permissions for: $path_to_check"
     fi
     exit 1
   fi
@@ -385,7 +390,7 @@ EOF
       number_of_newlines=$(printf "%s" "${dbgoutput}" | wc -l)
     fi
 
-    if [[  $retvalue -ne 0 ]]; then
+    if [[ $retvalue -ne 0 ]]; then
       debug "" "--> query failed $retvalue"
     elif [[ -z $dbgoutput ]]; then
       debug "" "--> query returned $retvalue : <query returned no data>"
@@ -393,11 +398,12 @@ EOF
       debug "" "--> query returned $retvalue : ${dbgoutput}"
     else
       debug "" "--> query returned $retvalue : <data follows>"
-      printf "%s" "${dbgoutput}\n" | while IFS= read -r line; do
+      printf "%s\n" "${dbgoutput}" | while IFS= read -r line; do
         debug "" "----> $line"
       done
     fi
   fi
+
   printf "%s" "${retoutput}"
   return $retvalue
 }
@@ -442,7 +448,46 @@ function proxysql_exec() {
   return $?
 }
 
-# Executes a SQL query on a node in the cluster
+# Executes a SQL query on a specific node in the cluster
+#
+# Globals:
+#   CLUSTER_USERNAME
+#   CLUSTER_PASSWORD
+#
+# Arguments:
+#   1: lineno
+#   2: cluster host
+#   3: cluster port
+#   4: The SQL query
+#   5: Additional arguments to the mysql client for the query
+#   6: (optional) more options, see exec_sql
+#
+function cluster_exec() {
+  local lineno=$1
+  local cluster_host=$2
+  local cluster_port=$3
+  local query=$4
+  local args=""
+  local more_options=""
+
+  if [[ $# -ge 5 ]]; then
+    args=$5
+  fi
+
+  if [[ $# -ge 6 ]]; then
+    more_options=$6
+  fi
+
+  exec_sql "$lineno" "$CLUSTER_USERNAME" "$CLUSTER_PASSWORD" \
+           "$cluster_host" "$cluster_port" \
+           "$query" "$args" "$more_options"
+
+  return $?
+}
+
+
+# Executes a SQL query on the CLUSTER_HOSTNAME/CLUSTER_PORT
+# specified in the config file.
 #
 # Globals:
 #   CLUSTER_USERNAME
@@ -451,9 +496,10 @@ function proxysql_exec() {
 #   CLUSTER_PORT
 #
 # Arguments:
-#   1: The SQL query
-#   2: Additional arguments to the mysql client for the query
-#   3: (optional) more options, see exec_sql
+#   1: lineno
+#   2: The SQL query
+#   3: Additional arguments to the mysql client for the query
+#   4: (optional) more options, see exec_sql
 #
 function mysql_exec() {
   local lineno=$1
@@ -469,8 +515,7 @@ function mysql_exec() {
     more_options=$4
   fi
 
-  exec_sql "$lineno" "$CLUSTER_USERNAME" "$CLUSTER_PASSWORD" \
-           "$CLUSTER_HOSTNAME" "$CLUSTER_PORT" \
+  cluster_exec "$lineno" "$CLUSTER_HOSTNAME" "$CLUSTER_PORT" \
            "$query" "$args" "$more_options"
 
   return $?
@@ -572,7 +617,7 @@ function combine_ip_port_into_address()
   else
     addr="${ip_addr}:${port}"
   fi
-  echo $addr
+  echo "$addr"
 }
 
 # Check proxysql running status
@@ -587,10 +632,10 @@ function combine_ip_port_into_address()
 #
 function proxysql_connection_check() {
   proxysql_exec "$LINENO" "show tables" >/dev/null
-  check_cmd $? $LINENO "ProxySQL connection check failed."\
+  check_cmd $? "$LINENO" "ProxySQL connection check failed."\
                        "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
                        "\n-- Please check the ProxySQL connection parameters and status."
-  debug $LINENO "ProxySQL connection check succeeded"
+  debug "$LINENO" "ProxySQL connection check succeeded"
 }
 
 
@@ -607,10 +652,10 @@ function proxysql_connection_check() {
 #
 function cluster_connection_check() {
   mysql_exec "$LINENO" "SELECT @@PORT" >/dev/null
-  check_cmd $? $LINENO "PXC connection check failed."\
+  check_cmd $? "$LINENO" "PXC connection check failed."\
                        "\n-- Could not connect to the PXC cluster at $CLUSTER_HOSTNAME:$CLUSTER_PORT"\
                        "\n-- Please check the PXC connection parameters and status."
-  debug $LINENO "cluster connection check succeeded"
+  debug "$LINENO" "cluster connection check succeeded"
 }
 
 
@@ -626,7 +671,7 @@ function cluster_connection_check() {
 #   None
 #
 function quickdemo_get_proxysql_params() {
-  debug $LINENO "quickdemo_get_proxysql_params ( $(dump_arguments "$@") )"
+  debug "$LINENO" "quickdemo_get_proxysql_params ()"
   read -r -p "Do you want to use the default ProxySQL credentials (admin:admin:6032:127.0.0.1) [y/n] ? " check_param
   case $check_param in
     y|Y)
@@ -665,7 +710,7 @@ function quickdemo_get_proxysql_params() {
 #   None
 #
 function quickdemo_get_cluster_params() {
-  debug $LINENO "quickdemo_get_cluster_params ( $(dump_arguments "$@") )"
+  debug "$LINENO" "quickdemo_get_cluster_params ()"
   read -r -p "Do you want to use the default Percona XtraDB Cluster credentials (root::3306:127.0.0.1) [y/n] ? " check_param
   case $check_param in
     y|Y)
@@ -710,7 +755,7 @@ function quickdemo_get_cluster_params() {
 #     (only needed if user_category='CLISTER APP')
 #
 function user_input_check() {
-  debug $LINENO "user_input_check ( $(dump_arguments "$@") )"
+  debug "$LINENO" "user_input_check ( $(dump_arguments "$@") )"
   local user_category=$1
   local user_description=$2
   local hostgroup_id
@@ -739,9 +784,11 @@ function user_input_check() {
   if [[ -z $password ]]; then
     if [[ $QUICK_DEMO -eq 0 ]]; then
       read -r -s -p  "Enter ${user_description} password: " ${user_category}_PASSWORD
-      while [[ -z "${user_category}_PASSWORD" ]]
+      password=$(eval "echo \$${user_category}_PASSWORD")
+      while [[ -z $password ]]
       do
         read -r -s -p  "No input entered, Enter ${user_description} password: " ${user_category}_PASSWORD
+        password=$(eval "echo \$${user_category}_PASSWORD")
       done
     fi
   fi
@@ -751,32 +798,32 @@ function user_input_check() {
   if [[ $user_category == "CLUSTER_APP" ]]; then
     local check_user
     check_user=$(mysql_exec "$LINENO" "SELECT user,host FROM mysql.user where user='$username' and host='$USER_HOST_RANGE';")
-    check_cmd $? $LINENO "Failed to retrieve the user information from PXC."\
+    check_cmd $? "$LINENO" "Failed to retrieve the user information from PXC."\
                          "\n-- Please check the PXC connection parameters and status."
 
     if [[ -z "$check_user" ]]; then
       local precheck_user
       precheck_user=$(proxysql_exec "$LINENO" "SELECT username FROM mysql_users where username='$username'")
-      check_cmd $? $LINENO "Failed to query ProxySQL for the user."\
+      check_cmd $? "$LINENO" "Failed to query ProxySQL for the user."\
                            "\n-- Please check the ProxySQL connection parameters and status."
 
       if [[ -z "$precheck_user" ]]; then
         mysql_exec "$LINENO" "CREATE USER $username@'$USER_HOST_RANGE' IDENTIFIED WITH mysql_native_password BY '$password';"
-        check_cmd $? $LINENO "Failed to add the PXC application user to PXC: $username" \
+        check_cmd $? "$LINENO" "Failed to add the PXC application user to PXC: $username" \
                              "\n-- Please check if '$CLUSTER_USERNAME'@'$CLUSTER_HOSTNAME' has the proper permissions to create the montioring user"
 
         if [[ $QUICK_DEMO -eq 1 ]]; then
           mysql_exec "$LINENO" "GRANT ALL ON *.* to $username@'$USER_HOST_RANGE'"
-          check_cmd $? $LINENO "Failed to grant permissions to '$username'@'$USER_HOST_RANGE'"\
+          check_cmd $? "$LINENO" "Failed to grant permissions to '$username'@'$USER_HOST_RANGE'"\
                                "\n-- Please check if $CLUSTER_USERNAME@'$CLUSTER_HOSTNAME' has the GRANT privilege"\
                                "\n-- required to assign the requested permissions"
         fi
 
         proxysql_exec "$LINENO" "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$username','$password',1,$hostgroup_id);"
-        check_cmd $? $LINENO "Failed to add the PXC application user: '$username' to the ProxySQL database."\
+        check_cmd $? "$LINENO" "Failed to add the PXC application user: '$username' to the ProxySQL database."\
                              "\n-- Please check the ProxySQL connection parameters and status."
 
-        proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO 1
+        proxysql_load_to_runtime_save_to_disk "MYSQL USERS" "$LINENO" 1
     
         if [[ $QUICK_DEMO -eq 0 ]]; then
           echo -e "\nPercona XtraDB Cluster application user '${BD}$username'@'$USER_HOST_RANGE${NBD}' has been added with ${BD}ALL${NBD} privileges, ${BD}this user is created for testing purposes${NBD}"
@@ -784,25 +831,25 @@ function user_input_check() {
           echo -e "\nPercona XtraDB Cluster application user '${BD}$username'@'$USER_HOST_RANGE${NBD}' has been added with the USAGE privilege, please make sure to the grant appropriate privileges"
         fi
       else
-        error $LINENO "The application user ${BD}$username${NBD} is already present in the ProxySQL database."
+        error "$LINENO" "The application user ${BD}$username${NBD} is already present in the ProxySQL database."
         echo -e "-- Note: ProxySQL does not allow duplicate usernames."
         exit 1
       fi
     else
       local check_user
       check_user=$(proxysql_exec "$LINENO" "SELECT username FROM mysql_users where username='$username'")
-      check_cmd $? $LINENO "Could not retrieve the users from the ProxySQL database."\
+      check_cmd $? "$LINENO" "Could not retrieve the users from the ProxySQL database."\
                            "\n-- Please check the ProxySQL connection parameters and status."
 
       if [[ -z "$check_user" ]]; then
         echo -e "\nApplication user '${BD}${username}'@'$USER_HOST_RANGE${NBD}' already present in PXC."
         proxysql_exec "$LINENO" "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$username','$password',1,$hostgroup_id);"
-        check_cmd $? $LINENO "Failed to add the PXC application user: '$username' to the ProxySQL database."\
+        check_cmd $? "$LINENO" "Failed to add the PXC application user: '$username' to the ProxySQL database."\
                              "\n-- Please check the ProxySQL connection parameters and status."
 
-        proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO 1
+        proxysql_load_to_runtime_save_to_disk "MYSQL USERS" "$LINENO" 1
       else
-        error $LINENO "The application user ${BD}$username${NBD} is already present in the ProxySQL database."
+        error "$LINENO" "The application user ${BD}$username${NBD} is already present in the ProxySQL database."
         echo -e "-- Note: ProxySQL does not allow duplicate usernames."
         exit 1
       fi
@@ -835,7 +882,7 @@ function proxysql_load_to_runtime_save_to_disk() {
   fi
 
   proxysql_exec "$LINENO" "LOAD ${data_type} TO RUNTIME"
-  check_cmd $? $lineno "Failed to load the ${data_type} configuration to runtime."\
+  check_cmd $? "$lineno" "Failed to load the ${data_type} configuration to runtime."\
                        "\n-- Please check the ProxySQL configuration and status."
   debug "$lineno" "Loaded ${data_type} to runtime"
 
@@ -844,13 +891,13 @@ function proxysql_load_to_runtime_save_to_disk() {
     # This will cause the password field to be loaded with the encrypted version
     # of the password field
     proxysql_exec "$LINENO" "SAVE ${data_type} FROM RUNTIME"
-    check_cmd $? $lineno "Failed to load the ${data_type} configuration from the runtime."\
+    check_cmd $? "$lineno" "Failed to load the ${data_type} configuration from the runtime."\
                          "\n-- Please check the ProxySQL configuration and status."
     debug "$lineno" "Saved ${data_type} from runtime"
   fi
 
   proxysql_exec "$LINENO" "SAVE ${data_type} TO DISK;"
-  check_cmd $? $lineno "Failed to save the ${data_type} configuration to disk."\
+  check_cmd $? "$lineno" "Failed to save the ${data_type} configuration to disk."\
                        "\n-- Please check the ProxySQL configuration and status."
   debug "$lineno" "Saved ${data_type} to disk"
 }
@@ -871,16 +918,17 @@ function add_servers_to_proxysql()
 {
   local server_list=$1
   for i in ${server_list}; do
-    local ws_address=$(separate_ip_port_from_address $i)
-    local ws_ip=$(echo "$ws_address" | cut -d' ' -f1)
-    local ws_port=$(echo "$ws_address" | cut -d' ' -f2)
+    local ws_address ws_ip ws_port
+    ws_address=$(separate_ip_port_from_address "$i")
+    ws_ip=$(echo "$ws_address" | cut -d' ' -f1)
+    ws_port=$(echo "$ws_address" | cut -d' ' -f2)
 
     proxysql_exec "$LINENO" \
       "INSERT INTO mysql_servers
         (hostname,hostgroup_id,port,weight,max_connections,use_ssl)
       VALUES
         ('$ws_ip',$WRITER_HOSTGROUP_ID,$ws_port,1000,$MAX_CONNECTIONS,$USE_SSL_OPTION);"
-    check_cmd $? $LINENO "Failed to add the PXC server node $i."\
+    check_cmd $? "$LINENO" "Failed to add the PXC server node with address: $i."\
                          "\n-- Please check the ProxySQL connection parameters and status."
   done
 }
@@ -905,11 +953,11 @@ function add_servers_to_proxysql()
 #   None
 #
 function enable_proxysql() {
-  debug $LINENO "enable_proxysql ( $(dump_arguments "$@") )"
+  debug "$LINENO" "enable_proxysql ()"
 
   # Checking proxysql binary location
   if [[ ! -e $(which proxysql 2> /dev/null) ]]; then
-    error $LINENO "The proxysql binary was not found."\
+    error "$LINENO" "The proxysql binary was not found."\
                   "\n-- Please install the ProxySQL package."
     exit 1
   fi
@@ -920,16 +968,16 @@ function enable_proxysql() {
   cluster_connection_check
   local cluster_name
   cluster_name=$(mysql_exec "$LINENO" "select @@wsrep_cluster_name;")
-  check_cmd $? $LINENO "Could not retrieve the cluster name from the PXC cluster at $CLUSTER_HOSTNAME:$CLUSTER_PORT"\
+  check_cmd $? "$LINENO" "Could not retrieve the cluster name from the PXC cluster at $CLUSTER_HOSTNAME:$CLUSTER_PORT"\
                        "\n-- Please check the PXC connection parameters and status."
   readonly cluster_name
-  debug $LINENO "PXC cluster name is : $cluster_name"
+  debug "$LINENO" "PXC cluster name is : $cluster_name"
 
   local all_hostgroups="$WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID,$BACKUP_WRITER_HOSTGROUP_ID,$OFFLINE_HOSTGROUP_ID"
   local check_hgs
   check_hgs=$(proxysql_exec "$LINENO" "SELECT hostgroup_id FROM mysql_servers where hostgroup_id in ($all_hostgroups)")
-  if [[ ! -z "$check_hgs" ]]; then
-    error $LINENO "One or more of the hostgroups($all_hostgroups) is already being used by ProxySQL."\
+  if [[ -n "$check_hgs" ]]; then
+    error "$LINENO" "One or more of the hostgroups($all_hostgroups) is already being used by ProxySQL."\
                   "\n-- To avoid conflicts, please use different values for the hostgroups."
     exit 1
   fi
@@ -937,7 +985,7 @@ function enable_proxysql() {
   CLUSTER_NETWORK=$(mysql_exec "$LINENO" "show status like 'wsrep_incoming_addresses'" |
                       awk '{print $2}' |
                       cut -d'.' -f1)
-  check_cmd $? $LINENO "Could not retrieve the cluster addresses from PXC."\
+  check_cmd $? "$LINENO" "Could not retrieve the cluster addresses from PXC."\
                        "\n-- Please check the PXC connection parameters and status."
   if [[ "$CLUSTER_NETWORK" =~ ^[0-9]+$ ]]; then 
     USER_HOST_RANGE="$CLUSTER_NETWORK.%"
@@ -951,16 +999,16 @@ function enable_proxysql() {
 
   local check_user
   check_user=$(mysql_exec "$LINENO" "SELECT user,host FROM mysql.user where user='$MONITOR_USERNAME' and host='$USER_HOST_RANGE';")
-  check_cmd $? $LINENO "Could not retrieve the monitor user information from PXC."\
+  check_cmd $? "$LINENO" "Could not retrieve the monitor user information from PXC."\
                        "\n-- Please check the PXC cluster connection parameters and status."
   if [[ -z "$check_user" ]]; then
     # No monitor user found in MySQL, create the monitor user
     mysql_exec "$LINENO" "CREATE USER '$MONITOR_USERNAME'@'$USER_HOST_RANGE' IDENTIFIED WITH mysql_native_password BY '$MONITOR_PASSWORD';"
-    check_cmd $? $LINENO  "Failed to create the ProxySQL monitoring user."\
+    check_cmd $? "$LINENO"  "Failed to create the ProxySQL monitoring user."\
                           "\n-- Please check that '$CLUSTER_USERNAME'@'$CLUSTER_HOSTNAME' has the proper permissions to create the montioring user"
 
     proxysql_exec "$LINENO" "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
-    check_cmd $? $LINENO  "Failed to set the mysql-monitor variables in ProxySQL."\
+    check_cmd $? "$LINENO"  "Failed to set the mysql-monitor variables in ProxySQL."\
                           "\n-- Please check the ProxySQL connection parameters and status."
 
     proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
@@ -985,11 +1033,11 @@ function enable_proxysql() {
           echo ""
 
           monitor_exec "$LINENO" "$MONITOR_USERNAME" "$MONITOR_PASSWORD" "-Bs" "SELECT 1" >/dev/null
-          check_cmd $? $LINENO "Failed to connect to Percona XtraDB Cluster using monitor credentials."\
+          check_cmd $? "$LINENO" "Failed to connect to Percona XtraDB Cluster using monitor credentials."\
                                "\n-- Please check MONITOR_USERNAME and MONITOR_PASSWORD"
 
           proxysql_exec "$LINENO" "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
-          check_cmd $? $LINENO  "Failed to set the mysql-monitor variables in ProxySQL."\
+          check_cmd $? "$LINENO"  "Failed to set the mysql-monitor variables in ProxySQL."\
                                 "\n-- Please check the ProxySQL connection parameters"
           proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
           echo -e "\nMonitoring user '${BD}$MONITOR_USERNAME'@'$USER_HOST_RANGE${NBD}' has been setup in the ProxySQL database."
@@ -997,11 +1045,11 @@ function enable_proxysql() {
       ;;
       n|N)
         monitor_exec "$LINENO" "$MONITOR_USERNAME" "$MONITOR_PASSWORD" "-Bs" "SELECT 1" >/dev/null
-        check_cmd $? $LINENO "Failed to connect to Percona XtraDB Cluster using monitor credentials."\
+        check_cmd $? "$LINENO" "Failed to connect to Percona XtraDB Cluster using monitor credentials."\
                              "\n-- Please check MONITOR_USERNAME and MONITOR_PASSWORD"
 
         proxysql_exec "$LINENO" "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
-        check_cmd $? $LINENO  "Failed to set the mysql-monitor variables in ProxySQL."\
+        check_cmd $? "$LINENO"  "Failed to set the mysql-monitor variables in ProxySQL."\
                               "\n-- Please check the ProxySQL connection parameters"
 
         proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
@@ -1013,7 +1061,7 @@ function enable_proxysql() {
       ;;
     esac
   fi
-  debug $LINENO "monitor username is '$MONITOR_USERNAME'"
+  debug "$LINENO" "monitor username is '$MONITOR_USERNAME'"
 
   if [[ $WITH_CLUSTER_APP_USER -eq 1 ]]; then
     echo -e "\nConfiguring the Percona XtraDB Cluster application user to connect through ProxySQL"
@@ -1027,8 +1075,8 @@ function enable_proxysql() {
 
   # Get the nodes in the cluster
   wsrep_address=$(mysql_exec "$LINENO" "show status like 'wsrep_incoming_addresses'" | awk '{print $2}' | sed 's|,| |g')
-  debug $LINENO "wsrep_address = $wsrep_address"
-  check_cmd $? $LINENO "Failed to get the list of addresses from PXC"\
+  debug "$LINENO" "wsrep_address = $wsrep_address"
+  check_cmd $? "$LINENO" "Failed to get the list of addresses from PXC"\
                        "\n-- Please check the PXC connection paramters and status."
 
   echo -e "\nAdding the Percona XtraDB Cluster server nodes to ProxySQL"
@@ -1060,26 +1108,26 @@ function enable_proxysql() {
 
         # TODO: kennt, do we want to display the error message?
         # TODO: kennt, Do we want to do this for loadbal also?
-        exec_sql $LINENO "$CLUSTER_USERNAME" "$CLUSTER_PASSWORD" "$writer_ws_ip" "$writer_ws_port" "select @@port" &>/dev/null
+        exec_sql "$LINENO" "$CLUSTER_USERNAME" "$CLUSTER_PASSWORD" "$writer_ws_ip" "$writer_ws_port" "select @@port" &>/dev/null
         if [ $? -ne 0 ]; then 
-          error $LINENO "Failed to establish a connection to the write node $writer_ws_address."\
+          error "$LINENO" "Failed to establish a connection to the write node $writer_ws_address."\
                         "\n-- Please check that the write node is alive and the connection parameters are correct"; 
           proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE default_hostgroup in ($WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID,$BACKUP_WRITER_HOSTGROUP_ID,$OFFLINE_HOSTGROUP_ID);"
-          check_cmd $? $LINENO "Failed to delete PXC user from ProxySQL."\
+          check_cmd $? "$LINENO" "Failed to delete PXC user from ProxySQL."\
                                "\n-- Please check the ProxySQL connection parameters and status."
           exit 1
         fi
       fi
     else
       writer_ws_ip=$(mysql_exec "$LINENO" "show variables like 'wsrep_provider_options'" | grep -o -P '(?<=base_host =).*(?=; base_port)' | xargs)
-      check_cmd $? $LINENO "Could not get the wsrep_provider_options from the PXC cluster"\
+      check_cmd $? "$LINENO" "Could not get the wsrep_provider_options from the PXC cluster"\
                            "\n-- Please check the PXC connection parameters and status."      
       writer_ws_port=$CLUSTER_PORT
-      writer_ws_address=$(combine_ip_port_into_address $writer_ws_ip $writer_ws_port)
+      writer_ws_address=$(combine_ip_port_into_address "$writer_ws_ip" "$writer_ws_port")
     fi
 
     if [[ " ${wsrep_address} " != *"$writer_ws_address"* ]]; then
-      error $LINENO "Writer node cluster address($writer_ws_address) does not exist"\
+      error "$LINENO" "Writer node cluster address($writer_ws_address) does not exist"\
                     "\n-- in WSREP incoming address(${wsrep_address})."
       echo -e "-- Different wsrep incoming and cluster IP addresses are not supported"
       echo -e "-- by proxysql-admin at this time.  Please configure ProxySQL manually."
@@ -1089,12 +1137,12 @@ function enable_proxysql() {
 
   # Remove any existing nodes from mysql_servers
   proxysql_exec "$LINENO" "DELETE FROM mysql_servers WHERE hostgroup_id IN ($all_hostgroups)"
-  check_cmd $? $LINENO "Failed to delete the existing servers with hostgroup: ${all_hostgroups}"\
+  check_cmd $? "$LINENO" "Failed to delete the existing servers with hostgroup: ${all_hostgroups}"\
                        "\n-- Please check the ProxySQL connection parameters and status."
 
   # Remove any existing query rules
   proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE destination_hostgroup in ($all_hostgroups)"
-  check_cmd $? $LINENO "Failed to delete the existing query rules for hostgroup: $all_hostgroups"\
+  check_cmd $? "$LINENO" "Failed to delete the existing query rules for hostgroup: $all_hostgroups"\
                        "\n-- Please check the ProxySQL connection parameters and status."
   # TODO: also remove fast query rules
 
@@ -1135,7 +1183,10 @@ function enable_proxysql() {
                              "\n-- Please check the ProxySQL connection parameters and status."
 
     echo -e "\nWrite node info"
-    proxysql_exec "$LINENO" "SELECT hostname,hostgroup_id,port,weight FROM mysql_servers WHERE hostgroup_id=$WRITER_HOSTGROUP_ID" "-t"
+    proxysql_exec "$LINENO" \
+      "SELECT hostname,hostgroup_id,port,weight
+       FROM mysql_servers
+       WHERE hostgroup_id=$WRITER_HOSTGROUP_ID AND weight > 1000" "-t"
 
     if [[ $WITH_CLUSTER_APP_USER -eq 1 ]]; then
       proxysql_exec "$LINENO" \
@@ -1145,13 +1196,29 @@ function enable_proxysql() {
           ('$CLUSTER_APP_USERNAME',$WRITER_HOSTGROUP_ID,1,'^SELECT.*FOR UPDATE',1),
           ('$CLUSTER_APP_USERNAME',$READER_HOSTGROUP_ID,1,'^SELECT ',1);"
 
-      check_cmd $? $LINENO "Failed to add the read query rule to ProxySQL."\
+      check_cmd $? "$LINENO" "Failed to add the read query rule to ProxySQL."\
                            "\n-- Please check the ProxySQL connection parameters and status."
     fi
 
     # Setup parameters for singlewrite
     MAX_WRITERS=1
     WRITER_IS_ALSO_READER=1
+  fi
+
+  if [[ $NODE_CHECK_INTERVAL -ne -1 ]]; then
+    local healthcheck_value
+    healthcheck_value=$(proxysql_exec "$LINENO" "select variable_value from global_variables where variable_name = 'mysql-monitor_galera_healthcheck_interval'" |
+                                grep -v variable_value)
+    check_cmd $? "$LINENO" "Failed to get the node-check-interval value from ProxySQL."\
+                         "\n-- Please check the ProxySQL connection parameters and status."
+    if [[ $healthcheck_value -ne $NODE_CHECK_INTERVAL ]]; then
+      warning "$LINENO" "Changing the node check interval to :$NODE_CHECK_INTERVAL" \
+              "\n-- This is a global setting and will affect all Galera clusters"
+
+      proxysql_exec "$LINENO" "SET mysql-monitor_galera_healthcheck_interval  = $NODE_CHECK_INTERVAL"
+      check_cmd $? "$LINENO" "Failed to set the node-check-interval in ProxySQL."\
+                           "\n-- Please check the ProxySQL connection parameters and status."
+    fi
   fi
 
   proxysql_exec "$LINENO" \
@@ -1166,8 +1233,11 @@ function enable_proxysql() {
         VALUES
           ($WRITER_HOSTGROUP_ID, $BACKUP_WRITER_HOSTGROUP_ID,
            $READER_HOSTGROUP_ID, $OFFLINE_HOSTGROUP_ID,
-           1, $MAX_WRITERS, $WRITER_IS_ALSO_READER, 100)"
+           1, $MAX_WRITERS, $WRITER_IS_ALSO_READER, $MAX_TRANSACTIONS_BEHIND)"
+  check_cmd $? "$LINENO" "Failed to create the galera_hostgroups entry in ProxySQL."\
+                       "\n-- Please check the ProxySQL connection parameters and status."
 
+  proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
   proxysql_load_to_runtime_save_to_disk "MYSQL SERVERS" $LINENO
   proxysql_load_to_runtime_save_to_disk "MYSQL QUERY RULES" $LINENO
 }
@@ -1183,7 +1253,7 @@ function enable_proxysql() {
 # Arguments:
 #
 function disable_proxysql(){
-  debug $LINENO "disable_proxysql ( $(dump_arguments "$@") )"
+  debug "$LINENO" "disable_proxysql ()"
 
   proxysql_connection_check
 
@@ -1191,22 +1261,22 @@ function disable_proxysql(){
 
   echo "Removing default cluster application user from the ProxySQL database."
   proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE username='$CLUSTER_APP_USERNAME';"
-  check_cmd $? $LINENO "Failed to delete the PXC user ($CLUSTER_APP_USERNAME) from ProxySQL."\
+  check_cmd $? "$LINENO" "Failed to delete the PXC user ($CLUSTER_APP_USERNAME) from ProxySQL."\
                        "\n-- Please check the ProxySQL connection parameters and status."
 
   echo "Removing cluster nodes from the ProxySQL database."
   proxysql_exec "$LINENO" "DELETE FROM mysql_servers WHERE hostgroup_id in ($all_hostgroups);"
-  check_cmd $? $LINENO "Failed to delete the PXC nodes from ProxySQL."\
+  check_cmd $? "$LINENO" "Failed to delete the PXC nodes from ProxySQL."\
                        "\n-- Please check the ProxySQL connection parameters and status."
 
   echo "Removing query rules from the ProxySQL database if any."
   proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE destination_hostgroup in ($all_hostgroups)"
-  check_cmd $? $LINENO "Failed to delete the query rules from ProxySQL."\
+  check_cmd $? "$LINENO" "Failed to delete the query rules from ProxySQL."\
                        "\n-- Please check the ProxySQL connection parameters amd status."
 
   echo "Removing the cluster from the ProxySQL database."
   proxysql_exec "$LINENO" "DELETE FROM mysql_galera_hostgroups WHERE writer_hostgroup = $WRITER_HOSTGROUP_ID"
-  check_cmd $? $LINENO "Failed to delete the galera hostgroup entry from ProxySQL."\
+  check_cmd $? "$LINENO" "Failed to delete the galera hostgroup entry from ProxySQL."\
                        "\n-- Please check the ProxySQL connection parameters amd status."
 
   # TODO: do we need to remove the rows from the fast query routing table?
@@ -1225,7 +1295,7 @@ function disable_proxysql(){
 #   None
 #
 function adduser(){
-  debug $LINENO "adduser ( $(dump_arguments "$@") )"
+  debug "$LINENO" "adduser ()"
 
   proxysql_connection_check
   cluster_connection_check
@@ -1252,15 +1322,15 @@ function adduser(){
   local check_cluster_user
 
   check_user=$(proxysql_exec "$LINENO" "SELECT username FROM mysql_users where username='$cluster_app_write_username'")
-  check_cmd $? $LINENO "Could not retrieve the user from ProxySQL."\
+  check_cmd $? "$LINENO" "Could not retrieve the user from ProxySQL."\
                        "\n-- Check the ProxySQL connection parameters and status."
   if [[ -n "$check_user" ]]; then
-    error $LINENO "The application user '$cluster_app_write_username' already exists in ProxySQL."
+    error "$LINENO" "The application user '$cluster_app_write_username' already exists in ProxySQL."
     exit 1
   fi
 
   check_cluster_user=$(mysql_exec "$LINENO" "SELECT user,host FROM mysql.user where user='$cluster_app_write_username'")
-  check_cmd $? $LINENO "Could not retrieve the user from PXC."\
+  check_cmd $? "$LINENO" "Could not retrieve the user from PXC."\
                        "\n-- Check the PXC connection parameters and status."
   if [[ -z "$check_cluster_user" ]]; then
     local check_param
@@ -1268,8 +1338,12 @@ function adduser(){
     read -r -p "The application user '$cluster_app_write_username' does not exist in PXC. Would you like to proceed [y/n] ? " check_param
     case $check_param in
       y|Y)
-        proxysql_exec "$LINENO" "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$cluster_app_write_username','$cluster_app_write_password',1,$WRITER_HOSTGROUP_ID);"
-        check_cmd $? $LINENO "Failed to add the PXC application user: '$cluster_app_write_username' to ProxySQL."\
+        proxysql_exec "$LINENO" \
+          "INSERT INTO mysql_users
+            (username,password,active,default_hostgroup)
+           VALUES
+            ('$cluster_app_write_username','$cluster_app_write_password',1,$WRITER_HOSTGROUP_ID);"
+        check_cmd $? "$LINENO" "Failed to add the PXC application user: '$cluster_app_write_username' to ProxySQL."\
                              "\n-- Please check the ProxySQL connection parameters and status."
         echo -e "\nPlease create the user ${BD}$cluster_app_write_username${NBD} in PXC to access the application through ProxySQL"
       ;;
@@ -1282,12 +1356,16 @@ function adduser(){
       ;;
     esac
   else
-    proxysql_exec "$LINENO" "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$cluster_app_write_username','$cluster_app_write_password',1,$WRITER_HOSTGROUP_ID);"
-    check_cmd $? $LINENO "Failed to add the PXC application user: '$cluster_app_write_username' to ProxySQL."\
+    proxysql_exec "$LINENO" \
+      "INSERT INTO mysql_users
+          (username,password,active,default_hostgroup)
+       values
+          ('$cluster_app_write_username','$cluster_app_write_password',1,$WRITER_HOSTGROUP_ID);"
+    check_cmd $? "$LINENO" "Failed to add the PXC application user: '$cluster_app_write_username' to ProxySQL."\
                          "\n-- Please check the ProxySQL connection parameters and status."
   fi
 
-  proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO "1"
+  proxysql_load_to_runtime_save_to_disk "MYSQL USERS" "$LINENO" "1"
 }
 
 
@@ -1301,8 +1379,11 @@ function adduser(){
 #
 function get_proxysql_users() {
   local proxysql_users
-  proxysql_users=$(proxysql_exec "$LINENO" "SELECT username,password FROM mysql_users where password!='' and default_hostgroup=$WRITER_HOSTGROUP_ID" "" "hide_output")
-  check_cmd $? $LINENO "Failed to load user list from ProxySQL database."\
+  proxysql_users=$(proxysql_exec "$LINENO" \
+                    "SELECT username,password
+                      FROM mysql_users
+                      WHERE password!='' AND default_hostgroup=$WRITER_HOSTGROUP_ID" "" "hide_output")
+  check_cmd $? "$LINENO" "Failed to load user list from ProxySQL database."\
                        "\n-- Please check the ProxySQL connection parameters and status."
   proxysql_users=$(echo "$proxysql_users" |
                       sort |
@@ -1331,12 +1412,12 @@ function proxysql_admin_user_check(){
   proxysql_admin_users=($(proxysql_exec "$LINENO" "select variable_value from global_variables where variable_name like 'admin-%_credentials'" |
                               cut -d':' -f1 |
                               grep -v variable_value))
-  if [[ " ${proxysql_admin_users[@]} " =~ " $userchk " ]]; then
+  if [[ " ${proxysql_admin_users[@]} " =~ [[:space:]]${userchk}[[:space:]] ]]; then
     is_proxysql_admin_user=1
   else
     is_proxysql_admin_user=0
   fi
-  printf "$is_proxysql_admin_user"
+  printf "%s" "$is_proxysql_admin_user"
 }
 
 
@@ -1364,7 +1445,7 @@ function proxysql_admin_user_check(){
 #   None
 #
 function syncusers() {
-  debug $LINENO "syncusers ( $(dump_arguments "$@") )"
+  debug "$LINENO" "syncusers ()"
 
   proxysql_connection_check
   cluster_connection_check
@@ -1377,7 +1458,7 @@ function syncusers() {
 
   # Get current MySQL users, filter out header row and mysql.sys user
   mysql_version=$(mysql_exec "$LINENO" "SELECT VERSION();" | tail -1 | cut -d'.' -f1,2 )
-  check_cmd $? $LINENO "Could not connect to the PXC node."\
+  check_cmd $? "$LINENO" "Could not connect to the PXC node."\
                        "\n-- Please check the PXC connection parameters and status."
 
   case $mysql_version in
@@ -1394,17 +1475,17 @@ function syncusers() {
       password_field="Password"
       ;;
     *)
-      error $LINENO "Unexpected database server version: ${mysql_version}"\
+      error "$LINENO" "Unexpected database server version: ${mysql_version}"\
                     "\n-- This version of proxysql-admin needs to be updated."
       exit 1
       ;;
   esac
   
   mysql_users=$(mysql_exec "$LINENO" "SELECT User,${password_field} FROM mysql.user where ${password_field}!=''" "" "hide_output" |
-                  egrep -v "mysql.sys|mysql.session|mysql.infoschema" |
+                  grep -E -v "mysql.sys|mysql.session|mysql.infoschema" |
                   sort |
                   uniq )
-  check_cmd $? $LINENO "Failed to load the user list from PXC."\
+  check_cmd $? "$LINENO" "Failed to load the user list from PXC."\
                        "\n-- Please check the PXC connection parameters and status."
 
   #Checking whether user is part of proxysql admin user list
@@ -1438,8 +1519,9 @@ function syncusers() {
     done< <(printf "%s\n" "${proxysql_users}")
 
     if [[ $match -eq 0 ]]; then
-      local user=$(echo "$mysql_user" | cut -f1)
-      local password=$(echo "$mysql_user" | cut -f2)
+      local user password
+      user=$(echo "$mysql_user" | cut -f1)
+      password=$(echo "$mysql_user" | cut -f2)
 
       # escape SQL input
       # Since we're using single quotes within the SQL statement, only need
@@ -1456,14 +1538,14 @@ function syncusers() {
         if [[ "$puser" == "$user" ]]; then
           echo "Removing existing user from ProxySQL: $user"
           proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE username='${user}' and default_hostgroup=$WRITER_HOSTGROUP_ID"
-          check_cmd $? $LINENO "Failed to delete the user ($user) from ProxySQL database."\
+          check_cmd $? "$LINENO" "Failed to delete the user ($user) from ProxySQL database."\
                                "\n-- Please check the ProxySQL connection parameters and status."
           break
         fi
       done< <(printf "%s\n" "${proxysql_users}")
 
       local is_proxysql_admin_user
-      is_proxysql_admin_user=$(proxysql_admin_user_check $user)
+      is_proxysql_admin_user=$(proxysql_admin_user_check "$user")
       if [[ $is_proxysql_admin_user -eq 1 ]]; then
         echo -e "\nNote : '$user' is in proxysql admin user list, this user cannot be addded to ProxySQL"\
                 "\n-- (For more info, see https://github.com/sysown/proxysql/issues/709)"
@@ -1472,7 +1554,7 @@ function syncusers() {
         if [[ -z $check_user ]]; then
           echo "Adding user to ProxySQL: $user"
           proxysql_exec "$LINENO" "INSERT INTO mysql_users (username, password, active, default_hostgroup) VALUES ('${user}', '${password}', 1, $WRITER_HOSTGROUP_ID)"
-          check_cmd $? $LINENO "Failed to add the user ($user) from PXC to ProxySQL database."\
+          check_cmd $? "$LINENO" "Failed to add the user ($user) from PXC to ProxySQL database."\
                                "\n-- Please check the ProxySQL connection parameters and status."
         else
           echo "Cannot add the user (${user}). The user (${user}) already exists in ProxySQL database with different hostgroup."
@@ -1487,7 +1569,6 @@ function syncusers() {
     # Again get all users
     proxysql_users=$(get_proxysql_users)
 
-    pusers=${proxysql_users//\\/\\\\}
     while read pline; do
       if [[ -z $pline ]]; then
         continue
@@ -1495,7 +1576,7 @@ function syncusers() {
       proxysql_user=$pline
 
       local match=0
-      while read line; do
+      while read -r line; do
         if [[ -z $line ]]; then
           continue
         fi
@@ -1507,10 +1588,11 @@ function syncusers() {
 
       if [ "$match" -eq 0 ];then
         # Delete the ProxySQL user
-        local user=$(echo "$proxysql_user" | cut -f1)
+        local user
+        user=$(echo "$proxysql_user" | cut -f1)
         echo -e "\nRemoving user from ProxySQL: $user"
         proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE username='${user}' and default_hostgroup=$WRITER_HOSTGROUP_ID"
-        check_cmd $? $LINENO "Failed to delete the user ($user) from ProxySQL database."\
+        check_cmd $? "$LINENO" "Failed to delete the user ($user) from ProxySQL database."\
                              "\n-- Please check the ProxySQL connection parameters and status."
       fi
     done< <(printf "%s\n" "$proxysql_users")
@@ -1518,6 +1600,132 @@ function syncusers() {
   proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO
 }
 
+
+# Update the cluster membership
+# New members will be added to the configuration.
+# By design, members that are no longer in the cluster will not be removed.
+#
+# Globals:
+#   WRITER_HOSTGROUP_ID
+#
+# Parameters:
+#   None
+#
+function update_cluster()
+{
+  local host_info
+  local current_hosts=""
+  local ip_addr port
+  local cluster_host cluster_port
+  local all_hostgroups
+  local cluster_addresses=""
+
+  # get the list of hostgroups given the writer-hostgroup
+  all_hostgroups=$(proxysql_exec "$LINENO" \
+                    "SELECT writer_hostgroup || ',' || reader_hostgroup || ',' ||
+                            backup_writer_hostgroup || ',' || offline_hostgroup
+                     FROM mysql_galera_hostgroups
+                     WHERE writer_hostgroup = $WRITER_HOSTGROUP_ID")
+  check_cmd $? "$LINENO" "Failed to retrieve the list of hostgroups from ProxySQL" \
+                       "\n-- Please check the ProxySQL connection parameters and status."
+
+  # get the list of hosts from the hosts given in the various hostgroups
+  host_info=$(proxysql_exec "$LINENO" \
+                "SELECT DISTINCT hostname || ':' || port,hostgroup_id,status
+                 FROM mysql_servers
+                 WHERE hostgroup_id in ($all_hostgroups)")
+  check_cmd $? "$LINENO" "Failed to retrieve host information from ProxySQL"\
+                       "\n-- Please check the ProxySQL connection parameters and status."
+
+  host_info=$(echo "$host_info" | tr '\t' ' ')
+  if [[ -n $host_info ]]; then
+    # Extract the hostname and port from the rows
+    # Creates a string of "host:port" separated by spaces
+    while read -r line; do
+      if [[ -z $line ]]; then
+        continue
+      fi
+
+      local net_address
+      net_address=$(echo "$line" | cut -d' ' -f1)
+      net_address=$(separate_ip_port_from_address "$net_address")
+      ip_addr=$(echo "$net_address" | cut -d' ' -f1)
+      port=$(echo "$net_address" | cut -d' ' -f2)
+      net_address=$(combine_ip_port_into_address "$ip_addr" "$port")
+      current_hosts+="$net_address "
+    done< <(printf "%s" "$host_info\n")
+
+    current_hosts=${current_hosts% }
+  fi
+
+  # Iterate through the list of hosts, till we find an active host
+  # (Must also check that this is a primary partition)
+  for i in $current_hosts; do
+    [[ -z $i ]] && continue;
+
+    net_address=$(separate_ip_port_from_address "$i")
+
+    local ip_addr port
+    local status=""
+    ip_addr=$(echo "$net_address" | cut -d' ' -f1)
+    port=$(echo "$net_address" | cut -d' ' -f2)
+
+    # This call may fail (the node may be offline)
+    status=$(cluster_exec "$LINENO" "$ip_addr" "$port" \
+              "SHOW STATUS LIKE 'wsrep_cluster_status';
+               SHOW STATUS LIKE 'wsrep_incoming_addresses'" \
+             "--skip-column-names --silent")
+    [[ $? -ne 0 || -z $status ]] && continue;
+
+    local cluster_status
+    cluster_status=$(echo -en "$status" | grep "wsrep_cluster_status" | cut -f2)
+    if [[ $cluster_status == "Primary" ]]; then
+      cluster_addresses=$(echo -en "$status" | grep "wsrep_incoming_addresses" | cut -f2 | tr ',' ' ')
+      break
+    fi
+  done
+
+  if [[ -z $cluster_addresses && -z $current_hosts ]]; then
+    warning "$LINENO" "update_cluster: both PXC and ProxySQL have no active nodes"
+    return
+  fi
+
+  #
+  # Given the WSREP members, compare to ProxySQL
+  # If missing from ProxySQL, add to ProxySQL as a reader.
+  #
+  debug "$LINENO" "Looking for PXC nodes not in ProxySQL"
+
+  local new_node_list=""
+  for i in ${cluster_addresses}; do
+    # if we have a match, the the PXC node is in ProxySQL and we can skip
+    if [[ -n $current_hosts && " ${current_hosts} " =~ [[:space:]]${i}[[:space:]] ]]; then
+      continue
+    fi
+
+    echo "Cluster node (${i}) does not exist in ProxySQL, adding to the writer hostgroup($WRITER_HOSTGROUP_ID)"
+    net_address=$(separate_ip_port_from_address "$i")
+    ip_addr=$(echo "$net_address" | cut -d' ' -f1)
+    port=$(echo "$net_address" | cut -d' ' -f2)
+
+    # Add to list of nodes to add to proxysql
+    net_address=$(combine_ip_port_into_address "$ip_addr" "$port")
+    new_node_list+="$net_address "
+  done
+
+  if [[ -n $new_node_list ]]; then
+    add_servers_to_proxysql "$new_node_list"
+    proxysql_load_to_runtime_save_to_disk "MYSQL SERVERS" $LINENO
+  fi
+
+  echo -e "\nCluster node info"
+  echo "Writer hostgroup        : $WRITER_HOSTGROUP_ID"
+  echo "Reader hostgroup        : $READER_HOSTGROUP_ID"
+  echo "Backup writer hostgroup : $BACKUP_WRITER_HOSTGROUP_ID"
+  echo "Offline hostgroup       : $OFFLINE_HOSTGROUP_ID"
+  proxysql_exec "$LINENO" "SELECT hostname,hostgroup_id,port,weight FROM mysql_servers WHERE hostgroup_id in ($all_hostgroups)" "-t"
+
+}
 
 # Parses the script arguments and sets the global variables
 #
@@ -1532,9 +1740,9 @@ function parse_args() {
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hostgroup:,backup-writer-hostgroup:,reader-hostgroup:,offline-hostgroup:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,adduser,syncusers,sync-multi-cluster-users,max-connections:,use-ssl:,version,debug,help \
+    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hostgroup:,backup-writer-hostgroup:,reader-hostgroup:,offline-hostgroup:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,adduser,syncusers,sync-multi-cluster-users,max-connections:,max-transactions-behind:,use-ssl:,version,debug,help \
     --name="$(basename "$0")" -- "$@")"
-    check_cmd $? $LINENO "Script error: getopt() failed with arguments: $@"
+    check_cmd $? "$LINENO" "Script error: getopt() failed with arguments: $*"
     eval set -- "$go_out"
   fi
   if [[ $go_out == " --" ]];then
@@ -1554,8 +1762,8 @@ function parse_args() {
       -- ) shift; break;;
       --config-file )
         CONFIG_FILE="$2"
-        check_permission -e $LINENO "$CONFIG_FILE" "proxysql-admin configuration file"
-        debug $LINENO  "--config-file specified, using : $CONFIG_FILE"
+        check_permission -e "$LINENO" "$CONFIG_FILE" "proxysql-admin configuration file"
+        debug "$LINENO"  "--config-file specified, using : $CONFIG_FILE"
         shift 2
         ;;
       --help)
@@ -1592,8 +1800,8 @@ function parse_args() {
     if [ ! -e "$CONFIG_FILE" ]; then
         warning "" "Could not locate the configuration file: $CONFIG_FILE"
     else
-        check_permission -r $LINENO "$CONFIG_FILE"
-        debug $LINENO "Loading $CONFIG_FILE"
+        check_permission -r "$LINENO" "$CONFIG_FILE"
+        debug "$LINENO" "Loading $CONFIG_FILE"
         source "$CONFIG_FILE"
     fi
   fi
@@ -1718,6 +1926,10 @@ function parse_args() {
         shift
         DISABLE=1
         ;;
+      --update-cluster )
+        shift
+        UPDATE_CLUSTER=1
+        ;;
       --node-check-interval )
         NODE_CHECK_INTERVAL="$2"
         shift 2
@@ -1755,10 +1967,10 @@ function parse_args() {
             error "" "option '--max-connections' requires an argument"
             exit 1
         fi
-
-        # If set by the command-line, use it in the arguments
-        # for proxysql_galera_checker (so that it overrides the config file)
-        MAX_CONNECTIONS_ARGS="--max-connections=$MAX_CONNECTIONS"
+        ;;
+      --max-transactions-behind )
+        MAX_TRANSACTIONS_BEHIND=$2
+        shift 2
         ;;
       --use-ssl )
         USE_SSL="$2"
@@ -1805,7 +2017,7 @@ function parse_args() {
 
     # Check that we have a port and that it only contains digits
     if [[ -z $ws_port || ! $ws_port =~ ^[[:digit:]]*$ ]]; then
-      error "$LINENO" "--write-node : expected 'address:port' found '$node'"
+      error "$LINENO" "--write-node : expected 'address:port' found '$WRITE_NODE'"
       exit 1
     fi
   fi
@@ -1872,8 +2084,8 @@ function parse_args() {
       exit 1
     fi
   fi
-  check_permission -d $LINENO $PROXYSQL_DATADIR "ProxySQL datadir"
-  check_permission -w $LINENO $PROXYSQL_DATADIR
+  check_permission -d "$LINENO" $PROXYSQL_DATADIR "ProxySQL datadir"
+  check_permission -w "$LINENO" $PROXYSQL_DATADIR
   readonly PROXYSQL_DATADIR
 
   debug "" "ProxySQL datadir: $PROXYSQL_DATADIR"
@@ -1906,7 +2118,7 @@ function parse_args() {
   fi
 
   if [[ ! -e $(which mysql 2> /dev/null) ]] ;then
-    error $LINENO "The mysql client was not found, please install the mysql client package."
+    error "$LINENO" "The mysql client was not found, please install the mysql client package."
     exit 1
   fi
 
@@ -1972,13 +2184,13 @@ function parse_args() {
   readonly SYNCUSERS
   readonly SYNCMULTICLUSTERUSERS
   readonly QUICK_DEMO
+  readonly UPDATE_CLUSTER
 
   readonly WITH_CHECK_MONITOR_USER
   readonly WITH_CLUSTER_APP_USER
 
   readonly MAX_CONNECTIONS
-  readonly MAX_CONNECTIONS_ARGS
-
+  readonly MAX_TRANSACTIONS_BEHIND
  }
 
 # Main function
@@ -1990,6 +2202,7 @@ function parse_args() {
 #   SYNCUSERS
 #   SYNCMULTICLUSTERUSERS
 #   QUICK_DEMO
+#   UPDATE_CLUSTER
 #   MODE
 #   CLUSTER_APP_USERNAME
 #   PROXYSQL_HOSTNAME, PROXYSQL_CLIENT_PORT
@@ -2028,18 +2241,16 @@ function main() {
       echo -e "\nSynced PXC users to the ProxySQL database!"
     fi
 
-    if [[ -n $MAX_CONNECTIONS_ARGS ]]; then
-      # --max-connections was specified on the command-line, issue a warning
-      # if the incoming connection limit is smaller than the backend connection limit.
-      local incoming_max
-      incoming_max=$(proxysql_exec "$LINENO" "select variable_value from global_variables where variable_name like 'mysql-max_connections'")
-      if [[ -n $incoming_max && $incoming_max -lt $MAX_CONNECTIONS ]]; then
-        warning $LINENO "The value of the '--max-connections' option($MAX_CONNECTIONS) exceeds"
-        echo "-- the limit on incoming client connections($incoming_max). The limit on incoming"
-        echo "-- connections may be increased by changing the value of 'mysql-max_connections'"
-        echo "-- in the ProxySQL global_variables table."
-        echo ""
-      fi
+    # Check if the incoming connection limit is smaller
+    # than the backend connection limit.
+    local incoming_max
+    incoming_max=$(proxysql_exec "$LINENO" "select variable_value from global_variables where variable_name like 'mysql-max_connections'")
+    if [[ -n $incoming_max && $incoming_max -lt $MAX_CONNECTIONS ]]; then
+      warning "$LINENO" "The value of the '--max-connections' option($MAX_CONNECTIONS) exceeds"
+      echo "-- the limit on incoming client connections($incoming_max). The limit on incoming"
+      echo "-- connections may be increased by changing the value of 'mysql-max_connections'"
+      echo "-- in the ProxySQL global_variables table."
+      echo ""
     fi
 
   elif [[ $DISABLE -eq 1 ]]; then
@@ -2056,6 +2267,11 @@ function main() {
 
     syncusers
     echo -e "\nSynced PXC users to the ProxySQL database!"
+
+  elif [[ $UPDATE_CLUSTER -eq 1 ]]; then
+
+    update_cluster
+    echo -e "\nCluster membership updated in the ProxySQL database!"
 
   else
 
@@ -2120,16 +2336,18 @@ fi
 # Check that we can find the mysql client
 #
 if [[ ! -e $(which mysql 2> /dev/null) ]] ;then
-  error $LINENO "The mysql client was not found, please install the mysql client package."
+  error "$LINENO" "The mysql client was not found, please install the mysql client package."
   exit 1
 fi
 
 MYSQL_CLIENT_VERSION=$(get_mysql_version "mysql")
 if [[ $? -ne 0 ]]; then
-  error $LINENO "Cannot determine the MySQL client version from the version string"
+  error "$LINENO" "Cannot determine the MySQL client version from the version string"
   echo "-- Version string : $MYSQL_CLIENT_VERSION"
   exit 1
 fi
+
+parse_args "$@"
 
 # We now use the tables for configuration and thus they should reflect
 # the current state before we do any modification.
@@ -2138,8 +2356,6 @@ proxysql_exec "$LINENO" "SAVE MYSQL QUERY RULES FROM RUNTIME"
 proxysql_exec "$LINENO" "SAVE MYSQL USERS FROM RUNTIME"
 proxysql_exec "$LINENO" "SAVE MYSQL VARIABLES FROM RUNTIME"
 
-
-parse_args "$@"
 main
 
 exit 0

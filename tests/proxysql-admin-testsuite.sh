@@ -26,10 +26,6 @@ declare SUSER=root
 declare SPASS=
 declare OS_USER=$(whoami)
 
-# Used by the async slaves
-declare REPL_USER="repl_user"
-declare REPL_PASSWORD="pass1234"
-
 # Set this to 1 to run the tests
 declare RUN_TEST=1
 
@@ -561,25 +557,17 @@ NODES=0
 start_pxc_node cluster_one 4100
 echo "....cluster one started"
 
-echo "Starting cluster one async slave..."
-start_async_slave cluster_one 4190
-echo "....cluster one async slave started"
-
 # Create the needed accounts on the master
 echo "Creating accounts on the cluster"
 if [[ $MYSQL_VERSION == "5.6" ]]; then
   ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock <<EOF
 GRANT ALL ON *.* TO admin@'${LOCALHOST_NAME}' identified by 'admin' WITH GRANT OPTION;
 GRANT SELECT ON SYS.* TO monitor@'${LOCALHOST_NAME}' identified by 'monit0r';
-CREATE USER '${REPL_USER}'@'${LOCALHOST_NAME}' IDENTIFIED BY '${REPL_PASSWORD}';
-GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'${LOCALHOST_NAME}';
 FLUSH PRIVILEGES;
 EOF
 elif [[ $MYSQL_VERSION == "5.7" ]]; then
   ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock <<EOF
 GRANT ALL ON *.* TO admin@'%' IDENTIFIED BY 'admin' WITH GRANT OPTION;
-CREATE USER '${REPL_USER}'@'%' IDENTIFIED BY '${REPL_PASSWORD}';
-GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'%';
 FLUSH PRIVILEGES;
 EOF
 elif [[ $MYSQL_VERSION > "8.0" || $MYSQL_VERSION == "8.0" ]]; then
@@ -587,34 +575,6 @@ elif [[ $MYSQL_VERSION > "8.0" || $MYSQL_VERSION == "8.0" ]]; then
   ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock <<EOF
 CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH mysql_native_password BY 'admin';
 GRANT ALL ON *.* TO admin@'%' WITH GRANT OPTION;
-CREATE USER '${REPL_USER}'@'%' IDENTIFIED WITH mysql_native_password BY '${REPL_PASSWORD}';
-GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'%';
-FLUSH PRIVILEGES;
-EOF
-fi
-
-# Setup the slave (note that slave is not started automatically)
-echo "Setting up slave for async replication"
-
-if [[ $MYSQL_VERSION == "5.6" ]]; then
-  ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_one_slave.sock -uroot <<EOF
-GRANT ALL ON *.* TO admin@'${LOCALHOST_NAME}' identified by 'admin' WITH GRANT OPTION;
-GRANT REPLICATION CLIENT ON *.* TO 'monitor'@'${LOCALHOST_NAME}' IDENTIFIED BY 'monit0r';
-CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4110, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1;
-FLUSH PRIVILEGES;
-EOF
-elif [[ $MYSQL_VERSION == "5.7" ]]; then
-  ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_one_slave.sock -uroot <<EOF
-GRANT ALL ON *.* TO admin@'%' IDENTIFIED BY 'admin' WITH GRANT OPTION;
-CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4110, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1 FOR CHANNEL 'master-a';
-FLUSH PRIVILEGES;
-EOF
-elif [[ $MYSQL_VERSION > "8.0" || $MYSQL_VERSION == "8.0" ]]; then
-  # For 8.0 separate out the user creation from the grant
-  ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_one_slave.sock -uroot <<EOF
-CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH mysql_native_password BY 'admin';
-GRANT ALL ON *.* TO 'admin'@'%' WITH GRANT OPTION;
-CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4110, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1 FOR CHANNEL 'master-a';
 FLUSH PRIVILEGES;
 EOF
 fi
@@ -643,8 +603,10 @@ CLUSTER_ONE_PORT=$(${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock -Bs 
 sudo sed -i "0,/^[ \t]*export CLUSTER_PORT[ \t]*=.*$/s|^[ \t]*export CLUSTER_PORT[ \t]*=.*$|export CLUSTER_PORT=\"$CLUSTER_ONE_PORT\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export CLUSTER_HOSTNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_HOSTNAME[ \t]*=.*$|export CLUSTER_HOSTNAME=\"${LOCALHOST_NAME}\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_one\"|" /etc/proxysql-admin.cnf
-sudo sed -i "0,/^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$|export WRITE_HOSTGROUP_ID=\"10\"|" /etc/proxysql-admin.cnf
-sudo sed -i "0,/^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$|export READ_HOSTGROUP_ID=\"11\"|" /etc/proxysql-admin.cnf
+sudo sed -i "0,/^[ \t]*export WRITER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITER_HOSTGROUP_ID[ \t]*=.*$|export WRITER_HOSTGROUP_ID=\"10\"|" /etc/proxysql-admin.cnf
+sudo sed -i "0,/^[ \t]*export READER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READER_HOSTGROUP_ID[ \t]*=.*$|export READER_HOSTGROUP_ID=\"11\"|" /etc/proxysql-admin.cnf
+sudo sed -i "0,/^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$|export BACKUP_WRITER_HOSTGROUP_ID=\"12\"|" /etc/proxysql-admin.cnf
+sudo sed -i "0,/^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$|export OFFLINE_HOSTGROUP_ID=\"13\"|" /etc/proxysql-admin.cnf
 
 if [[ $RUN_TEST -eq 1 ]]; then
   echo ""
@@ -697,24 +659,16 @@ NODES=0
 start_pxc_node cluster_two 4200
 echo "....cluster two started"
 
-echo "Starting cluster two async slave..."
-start_async_slave cluster_two 4290
-echo "....cluster two async slave started"
-
 echo "Creating accounts on the cluster"
 if [[ $MYSQL_VERSION == "5.6" ]]; then
   ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock <<EOF
 GRANT ALL ON *.* TO admin@'${LOCALHOST_NAME}' identified by 'admin' WITH GRANT OPTION;
 GRANT SELECT ON SYS.* TO monitor@'${LOCALHOST_NAME}' identified by 'monit0r';
-CREATE USER '${REPL_USER}'@'${LOCALHOST_NAME}' IDENTIFIED BY '${REPL_PASSWORD}';
-GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'${LOCALHOST_NAME}';
 FLUSH PRIVILEGES;
 EOF
 elif [[ $MYSQL_VERSION == "5.7" ]]; then
   ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock <<EOF
 GRANT ALL ON *.* TO admin@'%' IDENTIFIED BY 'admin' WITH GRANT OPTION;
-CREATE USER '${REPL_USER}'@'%' IDENTIFIED BY '${REPL_PASSWORD}';
-GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'%';
 FLUSH PRIVILEGES;
 EOF
 elif [[ $MYSQL_VERSION > "8.0" || $MYSQL_VERSION == "8.0" ]]; then
@@ -722,33 +676,6 @@ elif [[ $MYSQL_VERSION > "8.0" || $MYSQL_VERSION == "8.0" ]]; then
   ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock <<EOF
 CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH mysql_native_password BY 'admin';
 GRANT ALL ON *.* TO admin@'%' WITH GRANT OPTION;
-CREATE USER '${REPL_USER}'@'%' IDENTIFIED WITH mysql_native_password BY '${REPL_PASSWORD}';
-GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'%';
-FLUSH PRIVILEGES;
-EOF
-fi
-
-# Setup the slave (note that slave is not started automatically)
-echo "Setting up slave for async replication"
-if [[ $MYSQL_VERSION == "5.6" ]]; then
-  ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_two_slave.sock -uroot <<EOF
-GRANT ALL ON *.* TO admin@'${LOCALHOST_NAME}' identified by 'admin' WITH GRANT OPTION;
-GRANT REPLICATION CLIENT ON *.* TO 'monitor'@'${LOCALHOST_NAME}' IDENTIFIED BY 'monit0r';
-CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4210, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1;
-FLUSH PRIVILEGES;
-EOF
-elif [[ $MYSQL_VERSION == "5.7" ]]; then
-  ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_two_slave.sock -uroot <<EOF
-GRANT ALL ON *.* TO admin@'%' IDENTIFIED BY 'admin' WITH GRANT OPTION;
-CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4210, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1 FOR CHANNEL 'master-a';
-FLUSH PRIVILEGES;
-EOF
-elif [[ $MYSQL_VERSION > "8.0" || $MYSQL_VERSION == "8.0" ]]; then
-  # For 8.0 separate out the user creation from the grant
-  ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_two_slave.sock -uroot <<EOF
-CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH mysql_native_password BY 'admin';
-GRANT ALL ON *.* TO admin@'%' WITH GRANT OPTION;
-CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4210, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1 FOR CHANNEL 'master-a';
 FLUSH PRIVILEGES;
 EOF
 fi
@@ -757,8 +684,10 @@ echo ""
 CLUSTER_TWO_PORT=$(${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock -Bs -e "select @@port")
 sudo sed -i "0,/^[ \t]*export CLUSTER_PORT[ \t]*=.*$/s|^[ \t]*export CLUSTER_PORT[ \t]*=.*$|export CLUSTER_PORT=\"$CLUSTER_TWO_PORT\"|" /etc/proxysql-admin.cnf
 sudo sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_two\"|" /etc/proxysql-admin.cnf
-sudo sed -i "0,/^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITE_HOSTGROUP_ID[ \t]*=.*$|export WRITE_HOSTGROUP_ID=\"20\"|" /etc/proxysql-admin.cnf
-sudo sed -i "0,/^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READ_HOSTGROUP_ID[ \t]*=.*$|export READ_HOSTGROUP_ID=\"21\"|" /etc/proxysql-admin.cnf
+sudo sed -i "0,/^[ \t]*export WRITER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITER_HOSTGROUP_ID[ \t]*=.*$|export WRITER_HOSTGROUP_ID=\"20\"|" /etc/proxysql-admin.cnf
+sudo sed -i "0,/^[ \t]*export READER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READER_HOSTGROUP_ID[ \t]*=.*$|export READER_HOSTGROUP_ID=\"21\"|" /etc/proxysql-admin.cnf
+sudo sed -i "0,/^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$|export BACKUP_WRITER_HOSTGROUP_ID=\"22\"|" /etc/proxysql-admin.cnf
+sudo sed -i "0,/^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$|export OFFLINE_HOSTGROUP_ID=\"23\"|" /etc/proxysql-admin.cnf
 echo "================================================================"
 echo ""
 

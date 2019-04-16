@@ -31,5 +31,7 @@ export MODE="singlewrite"
 # max_connections default (used only when INSERTing a new mysql_servers entry)
 export MAX_CONNECTIONS="1000"
 
+export MAX_TRANSACTIONS_BEHIND=100
+
 # Connections to the backend servers (from ProxySQL) will use SSL
 export USE_SSL="no"
