@@ -975,12 +975,80 @@ function enable_proxysql() {
 
   local all_hostgroups="$WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID,$BACKUP_WRITER_HOSTGROUP_ID,$OFFLINE_HOSTGROUP_ID"
   local check_hgs
-  check_hgs=$(proxysql_exec "$LINENO" "SELECT hostgroup_id FROM mysql_servers where hostgroup_id in ($all_hostgroups)")
-  if [[ -n "$check_hgs" ]]; then
-    error "$LINENO" "One or more of the hostgroups($all_hostgroups) is already being used by ProxySQL."\
+
+  # First, check to see if mysql_galera_hostgroups is using any of these
+  # hostgroups
+  check_hgs=$(proxysql_exec "$LINENO" \
+    "SELECT COUNT(*)
+      FROM mysql_galera_hostgroups
+      WHERE
+        writer_hostgroup IN ($all_hostgroups) OR
+        reader_hostgroup IN ($all_hostgroups) OR
+        backup_writer_hostgroup IN ($all_hostgroups) OR
+        offline_hostgroup IN ($all_hostgroups)")
+  check_cmd $? "$LINENO" "Could not retrieve hostgroup information from ProxySQL"\
+                       "\n-- Please check the ProxySQL connection parameters and status."
+  if [[ -n $check_hgs && $check_hgs -ne 0 ]]; then
+    error "$LINENO" "One or more of the hostgroups($all_hostgroups) is already being used" \
+                  "\n-- by ProxySQL in mysql_galera_hostgroups." \
                   "\n-- To avoid conflicts, please use different values for the hostgroups."
+    proxysql_exec "$LINENO" \
+      "SELECT
+          writer_hostgroup AS writer,
+          reader_hostgroup AS reader,
+          backup_writer_hostgroup AS backup_writer,
+          offline_hostgroup AS offline,
+          comment
+        FROM mysql_galera_hostgroups
+        WHERE
+          writer_hostgroup IN ($all_hostgroups) OR
+          reader_hostgroup IN ($all_hostgroups) OR
+          backup_writer_hostgroup IN ($all_hostgroups) OR
+          offline_hostgroup IN ($all_hostgroups)" "-t"
+    echo ""
     exit 1
   fi
+
+  # Now, check to see if there are any entries in mysql_servers
+  # using these hostgroups
+  check_hgs=$(proxysql_exec "$LINENO" \
+    "SELECT hostgroup_id
+      FROM mysql_servers
+      WHERE
+        hostgroup_id IN ($all_hostgroups) AND
+        status <> 'OFFLINE_HARD'")
+  check_cmd $? "$LINENO" "Could not retrieve hostgroup and server information from ProxySQL"\
+                       "\n-- Please check the ProxySQL connection parameters and status."
+  if [[ -n "$check_hgs" ]]; then
+    error "$LINENO" "One or more of the hostgroups($all_hostgroups) has a server assigned to that hostgroup."\
+                  "\n-- To avoid conflicts, please use different values for the hostgroups."
+    proxysql_exec "$LINENO" \
+      "SELECT
+          hostgroup_id,
+          hostname,
+          port,
+          status,
+          weight
+        FROM mysql_servers
+        WHERE
+          hostgroup_id IN ($all_hostgroups)" "-t"
+    echo ""
+    exit 1
+  fi
+
+  # Clear out any servers that are OFFLINE_HARD
+  # If --disable is called, then --enable is called quickly afterwards,
+  # ProxySQL may still be updating the previous server list.  So this
+  # will remove any leftovers in the runtime_mysql_servers table
+  proxysql_exec "$LINENO" \
+    "DELETE
+      FROM mysql_servers
+      WHERE
+        hostgroup_id in ($all_hostgroups) AND
+        status = 'OFFLINE_HARD'"
+  check_cmd $? "$LINENO" "Could not delete offline servers from ProxySQL"\
+                       "\n-- Please check the ProxySQL connection parameters and status."
+
 
   CLUSTER_NETWORK=$(mysql_exec "$LINENO" "show status like 'wsrep_incoming_addresses'" |
                       awk '{print $2}' |
@@ -1939,7 +2007,7 @@ function parse_args() {
         shift 2
         ;;
       --write-node )
-        WRITE_NODE="$"
+        WRITE_NODE="$2"
         shift 2
         ;;
       --quick-demo )
