@@ -819,7 +819,11 @@ function user_input_check() {
                                "\n-- required to assign the requested permissions"
         fi
 
-        proxysql_exec "$LINENO" "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$username','$password',1,$hostgroup_id);"
+        proxysql_exec "$LINENO" \
+          "INSERT INTO mysql_users
+              (username,password,active,default_hostgroup)
+            VALUES
+              ('$username','$password',1,$hostgroup_id);"
         check_cmd $? "$LINENO" "Failed to add the PXC application user: '$username' to the ProxySQL database."\
                              "\n-- Please check the ProxySQL connection parameters and status."
 
@@ -842,7 +846,7 @@ function user_input_check() {
                            "\n-- Please check the ProxySQL connection parameters and status."
 
       if [[ -z "$check_user" ]]; then
-        echo -e "\nApplication user '${BD}${username}'@'$USER_HOST_RANGE${NBD}' already present in PXC."
+        echo -e "\nApplication user '${BD}${username}'@'$USER_HOST_RANGE${NBD}' already present in PXC.\n"
         proxysql_exec "$LINENO" "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$username','$password',1,$hostgroup_id);"
         check_cmd $? "$LINENO" "Failed to add the PXC application user: '$username' to the ProxySQL database."\
                              "\n-- Please check the ProxySQL connection parameters and status."
@@ -937,7 +941,6 @@ function add_servers_to_proxysql()
 #
 # Globals:
 #   READER_HOSTGROUP_ID, WRITER_HOSTGROUP_ID, BACKUP_WRITER_HOSTGROUP_ID, OFFLINE_HOSTGROUP_ID
-#   CLUSTER_NETWORK
 #   CLUSTER_PORT
 #   USER_HOST_RANGE
 #   MONITOR_USERNAME, MONITOR_PASSWORD
@@ -1049,24 +1052,101 @@ function enable_proxysql() {
   check_cmd $? "$LINENO" "Could not delete offline servers from ProxySQL"\
                        "\n-- Please check the ProxySQL connection parameters and status."
 
-
-  CLUSTER_NETWORK=$(mysql_exec "$LINENO" "show status like 'wsrep_incoming_addresses'" |
-                      awk '{print $2}' |
-                      cut -d'.' -f1)
+  local cluster_network
+  local wsrep_addresses
+  wsrep_addresses=$(mysql_exec "$LINENO" "show status like 'wsrep_incoming_addresses'")
   check_cmd $? "$LINENO" "Could not retrieve the cluster addresses from PXC."\
                        "\n-- Please check the PXC connection parameters and status."
-  if [[ "$CLUSTER_NETWORK" =~ ^[0-9]+$ ]]; then 
-    USER_HOST_RANGE="$CLUSTER_NETWORK.%"
+  wsrep_addresses=$(echo "$wsrep_addresses" | awk '{print $2}' | sed 's|,| |g')
+  cluster_network=$(echo "$wsrep_addresses" | cut -d' ' -f1)
+
+  if [[ "$cluster_network" =~ ^[0-9]+$ ]]; then
+    USER_HOST_RANGE="$cluster_network.%"
   else
     USER_HOST_RANGE="%"
   fi
 
-  echo -e "\nConfiguring the ProxySQL monitoring user."
+  # More sanity checks
+  local writer_ws_ip
+  local writer_ws_port
+  local writer_ws_address=""
+
+  # If we have specified a write-node, check that the node is NOT read-only
+  if [[ $MODE == 'singlewrite' ]]; then
+
+    # Ensure that we have a writer node at this point
+    if [[ -n "$WRITE_NODE" ]]; then
+      writer_ws_address=$(separate_ip_port_from_address "$WRITE_NODE")
+      writer_ws_ip=$(echo "$writer_ws_address" | cut -d' ' -f1)
+      writer_ws_port=$(echo "$writer_ws_address" | cut -d' ' -f2)
+      if [ -z "$writer_ws_port" ];then
+        writer_ws_port=3306
+      fi
+      writer_ws_address=$(combine_ip_port_into_address "$writer_ws_ip" "$writer_ws_port")
+
+      local is_read_only
+      is_read_only=$(exec_sql "$LINENO" "$CLUSTER_USERNAME" "$CLUSTER_PASSWORD" "$writer_ws_ip" "$writer_ws_port" \
+        "select @@global.read_only")
+      if [ $? -ne 0 ]; then
+        error "$LINENO" "Failed to establish a connection to the write node $writer_ws_address."\
+                      "\n-- Please check that the write node is alive and the connection parameters are correct";
+        proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE default_hostgroup in ($WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID,$BACKUP_WRITER_HOSTGROUP_ID,$OFFLINE_HOSTGROUP_ID);"
+        check_cmd $? "$LINENO" "Failed to delete PXC user from ProxySQL."\
+                             "\n-- Please check the ProxySQL connection parameters and status."
+        exit 1
+      fi
+      if [[ $is_read_only -eq 1 ]]; then
+        error "$LINENO" "The specified write node ($WRITE_NODE) is read-only" \
+                      "\n-- and cannot be used as a writer node."
+        exit 1
+      fi
+    else
+      # If there is no WRITE_NODE specified, check that we have at least
+      # one write node available
+      for i in $wsrep_addresses; do
+        [[ -z $i ]] && continue;
+
+        local ws_address ws_ip ws_port
+        ws_address=$(separate_ip_port_from_address "$i")
+        ws_ip=$(echo "$ws_address" | cut -d' ' -f1)
+        ws_port=$(echo "$ws_address" | cut -d' ' -f2)
+
+        local is_read_only
+        is_read_only=$(exec_sql "$LINENO" "$CLUSTER_USERNAME" "$CLUSTER_PASSWORD" "$ws_ip" "$ws_port" \
+          "select @@global.read_only")
+        if [[ $? -eq 0 && $is_read_only -eq 0 ]]; then
+          writer_ws_ip=$ws_ip
+          writer_ws_port=$ws_port
+          writer_ws_address=$(combine_ip_port_into_address "$writer_ws_ip" "$writer_ws_port")
+          break
+        fi
+      done
+    fi
+
+    if [[ -z $writer_ws_address ]]; then
+      error "$LINENO" "Could not find a writer node (all nodes are read-only)." \
+                    "\n-- Cluster nodes checked: $wsrep_addresses"
+      exit 1
+    fi
+
+    if [[ " ${wsrep_addresses} " != *"$writer_ws_address"* ]]; then
+      error "$LINENO" "Writer node cluster address($writer_ws_address) does not exist"\
+                    "\n-- in WSREP incoming address(${wsrep_addresses})."
+      echo -e "-- Different wsrep incoming and cluster IP addresses are not supported"
+      echo -e "-- by proxysql-admin at this time.  Please configure ProxySQL manually."
+      exit 1
+    fi
+  fi
+
+  echo -e "Configuring the ProxySQL monitoring user."
   user_input_check MONITOR "ProxySQL monitor user"
   readonly MONITOR_USERNAME
 
   local check_user
-  check_user=$(mysql_exec "$LINENO" "SELECT user,host FROM mysql.user where user='$MONITOR_USERNAME' and host='$USER_HOST_RANGE';")
+  check_user=$(mysql_exec "$LINENO" \
+    "SELECT user,host
+      FROM mysql.user
+      WHERE user='$MONITOR_USERNAME' AND host='$USER_HOST_RANGE';")
   check_cmd $? "$LINENO" "Could not retrieve the monitor user information from PXC."\
                        "\n-- Please check the PXC cluster connection parameters and status."
   if [[ -z "$check_user" ]]; then
@@ -1075,7 +1155,13 @@ function enable_proxysql() {
     check_cmd $? "$LINENO"  "Failed to create the ProxySQL monitoring user."\
                           "\n-- Please check that '$CLUSTER_USERNAME'@'$CLUSTER_HOSTNAME' has the proper permissions to create the montioring user"
 
-    proxysql_exec "$LINENO" "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
+    proxysql_exec "$LINENO" \
+      "UPDATE global_variables
+        SET variable_value='$MONITOR_USERNAME'
+        WHERE variable_name='mysql-monitor_username';
+       UPDATE global_variables
+        SET variable_value='$MONITOR_PASSWORD'
+        WHERE variable_name='mysql-monitor_password'; "
     check_cmd $? "$LINENO"  "Failed to set the mysql-monitor variables in ProxySQL."\
                           "\n-- Please check the ProxySQL connection parameters and status."
 
@@ -1104,7 +1190,13 @@ function enable_proxysql() {
           check_cmd $? "$LINENO" "Failed to connect to Percona XtraDB Cluster using monitor credentials."\
                                "\n-- Please check MONITOR_USERNAME and MONITOR_PASSWORD"
 
-          proxysql_exec "$LINENO" "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
+          proxysql_exec "$LINENO" \
+            "UPDATE global_variables
+              SET variable_value='$MONITOR_USERNAME'
+              WHERE variable_name='mysql-monitor_username';
+             UPDATE global_variables
+              SET variable_value='$MONITOR_PASSWORD'
+              WHERE variable_name='mysql-monitor_password'; "
           check_cmd $? "$LINENO"  "Failed to set the mysql-monitor variables in ProxySQL."\
                                 "\n-- Please check the ProxySQL connection parameters"
           proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
@@ -1116,7 +1208,13 @@ function enable_proxysql() {
         check_cmd $? "$LINENO" "Failed to connect to Percona XtraDB Cluster using monitor credentials."\
                              "\n-- Please check MONITOR_USERNAME and MONITOR_PASSWORD"
 
-        proxysql_exec "$LINENO" "update global_variables set variable_value='$MONITOR_USERNAME' where variable_name='mysql-monitor_username'; update global_variables set variable_value='$MONITOR_PASSWORD' where variable_name='mysql-monitor_password'; "
+        proxysql_exec "$LINENO" \
+          "UPDATE global_variables
+            SET variable_value='$MONITOR_USERNAME'
+            WHERE variable_name='mysql-monitor_username';
+           UPDATE global_variables
+            SET variable_value='$MONITOR_PASSWORD'
+            WHERE variable_name='mysql-monitor_password';"
         check_cmd $? "$LINENO"  "Failed to set the mysql-monitor variables in ProxySQL."\
                               "\n-- Please check the ProxySQL connection parameters"
 
@@ -1141,67 +1239,26 @@ function enable_proxysql() {
   # Adding Percona XtraDB Cluster nodes to ProxySQL
   # -----------------------------------------------
 
-  # Get the nodes in the cluster
-  wsrep_address=$(mysql_exec "$LINENO" "show status like 'wsrep_incoming_addresses'" | awk '{print $2}' | sed 's|,| |g')
-  debug "$LINENO" "wsrep_address = $wsrep_address"
-  check_cmd $? "$LINENO" "Failed to get the list of addresses from PXC"\
-                       "\n-- Please check the PXC connection paramters and status."
-
-  echo -e "\nAdding the Percona XtraDB Cluster server nodes to ProxySQL"
-
-  local writer_ws_ip
-  local writer_ws_port
-  local writer_ws_address
-
-  # Perform some sanity checks before proceeding
   if [[ $MODE == 'singlewrite' ]]; then
-    if [[ $QUICK_DEMO -eq 0 ]]; then
-
-      if [ -z "$WRITE_NODE" ]; then
-        # If there is no WRITE_NODE specified, assume that the cluster node
-        # is THE write node
-        writer_ws_ip=$(mysql_exec "$LINENO" "show variables like 'wsrep_provider_options'" |
-                        grep -o -P '(?<=base_host =).*(?=; base_port)' |
-                        xargs)
-        writer_ws_port=$CLUSTER_PORT
-        writer_ws_address=$(combine_ip_port_into_address "$writer_ws_ip" "$writer_ws_port")
-      else
-        writer_ws_address=$(separate_ip_port_from_address "$WRITE_NODE")
-        writer_ws_ip=$(echo "$writer_ws_address" | cut -d' ' -f1)
-        writer_ws_port=$(echo "$writer_ws_address" | cut -d' ' -f2)
-        if [ -z "$writer_ws_port" ];then
-          writer_ws_port=3306
-        fi
-        writer_ws_address=$(combine_ip_port_into_address "$writer_ws_ip" "$writer_ws_port")
-
-        # TODO: kennt, do we want to display the error message?
-        # TODO: kennt, Do we want to do this for loadbal also?
-        exec_sql "$LINENO" "$CLUSTER_USERNAME" "$CLUSTER_PASSWORD" "$writer_ws_ip" "$writer_ws_port" "select @@port" &>/dev/null
-        if [ $? -ne 0 ]; then 
-          error "$LINENO" "Failed to establish a connection to the write node $writer_ws_address."\
-                        "\n-- Please check that the write node is alive and the connection parameters are correct"; 
-          proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE default_hostgroup in ($WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID,$BACKUP_WRITER_HOSTGROUP_ID,$OFFLINE_HOSTGROUP_ID);"
-          check_cmd $? "$LINENO" "Failed to delete PXC user from ProxySQL."\
-                               "\n-- Please check the ProxySQL connection parameters and status."
-          exit 1
-        fi
-      fi
-    else
+    if [[ $QUICK_DEMO -ne 0 ]]; then
       writer_ws_ip=$(mysql_exec "$LINENO" "show variables like 'wsrep_provider_options'" | grep -o -P '(?<=base_host =).*(?=; base_port)' | xargs)
       check_cmd $? "$LINENO" "Could not get the wsrep_provider_options from the PXC cluster"\
                            "\n-- Please check the PXC connection parameters and status."      
       writer_ws_port=$CLUSTER_PORT
       writer_ws_address=$(combine_ip_port_into_address "$writer_ws_ip" "$writer_ws_port")
-    fi
 
-    if [[ " ${wsrep_address} " != *"$writer_ws_address"* ]]; then
-      error "$LINENO" "Writer node cluster address($writer_ws_address) does not exist"\
-                    "\n-- in WSREP incoming address(${wsrep_address})."
-      echo -e "-- Different wsrep incoming and cluster IP addresses are not supported"
-      echo -e "-- by proxysql-admin at this time.  Please configure ProxySQL manually."
-      exit 1
+      if [[ " ${wsrep_addresses} " != *"$writer_ws_address"* ]]; then
+        error "$LINENO" "Writer node cluster address($writer_ws_address) does not exist"\
+                      "\n-- in WSREP incoming address(${wsrep_addresses})."
+        echo -e "-- Different wsrep incoming and cluster IP addresses are not supported"
+        echo -e "-- by proxysql-admin at this time.  Please configure ProxySQL manually."
+        exit 1
+      fi
     fi
   fi
+
+
+  echo -e "Adding the Percona XtraDB Cluster server nodes to ProxySQL"
 
   # Remove any existing nodes from mysql_servers
   proxysql_exec "$LINENO" "DELETE FROM mysql_servers WHERE hostgroup_id IN ($all_hostgroups)"
@@ -1215,7 +1272,7 @@ function enable_proxysql() {
   # TODO: also remove fast query rules
 
   # Add all nodes as writer nodes (to begin with)
-  add_servers_to_proxysql "${wsrep_address}"
+  add_servers_to_proxysql "${wsrep_addresses}"
 
   if [[ $MODE == "loadbal" ]]; then
     # loadbal for ProxySQL 2.0
@@ -1237,24 +1294,34 @@ function enable_proxysql() {
     # Also writer-is-also-reader=2 (so that backup writers get reads)
     # Must have at least one node with read-only = 0
 
-    # TODO: kennt, Check to see that the write_node has read-only=0
+    if [[ -n $WRITE_NODE ]]; then
+      # Update the write_node to have a higher priority
+      proxysql_exec "$LINENO" \
+        "UPDATE mysql_servers
+          SET weight = 1000000
+          WHERE
+            hostname = '$writer_ws_ip' AND
+            port = $writer_ws_port AND
+            hostgroup_id = $WRITER_HOSTGROUP_ID;"
+      check_cmd $? "$LINENO" "Failed to update the writer-node for singlewrite mode" \
+                           "\n-- Please check the ProxySQL connection parameters and status."
+    fi
 
-    # Update the write_node to have a higher priority
+    # Add all other writers to the backup writers hostgroup
     proxysql_exec "$LINENO" \
-      " UPDATE mysql_servers SET
-          weight = 1000000
+      "UPDATE mysql_servers
+        SET hostgroup_id = $BACKUP_WRITER_HOSTGROUP_ID
         WHERE
-          hostname = '$writer_ws_ip' AND
-          port = $writer_ws_port AND
-          hostgroup_id = $WRITER_HOSTGROUP_ID;"
-    check_cmd $? "$LINENO" "Failed to update the writer-node for singlewrite mode" \
-                             "\n-- Please check the ProxySQL connection parameters and status."
+          hostname <> '$writer_ws_ip' OR
+          port <> $writer_ws_port"
+    check_cmd $? "$LINENO" "Failed to move the nodes to the backup-writer hostgroup" \
+                         "\n-- Please check the ProxySQL connection parameters and status."
 
     echo -e "\nWrite node info"
     proxysql_exec "$LINENO" \
       "SELECT hostname,hostgroup_id,port,weight
        FROM mysql_servers
-       WHERE hostgroup_id=$WRITER_HOSTGROUP_ID AND weight > 1000" "-t"
+       WHERE hostgroup_id=$WRITER_HOSTGROUP_ID" "-t"
 
     if [[ $WITH_CLUSTER_APP_USER -eq 1 ]]; then
       proxysql_exec "$LINENO" \
@@ -2287,7 +2354,7 @@ function main() {
       echo -e "Percona XtraDB Cluster (currently only PXC in combination"
       echo -e "with ProxySQL is supported)"
     fi
-    echo -e "\nProxySQL read/write configuration mode is ${BD}$MODE${NBD}"
+    echo -e "\nProxySQL read/write configuration mode is ${BD}$MODE${NBD}\n"
 
     enable_proxysql
     echo -e "\nProxySQL configuration completed!\n"
