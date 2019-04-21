@@ -9,8 +9,6 @@
 #
 TEST_SUITES=()
 TEST_SUITES+=("proxysql-admin-testsuite.bats")
-#TEST_SUITES+=("writer-is-reader-testsuite.bats")
-TEST_SUITES+=("loadbal-testsuite.bats")
 
 
 #
@@ -634,7 +632,7 @@ if [[ $RUN_TEST -eq 1 ]]; then
 
     if [[ $rc -ne 0 ]]; then
       ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=$LOCALHOST_IP --port=6032 --protocol=tcp \
-        -e "select hostgroup_id,hostname,port,status,comment from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
+        -e "select hostgroup_id,hostname,port,status,weight,comment from runtime_mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
       echo "********************************"
       echo "* $test_file failed, the servers (ProxySQL+PXC) will be left running"
       echo "* for debugging purposes."
@@ -710,11 +708,12 @@ if [[ $RUN_TEST -eq 1 ]]; then
 
     if [[ $rc -ne 0 ]]; then
       ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=$LOCALHOST_IP --port=6032 --protocol=tcp \
-        -e "select hostgroup_id,hostname,port,status,comment from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
+        -e "select hostgroup_id,hostname,port,status,weight,comment from runtime_mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
       echo "********************************"
       echo "* $test_file failed, the servers (ProxySQL+PXC)will be left running"
       echo "* for debugging purposes."
       echo "********************************"
+      ALLOW_SHUTDOWN="No"
       exit 1
     fi
     echo "================================================================"

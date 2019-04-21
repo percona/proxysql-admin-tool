@@ -107,6 +107,9 @@ declare    MAX_CONNECTIONS="1000"
 #
 declare -i MAX_TRANSACTIONS_BEHIND=100
 
+declare    WRITERS_ARE_READERS="backup"
+declare -i WRITERS_ARE_READERS_OPTION=-1
+
 #-------------------------------------------------------------------------------
 #
 # Step 3 : Helper functions
@@ -196,7 +199,7 @@ Options:
   --use-existing-monitor-password    Do not prompt for a new monitor password if one is provided.
 
   --node-check-interval=<NUMBER>     Interval for monitoring node checker script (in milliseconds)
-                                     (default: 3000)
+                                     (default: 5000)
   --mode=[loadbal|singlewrite]       ProxySQL read/write configuration mode
                                      currently supporting: 'loadbal' and 'singlewrite'
                                      (default: 'singlewrite')
@@ -215,6 +218,14 @@ Options:
   --use-ssl=[yes|no]                 If set to 'yes', then connections between ProxySQL
                                      and the backend servers will use SSL.
                                      (default: no)
+  --writers-are-readers=[yes|no|backup]
+                                     If set to 'yes', then all writers (backup-writers also)
+                                     are added to the reader hostgroup.
+                                     If set to 'no', then none of the writers (backup-writers also)
+                                     will be added to the reader hostgroup.
+                                     If set to 'backup', then only the backup-writers
+                                     will be added to the reader hostgroup.
+                                     (default: backup)
   --debug                            Enables additional debug logging.
   --help                             Dispalys this help text.
 
@@ -771,10 +782,12 @@ function user_input_check() {
 
   if [[ -z $username ]]; then
     read -r -p "Enter ${user_description}name : " ${user_category}_USERNAME
-    while [[ -z "${user_category}_USERNAME" ]]
+    username=$(eval "echo \$${user_category}_USERNAME")
+    while [[ -z ${username} ]]
     do
       echo -n "No input entered, Enter ${user_description} name: "
       read -r ${user_category}_USERNAME
+      username=$(eval "echo \$${user_category}_USERNAME")
     done
   else
     if [[ $QUICK_DEMO -eq 0 ]]; then
@@ -1058,8 +1071,10 @@ function enable_proxysql() {
   check_cmd $? "$LINENO" "Could not retrieve the cluster addresses from PXC."\
                        "\n-- Please check the PXC connection parameters and status."
   wsrep_addresses=$(echo "$wsrep_addresses" | awk '{print $2}' | sed 's|,| |g')
-  cluster_network=$(echo "$wsrep_addresses" | cut -d' ' -f1)
+  cluster_network=$(echo "$wsrep_addresses" | cut -d' ' -f1 | cut -d'.' -f1)
 
+  # If we have only digits in $cluster_network, then we can assume
+  # that we have an IPv4 address
   if [[ "$cluster_network" =~ ^[0-9]+$ ]]; then
     USER_HOST_RANGE="$cluster_network.%"
   else
@@ -1136,6 +1151,35 @@ function enable_proxysql() {
       echo -e "-- by proxysql-admin at this time.  Please configure ProxySQL manually."
       exit 1
     fi
+
+    # Check that we do not have ANY read-only nodes since they will
+    # be ignored.  We'll have to do this until this bug is fixed.
+    # https://github.com/sysown/proxysql/issues/2014
+    if [[ $WRITERS_ARE_READERS == "backup" ]]; then
+      for i in $wsrep_addresses; do
+        [[ -z $i ]] && continue;
+
+        local ws_address ws_ip ws_port
+        ws_address=$(separate_ip_port_from_address "$i")
+        ws_ip=$(echo "$ws_address" | cut -d' ' -f1)
+        ws_port=$(echo "$ws_address" | cut -d' ' -f2)
+
+        local is_read_only
+        is_read_only=$(exec_sql "$LINENO" "$CLUSTER_USERNAME" "$CLUSTER_PASSWORD" "$ws_ip" "$ws_port" \
+          "select @@global.read_only")
+        if [[ $? -eq 0 && $is_read_only -eq 1 ]]; then
+          writer_ws_ip=$ws_ip
+          writer_ws_port=$ws_port
+          writer_ws_address=$(combine_ip_port_into_address "$writer_ws_ip" "$writer_ws_port")
+
+          error "$LINENO" "Found a read-only node($writer_ws_address) when using" \
+                        "\n-- --writers-are-readers=backup. This is not allowed since read-only nodes" \
+                        "\n-- are ignored when using --writers-are-readers=backup (which is the default)"
+          exit 1
+        fi
+      done
+    fi
+
   fi
 
   echo -e "Configuring the ProxySQL monitoring user."
@@ -1284,7 +1328,9 @@ function enable_proxysql() {
 
     # Setup parameters for loadbal
     MAX_WRITERS=1000000
-    WRITER_IS_ALSO_READER=0
+
+    # Force this for loadbal, since in loadbal, everyone is a writer
+    WRITERS_ARE_READERS_OPTION=0
 
   elif [[ $MODE == "singlewrite" ]]; then
     # singlewrite for ProxySQL 2.0
@@ -1312,8 +1358,9 @@ function enable_proxysql() {
       "UPDATE mysql_servers
         SET hostgroup_id = $BACKUP_WRITER_HOSTGROUP_ID
         WHERE
-          hostname <> '$writer_ws_ip' OR
-          port <> $writer_ws_port"
+          hostgroup_id = $WRITER_HOSTGROUP_ID AND
+          ( hostname <> '$writer_ws_ip' OR
+            port <> $writer_ws_port )"
     check_cmd $? "$LINENO" "Failed to move the nodes to the backup-writer hostgroup" \
                          "\n-- Please check the ProxySQL connection parameters and status."
 
@@ -1337,7 +1384,6 @@ function enable_proxysql() {
 
     # Setup parameters for singlewrite
     MAX_WRITERS=1
-    WRITER_IS_ALSO_READER=1
   fi
 
   if [[ $NODE_CHECK_INTERVAL -ne -1 ]]; then
@@ -1350,7 +1396,7 @@ function enable_proxysql() {
       warning "$LINENO" "Changing the node check interval to :$NODE_CHECK_INTERVAL" \
               "\n-- This is a global setting and will affect all Galera clusters"
 
-      proxysql_exec "$LINENO" "SET mysql-monitor_galera_healthcheck_interval  = $NODE_CHECK_INTERVAL"
+      proxysql_exec "$LINENO" "SET mysql-monitor_galera_healthcheck_interval = $NODE_CHECK_INTERVAL"
       check_cmd $? "$LINENO" "Failed to set the node-check-interval in ProxySQL."\
                            "\n-- Please check the ProxySQL connection parameters and status."
     fi
@@ -1368,7 +1414,7 @@ function enable_proxysql() {
         VALUES
           ($WRITER_HOSTGROUP_ID, $BACKUP_WRITER_HOSTGROUP_ID,
            $READER_HOSTGROUP_ID, $OFFLINE_HOSTGROUP_ID,
-           1, $MAX_WRITERS, $WRITER_IS_ALSO_READER, $MAX_TRANSACTIONS_BEHIND)"
+           1, $MAX_WRITERS, $WRITERS_ARE_READERS_OPTION, $MAX_TRANSACTIONS_BEHIND)"
   check_cmd $? "$LINENO" "Failed to create the galera_hostgroups entry in ProxySQL."\
                        "\n-- Please check the ProxySQL connection parameters and status."
 
@@ -1616,8 +1662,9 @@ function syncusers() {
       ;;
   esac
   
+  # Filter out the internal system users
   mysql_users=$(mysql_exec "$LINENO" "SELECT User,${password_field} FROM mysql.user where ${password_field}!=''" "" "hide_output" |
-                  grep -E -v "mysql.sys|mysql.session|mysql.infoschema" |
+                  grep -E -v "^(mysql.sys|mysql.session|mysql.infoschema|mysql.pxc)" |
                   sort |
                   uniq )
   check_cmd $? "$LINENO" "Failed to load the user list from PXC."\
@@ -1851,6 +1898,7 @@ function update_cluster()
   if [[ -n $new_node_list ]]; then
     add_servers_to_proxysql "$new_node_list"
     proxysql_load_to_runtime_save_to_disk "MYSQL SERVERS" $LINENO
+    sleep 5
   fi
 
   echo -e "\nCluster node info"
@@ -1858,7 +1906,7 @@ function update_cluster()
   echo "Reader hostgroup        : $READER_HOSTGROUP_ID"
   echo "Backup writer hostgroup : $BACKUP_WRITER_HOSTGROUP_ID"
   echo "Offline hostgroup       : $OFFLINE_HOSTGROUP_ID"
-  proxysql_exec "$LINENO" "SELECT hostname,hostgroup_id,port,weight FROM mysql_servers WHERE hostgroup_id in ($all_hostgroups)" "-t"
+  proxysql_exec "$LINENO" "SELECT hostname,hostgroup_id,port,weight FROM runtime_mysql_servers WHERE hostgroup_id in ($all_hostgroups)" "-t"
 
 }
 
@@ -1875,7 +1923,7 @@ function parse_args() {
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hostgroup:,backup-writer-hostgroup:,reader-hostgroup:,offline-hostgroup:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,adduser,syncusers,sync-multi-cluster-users,max-connections:,max-transactions-behind:,use-ssl:,version,debug,help \
+    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hostgroup:,backup-writer-hostgroup:,reader-hostgroup:,offline-hostgroup:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,adduser,syncusers,sync-multi-cluster-users,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,version,debug,help \
     --name="$(basename "$0")" -- "$@")"
     check_cmd $? "$LINENO" "Script error: getopt() failed with arguments: $*"
     eval set -- "$go_out"
@@ -2127,6 +2175,10 @@ function parse_args() {
         OFFLINE_HOSTGROUP_ID=$2
         shift 2
         ;;
+      --writers-are-readers )
+        WRITERS_ARE_READERS=$2
+        shift 2
+        ;;
       -v | --version )
         # Detection of this setting is done before this
         shift
@@ -2144,6 +2196,13 @@ function parse_args() {
 
   # WRITE_NODE validity check (check to see if the port is included)
   if [[ -n $WRITE_NODE ]]; then
+    if [[ $WRITE_NODE =~ , ]]; then
+      # If --write-node contains a comma, then it was from a previous
+      # version of the script
+      error "$LINENO" "The --write-node option expects to receive the address" \
+                    "\n-- of a single node, therefore commas ',' are not allowed."
+      exit 1
+    fi
     local ws_address
     local ws_port
 
@@ -2180,6 +2239,20 @@ function parse_args() {
   fi
   readonly USE_SSL
   readonly USE_SSL_OPTION
+
+
+  if [[ ! $WRITERS_ARE_READERS =~ ^(yes|no|backup) ]]; then
+    error "" "Invalid --writers-are-readers option: '$WRITERS_ARE_READERS'"
+    echo "Please use one of these values: 'yes', 'no', or 'backup'"
+    exit 1
+  fi
+  [[ $WRITERS_ARE_READERS == "yes" ]] && WRITERS_ARE_READERS_OPTION=1
+  [[ $WRITERS_ARE_READERS == "no" ]] && WRITERS_ARE_READERS_OPTION=0
+  [[ $WRITERS_ARE_READERS == "backup" ]] && WRITERS_ARE_READERS_OPTION=2
+  if [[ $WRITERS_ARE_READERS_OPTION -eq -1 ]]; then
+    error "" "Unable to set the writers-are-readers option"
+    exit 1
+  fi
 
 
   if [[ -z $WRITER_HOSTGROUP_ID || $WRITER_HOSTGROUP_ID -eq -1 ]]; then
@@ -2364,11 +2437,13 @@ function main() {
                             grep -o -P '(?<=:).*' |
                             cut -d';' -f1 )
     echo -e "ProxySQL has been successfully configured to use with Percona XtraDB Cluster\n"
-    echo -e "You can use the following login credentials to connect your application through ProxySQL\n"
-    if [[ $QUICK_DEMO -eq 1 ]]; then
-      echo -e "${BD}mysql --user=$CLUSTER_APP_USERNAME --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_CLIENT_PORT --protocol=tcp ${NBD}\n"
-    else
-      echo -e "${BD}mysql --user=$CLUSTER_APP_USERNAME -p --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_CLIENT_PORT --protocol=tcp ${NBD}\n"
+    if [[ $WITH_CLUSTER_APP_USER -eq 1 ]]; then
+      echo -e "You can use the following login credentials to connect your application through ProxySQL\n"
+      if [[ $QUICK_DEMO -eq 1 ]]; then
+        echo -e "${BD}mysql --user=$CLUSTER_APP_USERNAME --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_CLIENT_PORT --protocol=tcp ${NBD}\n"
+      else
+        echo -e "${BD}mysql --user=$CLUSTER_APP_USERNAME -p --host=$PROXYSQL_HOSTNAME --port=$PROXYSQL_CLIENT_PORT --protocol=tcp ${NBD}\n"
+      fi
     fi 
 
     if [[ $SYNCUSERS -eq 1 ]] || [[ $SYNCMULTICLUSTERUSERS -eq 1 ]]; then

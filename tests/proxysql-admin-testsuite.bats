@@ -8,6 +8,7 @@
 source /etc/proxysql-admin.cnf
 PXC_BASEDIR=$WORKDIR/pxc-bin
 PROXYSQL_BASEDIR=$WORKDIR/proxysql-bin
+ALL_HOSTGROUPS="$WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID,$BACKUP_WRITER_HOSTGROUP_ID,$OFFLINE_HOSTGROUP_ID"
 
 # Declare some GLOBALS
 # These are used to return data from get_node_data()
@@ -22,31 +23,103 @@ declare MAX_CONNECTIONS=()
 load test-common
 
 WSREP_CLUSTER_NAME=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
+if [[ $WSREP_CLUSTER_NAME == "cluster_one" ]]; then
+  PORT_1=4110
+  PORT_2=4120
+  PORT_3=4130
+else
+  PORT_1=4210
+  PORT_2=4220
+  PORT_3=4230
+fi
+
+if [[ $USE_IPVERSION == "v6" ]]; then
+  HOST_IP="[::1]"
+else
+  HOST_IP="127.0.0.1"
+fi
+
 
 @test "run proxysql-admin -d ($WSREP_CLUSTER_NAME)" {
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin -d
-  echo "$output"
+  echo "$output" >&2
   [ "$status" -eq  0 ]
 }
+
 
 @test "run proxysql-admin -e ($WSREP_CLUSTER_NAME)" {
+  local pre_report_interval
+  pre_report_interval=$(proxysql_exec \
+                        "SELECT variable_value
+                          FROM runtime_global_variables
+                          WHERE
+                            variable_name = 'mysql-monitor_galera_healthcheck_interval'" |
+                      grep -v variable_value)
+
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin -e  <<< 'n'
-  echo "$output"
+  echo "$output" >&2
   [ "$status" -eq  0 ]
+
+  # Need some time for this to converge
+  sleep 5
+
+  # Test for default values
+  local report_interval
+  report_interval=$(proxysql_exec \
+                      "SELECT variable_value
+                        FROM runtime_global_variables
+                        WHERE
+                          variable_name = 'mysql-monitor_galera_healthcheck_interval'" |
+                    grep -v variable_value)
+  echo "report_interval:$report_interval expected:$pre_report_interval" >&2
+  [ "$report_interval" -eq $pre_report_interval ]
+
+  local data
+  data=$(proxysql_exec \
+          "SELECT
+            writer_hostgroup,
+            backup_writer_hostgroup,
+            reader_hostgroup,
+            offline_hostgroup,
+            active,
+            max_writers,
+            writer_is_also_reader,
+            max_transactions_behind
+          FROM
+            mysql_galera_hostgroups
+          WHERE
+            writer_hostgroup =$WRITER_HOSTGROUP_ID" "--silent --skip-column-names")
+  local writer_hg reader_hg offline_hg backup_writer_hg
+  local active max_writers writer_is_also_reader max_transactions_behind
+  writer_hg=$(echo "$data" | cut -f1)
+  backup_writer_hg=$(echo "$data" | cut -f2)
+  reader_hg=$(echo "$data" | cut -f3)
+  offline_hg=$(echo "$data" | cut -f4)
+
+  echo "writer_hg:$writer_hg expected:$WRITER_HOSTGROUP_ID" >&2
+  echo "reader_hg:$reader_hg expected:$READER_HOSTGROUP_ID" >&2
+  echo "backup_wrter_hg:$backup_writer_hg expected:$BACKUP_WRITER_HOSTGROUP_ID" >&2
+  echo "offline_hg:$offline_hg expected:$OFFLINE_HOSTGROUP_ID" >&2
+  [[ $writer_hg -eq $WRITER_HOSTGROUP_ID ]]
+  [[ $backup_writer_hg -eq $BACKUP_WRITER_HOSTGROUP_ID ]]
+  [[ $reader_hg -eq $READER_HOSTGROUP_ID ]]
+  [[ $offline_hg -eq $OFFLINE_HOSTGROUP_ID ]]
+
+  active=$(echo "$data" | cut -f5)
+  max_writers=$(echo "$data" | cut -f6)
+  writer_is_also_reader=$(echo "$data" | cut -f7)
+  max_transactions_behind=$(echo "$data" | cut -f8)
+
+  echo "active:$active expected:1" >&2
+  echo "max_writers:$active expected:1" >&2
+  echo "writer_is_also_reader:$active expected:2" >&2
+  echo "max_transactions_behind:$active expected:100" >&2
+  [[ $active -eq 1 ]]
+  [[ $max_writers -eq 1 ]]
+  [[ $writer_is_also_reader -eq 2 ]]
+  [[ $max_transactions_behind -eq 100 ]]
 }
 
-@test "run the check for cluster size ($WSREP_CLUSTER_NAME)" {
-  #get values from PXC and ProxySQL side
-  wsrep_cluster_count=$(cluster_exec "show status like 'wsrep_cluster_size'" | awk '{print $2}')
-  proxysql_cluster_count=$(proxysql_exec "select count(*) from mysql_servers where hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID) " | awk '{print $0}')
-  [ "$wsrep_cluster_count" -eq "$proxysql_cluster_count" ]
-}
-
-@test "run the check for --node-check-interval ($WSREP_CLUSTER_NAME)" {
-  wsrep_cluster_name=$(cluster_exec "select @@wsrep_cluster_name")
-  report_interval=$(proxysql_exec "select interval_ms from scheduler where comment='$wsrep_cluster_name'" | awk '{print $0}')
-  [ "$report_interval" -eq 3000 ]
-}
 
 @test "run the check for --adduser ($WSREP_CLUSTER_NAME)" {
   run_add_command=$(printf "proxysql_test_user1\ntest_user\ny" | sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --adduser)
@@ -54,11 +127,13 @@ WSREP_CLUSTER_NAME=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
   [ "$run_check_user_command" -eq 1 ]
 }
 
+
 @test "run proxysql-admin --syncusers ($WSREP_CLUSTER_NAME)" {
-run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers
-echo "$output"
-    [ "$status" -eq  0 ]
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers
+  echo "$output" >&2
+  [ "$status" -eq  0 ]
 }
+
 
 @test "run the check for --syncusers ($WSREP_CLUSTER_NAME)" {
 
@@ -83,70 +158,502 @@ echo "$output"
   [ "$cluster_user_count" -eq "$proxysql_user_count" ]
 }
 
-@test "run the check for updating runtime_mysql_servers table ($WSREP_CLUSTER_NAME)" {
-  #skip
-  # check initial writer info
-  # Give proxysql a change to run the galera_checker script
-  sleep 5
-  first_writer_port=$(proxysql_exec "select port from mysql_servers where hostgroup_id='$WRITE_HOSTGROUP_ID';" 2>/dev/null)
-  first_writer_status=$(proxysql_exec "select status from mysql_servers where hostgroup_id='$WRITE_HOSTGROUP_ID';" 2>/dev/null)
-  first_writer_weight=$(proxysql_exec "select weight from mysql_servers where hostgroup_id='$WRITE_HOSTGROUP_ID';" 2>/dev/null)
-  first_writer_comment=$(proxysql_exec "select comment from mysql_servers where hostgroup_id='$WRITE_HOSTGROUP_ID';" 2>/dev/null)
-  first_writer_start_cmd=$(ps aux|grep "mysqld"|grep "port=$first_writer_port"|sed 's:^.* /:/:')
-  first_writer_start_user=$(ps aux|grep "mysqld"|grep "port=$first_writer_port"|awk -F' ' '{print $1}')
-  [ "$first_writer_status" = "ONLINE" ]
-  [ "$first_writer_weight" = "1000000" ]
-  [ "$first_writer_comment" = "WRITE" ]
-
-  # check that the tables are equal at start
-  mysql_servers=$(proxysql_exec "select * from mysql_servers where hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID) order by port;" 2>/dev/null)
-  runtime_mysql_servers=$(proxysql_exec "select * from runtime_mysql_servers where hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID) order by port;" 2>/dev/null)
-  [ "$(echo \"$mysql_servers\"|md5sum)" = "$(echo \"$runtime_mysql_servers\"|md5sum)" ]
-
-  # shutdown writer
-  pxc_socket=$(ps aux|grep "mysqld"|grep "port=$first_writer_port "|sed 's:^.* /:/:'|grep -o "\-\-socket=[^ ]* ")
-  echo "Sending shutdown to $pxc_socket" >&2
-  run $PXC_BASEDIR/bin/mysqladmin $pxc_socket -u root shutdown
-  [ "$status" -eq 0 ]
-
-  # This value is highly dependent on the PXC shutdown period
-  #   --pxc_maint_transition_period
-  wait_for_server_shutdown $pxc_socket 2
-  [[ $? -eq 0 ]]
-
-  # Wait a little extra time to ensure that the proxysql_galera_checker
-  # was invoked
-  sleep 15
-  nr_nodes=$(proxysql_exec "select count(*) from mysql_servers where status='ONLINE' and hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID);")
-  [ "$nr_nodes" -eq 2 ]
-
-  # check new writer info
-  second_writer_status=$(proxysql_exec "select status from mysql_servers where status='ONLINE' and hostgroup_id='$WRITE_HOSTGROUP_ID';" 2>/dev/null)
-  second_writer_weight=$(proxysql_exec "select weight from mysql_servers where status='ONLINE' and hostgroup_id='$WRITE_HOSTGROUP_ID';" 2>/dev/null)
-  second_writer_comment=$(proxysql_exec "select comment from mysql_servers where status='ONLINE' and hostgroup_id='$WRITE_HOSTGROUP_ID';" 2>/dev/null)
-  [ "$second_writer_status" = "ONLINE" ]
-  [ "$second_writer_weight" = "1000000" ]
-  [ "$second_writer_comment" = "WRITE" ]
-
-  # bring the node up
-  # remove the "--wsrep-new-cluster" from the command-line (no bootstrap)
-  first_writer_start_cmd=$(echo "$first_writer_start_cmd" | sed "s/\-\-wsrep-new-cluster//g")
-  nohup $first_writer_start_cmd --user=$first_writer_start_user 3>&- &
-  sleep 15
-  nr_nodes=$(proxysql_exec "select count(*) from mysql_servers where status='ONLINE' and hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID);" 2>/dev/null)
-  [ "$nr_nodes" = "3" ]
-
-  # check that the tables are equal at end
-  mysql_servers=$(proxysql_exec "select * from mysql_servers where hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID) order by port;" 2>/dev/null)
-  runtime_mysql_servers=$(proxysql_exec "select * from runtime_mysql_servers where hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID) order by port;" 2>/dev/null)
-  [ "$(echo \"$mysql_servers\"|md5sum)" = "$(echo \"$runtime_mysql_servers\"|md5sum)" ]
-}
 
 @test "run the check for --quick-demo ($WSREP_CLUSTER_NAME)" {
   #skip
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin  --enable --quick-demo <<< n
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin  --enable \
+      --writer-hostgroup=10 --reader-hostgroup=11 --backup-writer-hostgroup=12 \
+      --offline-hostgroup=13 --quick-demo <<< n
   [ "$status" -eq 0 ]
   echo "$output" >&2
   [ "${lines[7]}" = "You have selected No. Terminating." ]
 }
 
+
+@test "test for various parameter settings ($WSREP_CLUSTER_NAME)" {
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable \
+    --max-connections=111 \
+    --node-check-interval=11200 \
+    --max-transactions-behind=113 <<< 'n'
+
+  # Give ProxySQL some time to converge
+  sleep 5
+
+  local data
+  data=$(proxysql_exec \
+          "SELECT
+            active,
+            max_transactions_behind
+          FROM
+            runtime_mysql_galera_hostgroups
+          WHERE
+            writer_hostgroup =$WRITER_HOSTGROUP_ID" "--silent --skip-column-names")
+  local active max_transactions_behind
+
+  active=$(echo "$data" | cut -f1)
+  max_transactions_behind=$(echo "$data" | cut -f2)
+
+  echo "active:$active expected:1" >&2
+  echo "max_transactions_behind:$max_transactions_behind expected:113" >&2
+  [[ $active -eq 1 ]]
+  [[ $max_transactions_behind -eq 113 ]]
+
+  local report_interval
+  report_interval=$(proxysql_exec \
+                      "SELECT variable_value
+                        FROM runtime_global_variables
+                        WHERE
+                          variable_name = 'mysql-monitor_galera_healthcheck_interval'" |
+                    grep -v variable_value)
+  echo "report_interval:$report_interval expected:11200" >&2
+  [ "$report_interval" -eq 11200 ]
+
+  # Reset healthcheck interval value
+  proxysql_exec "SET mysql-monitor_galera_healthcheck_interval = 2000; load MYSQL VARIABLES to runtime;"
+}
+
+
+@test "test for --writers-are-readers ($WSREP_CLUSTER_NAME)" {
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
+
+  # -----------------------------------------------------------
+  # Use default value for --writers-are-readers
+  echo "$LINENO : proxysql-admin --enable" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable <<< 'n'
+  [ "$status" -eq 0 ]
+  sleep 5
+
+  # writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
+  [ "$proxysql_cluster_count" -eq 1 ]
+
+  # reader count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : reader count:$proxysql_cluster_count expected:3" >&2
+  [ "$proxysql_cluster_count" -eq 2 ]
+
+  # backup writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $BACKUP_WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : backup writer count:$proxysql_cluster_count expected:1"  >&2
+  [ "$proxysql_cluster_count" -eq 2 ]
+
+
+  # -----------------------------------------------------------
+  # Now run with --writers-are-readers=yes
+  echo "$LINENO : proxysql-admin --disable" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
+  [ "$status" -eq 0 ]
+  echo "$LINENO : proxysql-admin --enable --writers-are-readers=yes" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --writers-are-readers=yes <<< 'n'
+  [ "$status" -eq 0 ]
+  sleep 5
+
+  # writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
+  [ "$proxysql_cluster_count" -eq 1 ]
+
+  # reader count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : reader count:$proxysql_cluster_count expected:3" >&2
+  [ "$proxysql_cluster_count" -eq 3 ]
+
+  # backup writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $BACKUP_WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : backup writer count:$proxysql_cluster_count expected:1"  >&2
+  [ "$proxysql_cluster_count" -eq 2 ]
+
+
+  # -----------------------------------------------------------
+  # Now run with --writers-are-readers=no
+  echo "$LINENO : proxysql-admin --disable" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
+  [ "$status" -eq 0 ]
+  echo "$LINENO : proxysql-admin --enable --writers-are-readers=no" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --writers-are-readers=no <<< 'n'
+  [ "$status" -eq 0 ]
+  sleep 5
+
+  # writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
+  [ "$proxysql_cluster_count" -eq 1 ]
+
+  # reader count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : reader count:$proxysql_cluster_count expected:3" >&2
+  [ "$proxysql_cluster_count" -eq 0 ]
+
+  # backup writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $BACKUP_WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : backup writer count:$proxysql_cluster_count expected:1"  >&2
+  [ "$proxysql_cluster_count" -eq 2 ]
+
+
+  # -----------------------------------------------------------
+  # Use --writers-are-readers=backup
+  echo "$LINENO : proxysql-admin --disable" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
+  [ "$status" -eq 0 ]
+  echo "$LINENO : proxysql-admin --enable --writers-are-readers=backup" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --writers-are-readers=backup <<< 'n'
+  [ "$status" -eq 0 ]
+  sleep 5
+
+  # writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
+  [ "$proxysql_cluster_count" -eq 1 ]
+
+  # reader count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : reader count:$proxysql_cluster_count expected:3" >&2
+  [ "$proxysql_cluster_count" -eq 2 ]
+
+  # backup writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $BACKUP_WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : backup writer count:$proxysql_cluster_count expected:1"  >&2
+  [ "$proxysql_cluster_count" -eq 2 ]
+
+}
+
+
+@test "test for --writers-are-readers with a read-only node ($WSREP_CLUSTER_NAME)" {
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
+
+  # -----------------------------------------------------------
+  # change node3 to be a read-only node
+  echo "$LINENO : changing node3 to read-only" >&2
+  run mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=1"
+  [ "$status" -eq 0 ]
+
+  # -----------------------------------------------------------
+  # Use default value for --writers-are-readers
+  # This will fail because read-only nodes are not allowed in configurations
+  # that use --writers-are-ready=backup (which is the default)
+  echo "$LINENO : proxysql-admin --enable" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable <<< 'n'
+  [ "$status" -eq 1 ]
+  sleep 5
+
+  # -----------------------------------------------------------
+  # Now run with --writers-are-readers=yes
+  echo "$LINENO : proxysql-admin --disable" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
+  [ "$status" -eq 0 ]
+  echo "$LINENO : proxysql-admin --enable --writers-are-readers=yes" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --writers-are-readers=yes <<< 'n'
+  [ "$status" -eq 0 ]
+  sleep 5
+
+   # writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
+  [ "$proxysql_cluster_count" -eq 1 ]
+
+  # reader count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : reader count:$proxysql_cluster_count expected:3" >&2
+  [ "$proxysql_cluster_count" -eq 3 ]
+
+  # backup writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $BACKUP_WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : backup writer count:$proxysql_cluster_count expected:1"  >&2
+  [ "$proxysql_cluster_count" -eq 1 ]
+
+
+  # -----------------------------------------------------------
+  # Now run with --writers-are-readers=no
+  echo "$LINENO : proxysql-admin --disable" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
+  [ "$status" -eq 0 ]
+  echo "$LINENO : proxysql-admin --enable --writers-are-readers=no" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --writers-are-readers=no <<< 'n'
+  [ "$status" -eq 0 ]
+  sleep 5
+
+   # writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
+  [ "$proxysql_cluster_count" -eq 1 ]
+
+  # reader count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : reader count:$proxysql_cluster_count expected:3" >&2
+  [ "$proxysql_cluster_count" -eq 1 ]
+
+  # backup writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $BACKUP_WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : backup writer count:$proxysql_cluster_count expected:1"  >&2
+  [ "$proxysql_cluster_count" -eq 1 ]
+
+
+  # -----------------------------------------------------------
+  # Use --writers-are-readers=backup
+  # This should fail because read-only nodes are not allowed when
+  # --writers-are-readers=backup
+  echo "$LINENO : proxysql-admin --disable" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
+  [ "$status" -eq 0 ]
+  echo "$LINENO : proxysql-admin --enable --writers-are-readers=backup" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --writers-are-readers=backup <<< 'n'
+  [ "$status" -eq 1 ]
+  sleep 5
+
+
+  # -----------------------------------------------------------
+  # revert node3 to be a read/write node
+  echo "$LINENO : changing node3 back to read-only=0" >&2
+  run mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=0"
+  [ "$status" -eq 0 ]
+
+}
+
+
+# Test loadbal
+@test "test for --mode=loadbal ($WSREP_CLUSTER_NAME)" {
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
+
+  echo "$LINENO : proxysql-admin --enable --mode=loadbal" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --mode=loadbal <<< 'n'
+  [ "$status" -eq 0 ]
+  sleep 5
+
+   # writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : writer count:$proxysql_cluster_count expected:3" >&2
+  [ "$proxysql_cluster_count" -eq 3 ]
+
+  # reader count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : reader count:$proxysql_cluster_count expected:0" >&2
+  [ "$proxysql_cluster_count" -eq 0 ]
+
+  # backup writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $BACKUP_WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : backup writer count:$proxysql_cluster_count expected:0"  >&2
+  [ "$proxysql_cluster_count" -eq 0 ]
+
+  # Check values in mysql_galera_hostgroups
+  local data
+  data=$(proxysql_exec \
+          "SELECT
+            writer_hostgroup,
+            backup_writer_hostgroup,
+            reader_hostgroup,
+            offline_hostgroup,
+            active,
+            max_writers,
+            writer_is_also_reader,
+            max_transactions_behind
+          FROM
+            mysql_galera_hostgroups
+          WHERE
+            writer_hostgroup =$WRITER_HOSTGROUP_ID" "--silent --skip-column-names")
+  local writer_hg reader_hg offline_hg backup_writer_hg
+  local active max_writers writer_is_also_reader max_transactions_behind
+  writer_hg=$(echo "$data" | cut -f1)
+  backup_writer_hg=$(echo "$data" | cut -f2)
+  reader_hg=$(echo "$data" | cut -f3)
+  offline_hg=$(echo "$data" | cut -f4)
+
+  echo "writer_hg:$writer_hg expected:$WRITER_HOSTGROUP_ID" >&2
+  echo "reader_hg:$reader_hg expected:$READER_HOSTGROUP_ID" >&2
+  echo "backup_wrter_hg:$backup_writer_hg expected:$BACKUP_WRITER_HOSTGROUP_ID" >&2
+  echo "offline_hg:$offline_hg expected:$OFFLINE_HOSTGROUP_ID" >&2
+  [[ $writer_hg -eq $WRITER_HOSTGROUP_ID ]]
+  [[ $backup_writer_hg -eq $BACKUP_WRITER_HOSTGROUP_ID ]]
+  [[ $reader_hg -eq $READER_HOSTGROUP_ID ]]
+  [[ $offline_hg -eq $OFFLINE_HOSTGROUP_ID ]]
+
+  active=$(echo "$data" | cut -f5)
+  max_writers=$(echo "$data" | cut -f6)
+  writer_is_also_reader=$(echo "$data" | cut -f7)
+  max_transactions_behind=$(echo "$data" | cut -f8)
+
+  echo "active:$active expected:1" >&2
+  echo "max_writers:$active expected:1000000" >&2
+  echo "writer_is_also_reader:$active expected:0" >&2
+  echo "max_transactions_behind:$active expected:100" >&2
+  [[ $active -eq 1 ]]
+  [[ $max_writers -eq 1000000 ]]
+  [[ $writer_is_also_reader -eq 0 ]]
+  [[ $max_transactions_behind -eq 100 ]]
+
+}
+
+
+# Test loadbal with a read-only node
+@test "test for --mode=loadbal with a read-only node ($WSREP_CLUSTER_NAME)" {
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
+
+  # -----------------------------------------------------------
+  # change node3 to be a read-only node
+  echo "$LINENO : changing node3 to read-only" >&2
+  run mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=1"
+  [ "$status" -eq 0 ]
+
+  echo "$LINENO : proxysql-admin --enable --mode=loadbal" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --mode=loadbal <<< 'n'
+  [ "$status" -eq 0 ]
+  sleep 5
+
+   # writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
+  [ "$proxysql_cluster_count" -eq 2 ]
+
+  # reader count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : reader count:$proxysql_cluster_count expected:3" >&2
+  [ "$proxysql_cluster_count" -eq 1 ]
+
+  # backup writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $BACKUP_WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : backup writer count:$proxysql_cluster_count expected:1"  >&2
+  [ "$proxysql_cluster_count" -eq 0 ]
+
+
+  # -----------------------------------------------------------
+  # revert node3 to be a read/write node
+  echo "$LINENO : changing node3 back to read-only=0" >&2
+  run mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=0"
+  [ "$status" -eq 0 ]
+
+}
+
+
+# Test singlewrite with --write-node
+@test "test for --write-node ($WSREP_CLUSTER_NAME)" {
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
+
+  # -----------------------------------------------------------
+  echo "$LINENO : proxysql-admin --enable --write-node=${HOST_IP}:${PORT_2}" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --write-node=${HOST_IP}:${PORT_2} <<< 'n'
+  [ "$status" -eq 0 ]
+  sleep 5
+
+  # writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
+  [ "$proxysql_cluster_count" -eq 1 ]
+
+  # reader count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : reader count:$proxysql_cluster_count expected:3" >&2
+  [ "$proxysql_cluster_count" -eq 2 ]
+
+  # backup writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $BACKUP_WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : backup writer count:$proxysql_cluster_count expected:1"  >&2
+  [ "$proxysql_cluster_count" -eq 2 ]
+
+  #dump_runtime_nodes $LINENO "after write node"
+  # Verify the weights on the nodes
+  retrieve_writer_info $WRITER_HOSTGROUP_ID
+  echo "write_weight[0]:${write_weight[0]}" >&2
+  [ "${#write_host[@]}" -eq 1 ]
+  [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_port[0]}" -eq $PORT_2 ]
+
+  retrieve_writer_info $BACKUP_WRITER_HOSTGROUP_ID
+  [ "${#write_host[@]}" -eq 2 ]
+  [ "${write_weight[0]}" -eq 1000 ]
+  [ "${write_weight[1]}" -eq 1000 ]
+
+}
+
+
+# Test singlewrite with --write-node is a read-only node
+@test "test for --write-node on a read-only node ($WSREP_CLUSTER_NAME)" {
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
+
+  # -----------------------------------------------------------
+  # change node3 to be a read-only node
+  echo "$LINENO : changing node3 to read-only" >&2
+  run mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=1"
+  [ "$status" -eq 0 ]
+
+  # -----------------------------------------------------------
+  # This should fail, since a write-node cannot be read-only
+  echo "$LINENO : proxysql-admin --enable --write-node=${HOST_IP}:${PORT_2}" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable  --write-node=${HOST_IP}:${PORT_2} <<< 'n'
+  [ "$status" -eq 1 ]
+
+  # -----------------------------------------------------------
+  # revert node3 to be a read/write node
+  echo "$LINENO : changing node3 back to read-only=0" >&2
+  run mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=0"
+  [ "$status" -eq 0 ]
+}
+
+
+# Test --update-cluster
+@test "test --update-cluster ($WSREP_CLUSTER_NAME)" {
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
+
+  # Stop node3
+  # store startup values
+  ps_row3=$(ps aux | grep "mysqld" | grep "port=$PORT_3")
+  restart_cmd3=$(echo $ps_row3 | sed 's:^.* /:/:')
+  restart_user3=$(echo $ps_row3 | awk '{ print $1 }')
+  pxc_socket3=$(echo $restart_cmd3 | grep -o "\-\-socket=[^ ]* ")
+
+  # shutdown node3
+  echo "$LINENO Shutting down node : $HOST_IP:$PORT_3..." >&2
+  run $PXC_BASEDIR/bin/mysqladmin $pxc_socket3 -u root shutdown
+  [ "$status" -eq 0 ]
+
+  # Startup proxysql
+  # -----------------------------------------------------------
+  echo "$LINENO : proxysql-admin --enable" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable  <<< 'n'
+  echo "$output" >& 2
+  [ "$status" -eq 0 ]
+  sleep 5
+
+  # Check the status of the system
+  # writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
+  [ "$proxysql_cluster_count" -eq 1 ]
+
+  # reader count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : reader count:$proxysql_cluster_count expected:1" >&2
+  [ "$proxysql_cluster_count" -eq 1 ]
+
+  # backup writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $BACKUP_WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : backup writer count:$proxysql_cluster_count expected:1"  >&2
+  [ "$proxysql_cluster_count" -eq 1 ]
+
+  # Start node3
+  echo "$LINENO Starting node : $HOST_IP:$PORT_3..." >&2
+  restart_server "$restart_cmd3" "$restart_user3"
+  wait_for_server_start $pxc_socket3 3
+
+  # Run --update-cluster
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --update-cluster
+  echo "$LINENO : proxysql-admin --update-cluster" >&2
+  echo "$output" >& 2
+  [ "$status" -eq 0 ]
+
+  # writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
+  [ "$proxysql_cluster_count" -eq 1 ]
+
+  # reader count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : reader count:$proxysql_cluster_count expected:2" >&2
+  [ "$proxysql_cluster_count" -eq 2 ]
+
+  # backup writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $BACKUP_WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : backup writer count:$proxysql_cluster_count expected:2"  >&2
+  [ "$proxysql_cluster_count" -eq 2 ]
+
+}

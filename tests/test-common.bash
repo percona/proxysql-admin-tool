@@ -107,13 +107,10 @@ function get_node_data() {
     fi
   fi
 
-  # Exclude slaves
-  if [[ -n $query ]]; then
-    query+=" AND "
-  fi
-  query+="comment <> 'SLAVEREAD'"
-
-  data=$(proxysql_exec "SELECT hostname,port,status,comment,hostgroup_id,weight,max_connections FROM mysql_servers WHERE $query ORDER BY status,hostname,port,hostgroup_id")
+  data=$(proxysql_exec "SELECT hostname,port,status,comment,hostgroup_id,weight,max_connections
+                        FROM runtime_mysql_servers
+                        WHERE $query
+                        ORDER BY status,hostname,port,hostgroup_id")
   local rc=$?
 
   if [[ $rc -ne 0 ]]; then
@@ -121,18 +118,18 @@ function get_node_data() {
   fi
 
   while read line; do
-    HOSTS+=($(echo $line | awk '{ print $1 }'))
-    PORTS+=($(echo $line | awk '{ print $2 }'))
-    STATUS+=($(echo $line | awk '{ print $3 }'))
-    COMMENTS+=($(echo $line | awk '{ print $4 }'))
-    HOSTGROUPS+=($(echo $line | awk '{ print $5 }'))
-    WEIGHTS+=($(echo $line | awk '{ print $6 }'))
-    MAX_CONNECTIONS+=($(echo $line | awk '{ print $7 }'))
+    HOSTS+=($(echo -e "$line" | cut -f1))
+    PORTS+=($(echo -e "$line" | cut -f2))
+    STATUS+=($(echo -e "$line" | cut -f3))
+    COMMENTS+=($(echo -e "$line" | cut -f4))
+    HOSTGROUPS+=($(echo -e "$line" | cut -f5))
+    WEIGHTS+=($(echo -e "$line" | cut -f6))
+    MAX_CONNECTIONS+=($(echo -e "$line" | cut -f7))
   done< <(printf "%s\n" "$data")
 }
 
 function retrieve_reader_info() {
-  get_node_data $READ_HOSTGROUP_ID
+  get_node_data $READER_HOSTGROUP_ID
   read_host=("${HOSTS[@]}")
   read_port=("${PORTS[@]}")
   read_status=("${STATUS[@]}")
@@ -143,7 +140,8 @@ function retrieve_reader_info() {
 }
 
 function retrieve_writer_info() {
-  get_node_data $WRITE_HOSTGROUP_ID
+  local hg_id=$1
+  get_node_data $hg_id
   write_host=("${HOSTS[@]}")
   write_port=("${PORTS[@]}")
   write_status=("${STATUS[@]}")
@@ -163,18 +161,23 @@ function retrieve_slave_info() {
   local STATUS=()
   local COMMENTS=()
 
-  data=$(proxysql_exec "SELECT hostgroup_id,hostname,port,status,comment FROM mysql_servers WHERE hostgroup_id in ($READ_HOSTGROUP_ID,$WRITE_HOSTGROUP_ID) AND comment = 'SLAVEREAD' ORDER BY hostgroup_id,hostname,port,status")
+  data=$(proxysql_exec "SELECT
+                            hostgroup_id,hostname,port,status,comment
+                        FROM runtime_mysql_servers
+                        WHERE hostgroup_id in ($ALL_HOSTGROUPS)
+                        AND comment = 'SLAVEREAD'
+                        ORDER BY hostgroup_id,hostname,port,status")
   local rc=$?
   if [[ $rc -ne 0 ]]; then
     return $rc
   fi
 
   while read line; do
-    HOSTGROUPS+=($(echo $line | awk '{ print $1 }'))
-    HOSTS+=($(echo $line | awk '{ print $2 }'))
-    PORTS+=($(echo $line | awk '{ print $3 }'))
-    STATUS+=($(echo $line | awk '{ print $4 }'))
-    COMMENTS+=($(echo $line | awk '{ print $5 }'))
+    HOSTGROUPS+=($(echo -e "$line" | cut -f1))
+    HOSTS+=($(echo -e "$line" | cut -f2))
+    PORTS+=($(echo -e "$line" | cut -f3))
+    STATUS+=($(echo -e "$line" | cut -f4))
+    COMMENTS+=($(echo -e "$line" | cut -f5))
   done< <(printf "$data\n")
 
   slave_hostgroup=("${HOSTGROUPS[@]}")
@@ -298,7 +301,11 @@ function dump_nodes() {
   local lineno=$1
   local msg=$2
   echo "$lineno Dumping server info : $msg" >&2
-  proxysql_exec "SELECT hostgroup_id,hostname,port,status,comment,weight FROM mysql_servers WHERE hostgroup_id IN ($WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID) ORDER BY hostgroup_id,status,hostname,port" >&2
+  proxysql_exec "SELECT
+                    hostgroup_id,hostname,port,status,comment,weight
+                 FROM mysql_servers
+                 WHERE hostgroup_id IN ($ALL_HOSTGROUPS)
+                 ORDER BY hostgroup_id,status,hostname,port" >&2
   echo "" >&2
 }
 
@@ -306,7 +313,10 @@ function dump_runtime_nodes() {
   local lineno=$1
   local msg=$2
   echo "$lineno Dumping runtime server info : $msg" >&2
-  proxysql_exec "SELECT hostgroup_id,hostname,port,status,comment,weight FROM runtime_mysql_servers WHERE hostgroup_id IN ($WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID) ORDER BY hostgroup_id,status,hostname,port" >&2
+  proxysql_exec "SELECT hostgroup_id,hostname,port,status,comment,weight
+                 FROM runtime_mysql_servers
+                 WHERE hostgroup_id IN ($ALL_HOSTGROUPS)
+                 ORDER BY hostgroup_id,status,hostname,port" >&2
   echo "" >&2
 }
 

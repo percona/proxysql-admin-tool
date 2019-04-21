@@ -31,7 +31,18 @@ export MODE="singlewrite"
 # max_connections default (used only when INSERTing a new mysql_servers entry)
 export MAX_CONNECTIONS="1000"
 
+# Determines the maximum number of writesets a node can have queued
+# before the node is SHUNNED to avoid stale reads.
 export MAX_TRANSACTIONS_BEHIND=100
 
 # Connections to the backend servers (from ProxySQL) will use SSL
 export USE_SSL="no"
+
+# Determines if a node should be added to the reader hostgroup if it has
+# been promoted to the writer hostgroup.
+# If set to 'yes', then all writers (including backup-writers) are added to
+# the read hostgroup.
+# If set to 'no', then none of the writers (including backup-writers) are added.
+# If set to 'backup', then only the backup-writers will be added to
+# the read hostgroup.
+export WRITERS_ARE_READERS="backup"
