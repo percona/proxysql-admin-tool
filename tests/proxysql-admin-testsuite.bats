@@ -657,3 +657,81 @@ fi
   [ "$proxysql_cluster_count" -eq 2 ]
 
 }
+
+# Test --enable --update-cluster
+@test "test --enable --update-cluster ($WSREP_CLUSTER_NAME)" {
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
+
+  # Stop node3
+  # store startup values
+  ps_row3=$(ps aux | grep "mysqld" | grep "port=$PORT_3")
+  restart_cmd3=$(echo $ps_row3 | sed 's:^.* /:/:')
+  restart_user3=$(echo $ps_row3 | awk '{ print $1 }')
+  pxc_socket3=$(echo $restart_cmd3 | grep -o "\-\-socket=[^ ]* ")
+
+  # shutdown node3
+  echo "$LINENO Shutting down node : $HOST_IP:$PORT_3..." >&2
+  run $PXC_BASEDIR/bin/mysqladmin $pxc_socket3 -u root shutdown
+  [ "$status" -eq 0 ]
+
+  cluster_in_use=$(proxysql_exec "select count(*) from runtime_mysql_galera_hostgroups where writer_hostgroup = $WRITER_HOSTGROUP_ID")
+  [[ $cluster_in_use -eq 0 ]]
+
+  # Startup proxysql
+  # -----------------------------------------------------------
+  echo "$LINENO : proxysql-admin --enable --update-cluster" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --update-cluster <<< 'n'
+  echo "$output" >& 2
+  [ "$status" -eq 0 ]
+  sleep 5
+
+  # There should be an entry for this cluster
+  cluster_in_use=$(proxysql_exec "select count(*) from runtime_mysql_galera_hostgroups where writer_hostgroup = $WRITER_HOSTGROUP_ID")
+  [[ $cluster_in_use -eq 1 ]]
+
+  # Check the status of the system
+  # writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
+  [ "$proxysql_cluster_count" -eq 1 ]
+
+  # reader count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : reader count:$proxysql_cluster_count expected:1" >&2
+  [ "$proxysql_cluster_count" -eq 1 ]
+
+  # backup writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $BACKUP_WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : backup writer count:$proxysql_cluster_count expected:1"  >&2
+  [ "$proxysql_cluster_count" -eq 1 ]
+
+  # Start node3
+  echo "$LINENO Starting node : $HOST_IP:$PORT_3..." >&2
+  restart_server "$restart_cmd3" "$restart_user3"
+  wait_for_server_start $pxc_socket3 3
+
+  # Run --update-cluster
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --update-cluster
+  echo "$LINENO : proxysql-admin --update-cluster" >&2
+  echo "$output" >& 2
+  [ "$status" -eq 0 ]
+
+  # There should be an entry for this cluster
+  cluster_in_use=$(proxysql_exec "select count(*) from runtime_mysql_galera_hostgroups where writer_hostgroup = $WRITER_HOSTGROUP_ID")
+  [[ $cluster_in_use -eq 1 ]]
+
+  # writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
+  [ "$proxysql_cluster_count" -eq 1 ]
+
+  # reader count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : reader count:$proxysql_cluster_count expected:2" >&2
+  [ "$proxysql_cluster_count" -eq 2 ]
+
+  # backup writer count
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $BACKUP_WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  echo "$LINENO : backup writer count:$proxysql_cluster_count expected:2"  >&2
+  [ "$proxysql_cluster_count" -eq 2 ]
+}

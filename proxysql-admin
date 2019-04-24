@@ -88,6 +88,7 @@ declare -i ADDUSER=0
 declare -i SYNCUSERS=0
 declare -i SYNCMULTICLUSTERUSERS=0
 declare -i UPDATE_CLUSTER=0
+declare -i CHECK_IF_ENABLED=0
 
 declare -i USE_EXISTING_MONITOR_PASSWORD=0
 declare -i WITH_CLUSTER_APP_USER=1
@@ -109,6 +110,15 @@ declare -i MAX_TRANSACTIONS_BEHIND=100
 
 declare    WRITERS_ARE_READERS="backup"
 declare -i WRITERS_ARE_READERS_OPTION=-1
+
+#
+# Set these values if a parameter is needed by the operation
+# (For example, --disable only needs --writer-hostgroup)
+#
+declare   NEEDS_WRITER_HOSTGROUP=0
+declare   NEEDS_READER_HOSTGROUP=0
+declare   NEEDS_BACKUP_WRITER_HOSTGROUP=0
+declare   NEEDS_OFFLINE_HOSTGROUP=0
 
 #-------------------------------------------------------------------------------
 #
@@ -198,7 +208,9 @@ Options:
   --monitor-password[=password]      Password for monitoring Percona XtraDB Cluster nodes through ProxySQL
   --use-existing-monitor-password    Do not prompt for a new monitor password if one is provided.
 
-  --node-check-interval=<NUMBER>     Interval for monitoring node checker script (in milliseconds)
+  --node-check-interval=<NUMBER>     The interval at which the proxy should connect
+                                     to the backend servers in order to monitor the
+                                     Galera staus of a node (in milliseconds).
                                      (default: 5000)
   --mode=[loadbal|singlewrite]       ProxySQL read/write configuration mode
                                      currently supporting: 'loadbal' and 'singlewrite'
@@ -243,6 +255,7 @@ One of the options below must be provided.
   --sync-multi-cluster-users         Sync user accounts currently configured in MySQL to ProxySQL
                                      May be used with --enable.
                                      (doesn't delete ProxySQL users not in MySQL)
+  --is-enabled                       Checks if the current configuration is enabled in ProxySQL.
   --version, -v                      Prints the version info
 
 EOF
@@ -642,7 +655,7 @@ function combine_ip_port_into_address()
 # Exits if we could not connect to the proxysql instance
 #
 function proxysql_connection_check() {
-  proxysql_exec "$LINENO" "show tables" >/dev/null
+  proxysql_exec "$LINENO" "SELECT 1" >/dev/null
   check_cmd $? "$LINENO" "ProxySQL connection check failed."\
                        "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
                        "\n-- Please check the ProxySQL connection parameters and status."
@@ -669,6 +682,36 @@ function cluster_connection_check() {
   debug "$LINENO" "cluster connection check succeeded"
 }
 
+
+# Check to see if the cluster is in mysql_galera_hostgroups
+#
+# Globals:
+#   None
+#
+# Arguments:
+#   Parameter 1 : the writer hostgroup id
+#
+function cluster_in_proxysql_check() {
+  local write_hg=$1
+
+  # Check to see if mysql_galera_hostgroups already has an
+  # entry for the worker hostgroup
+  local hostgroup_in_use
+  hostgroup_in_use=$(proxysql_exec "$LINENO" \
+                      "SELECT count(*)
+                       FROM mysql_galera_hostgroups
+                       WHERE
+                          writer_hostgroup = $write_hg")
+  check_cmd $? "$LINENO" "Galera hostgroup retrieval failed."\
+                       "\n-- Please check the ProxySQL connection parameters and status."
+
+  # If there are no hostgroups with this writer hostgroup id
+  # then return failure
+  if [[ $hostgroup_in_use -eq 0 ]]; then
+    error "$LINENO" "The cluster (with writer hostgroup:$WRITER_HOSTGROUP_ID) has not been configured in ProxySQL"
+    exit 1
+  fi
+}
 
 # Queries the user for the proxysql connection parameters
 #
@@ -919,6 +962,36 @@ function proxysql_load_to_runtime_save_to_disk() {
   debug "$lineno" "Saved ${data_type} to disk"
 }
 
+
+# Gets the list of hostgroups given only the writer hostgroup
+#
+# Globals:
+#   None
+#
+# Arguments:
+#   Parameter 1: the writer hostgroup
+#
+# Outputs:
+#   A list of hostgroups, separated by commas (',')
+#   The order of the hostgroups is:
+#     1. writer hostgroup
+#     2. reader hostgroup
+#     3. backup writer hostgroup
+#     4. offline hostgroup
+#
+function get_all_hostgroups_from_writer_hostgroup()
+{
+  local hg_list
+  hg_list=$(proxysql_exec "$LINENO" \
+            "SELECT writer_hostgroup || ',' || reader_hostgroup || ',' ||
+                    backup_writer_hostgroup || ',' || offline_hostgroup
+              FROM mysql_galera_hostgroups
+              WHERE writer_hostgroup = $WRITER_HOSTGROUP_ID")
+  check_cmd "$?" "$LINENO" "Cannot retrieve hostgroup information from ProxySQL" \
+                       "\n-- Please check the ProxySQL configuration and status."
+  echo "$hg_list"
+}
+
 # Adds the list of servers to ProxySQL
 # This will add all of the servers in the list to the WRITER hostgroup
 # ProxySQL is responsible for moving them to the correct hostgroup
@@ -978,9 +1051,6 @@ function enable_proxysql() {
     exit 1
   fi
 
-  # Check for existing proxysql process
-  proxysql_connection_check
-  
   cluster_connection_check
   local cluster_name
   cluster_name=$(mysql_exec "$LINENO" "select @@wsrep_cluster_name;")
@@ -1369,6 +1439,7 @@ function enable_proxysql() {
       "SELECT hostname,hostgroup_id,port,weight
        FROM mysql_servers
        WHERE hostgroup_id=$WRITER_HOSTGROUP_ID" "-t"
+    echo ""
 
     if [[ $WITH_CLUSTER_APP_USER -eq 1 ]]; then
       proxysql_exec "$LINENO" \
@@ -1393,8 +1464,10 @@ function enable_proxysql() {
     check_cmd $? "$LINENO" "Failed to get the node-check-interval value from ProxySQL."\
                          "\n-- Please check the ProxySQL connection parameters and status."
     if [[ $healthcheck_value -ne $NODE_CHECK_INTERVAL ]]; then
-      warning "$LINENO" "Changing the node check interval to :$NODE_CHECK_INTERVAL" \
-              "\n-- This is a global setting and will affect all Galera clusters"
+      echo ""
+      warning "$LINENO" "Changing the node check interval to $NODE_CHECK_INTERVAL" \
+              "\n-- This is a global setting and will affect all Galera clusters" \
+              "\n-- managed by this ProxySQL instance."
 
       proxysql_exec "$LINENO" "SET mysql-monitor_galera_healthcheck_interval = $NODE_CHECK_INTERVAL"
       check_cmd $? "$LINENO" "Failed to set the node-check-interval in ProxySQL."\
@@ -1430,20 +1503,23 @@ function enable_proxysql() {
 #   CLUSTER_APP_USERNAME
 #   WRITER_HOSTGROUP_ID
 #   READER_HOSTGROUP_ID
+#   BACKUP_WRITER_HOSTGROUP_ID
+#   OFFLINE_HOSTGROUP_ID
 #
 # Arguments:
 #
 function disable_proxysql(){
   debug "$LINENO" "disable_proxysql ()"
 
-  proxysql_connection_check
+  local all_hostgroups
+  all_hostgroups="$WRITER_HOSTGROUP_ID,$BACKUP_WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID,$OFFLINE_HOSTGROUP_ID"
 
-  local all_hostgroups="$WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID,$BACKUP_WRITER_HOSTGROUP_ID,$OFFLINE_HOSTGROUP_ID"
-
-  echo "Removing default cluster application user from the ProxySQL database."
-  proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE username='$CLUSTER_APP_USERNAME';"
-  check_cmd $? "$LINENO" "Failed to delete the PXC user ($CLUSTER_APP_USERNAME) from ProxySQL."\
-                       "\n-- Please check the ProxySQL connection parameters and status."
+  if [[ -n $CLUSTER_APP_USERNAME ]]; then
+    echo "Removing default cluster application user from the ProxySQL database."
+    proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE username='$CLUSTER_APP_USERNAME';"
+    check_cmd $? "$LINENO" "Failed to delete the PXC user ($CLUSTER_APP_USERNAME) from ProxySQL."\
+                         "\n-- Please check the ProxySQL connection parameters and status."
+  fi
 
   echo "Removing cluster nodes from the ProxySQL database."
   proxysql_exec "$LINENO" "DELETE FROM mysql_servers WHERE hostgroup_id in ($all_hostgroups);"
@@ -1478,8 +1554,8 @@ function disable_proxysql(){
 function adduser(){
   debug "$LINENO" "adduser ()"
 
-  proxysql_connection_check
   cluster_connection_check
+  cluster_in_proxysql_check $WRITER_HOSTGROUP_ID
 
   local cluster_app_write_username
   local cluster_app_write_password
@@ -1628,8 +1704,8 @@ function proxysql_admin_user_check(){
 function syncusers() {
   debug "$LINENO" "syncusers ()"
 
-  proxysql_connection_check
   cluster_connection_check
+  cluster_in_proxysql_check $WRITER_HOSTGROUP_ID
 
   local mysql_version
   local password_field
@@ -1802,14 +1878,11 @@ function update_cluster()
   local all_hostgroups
   local cluster_addresses=""
 
-  # get the list of hostgroups given the writer-hostgroup
-  all_hostgroups=$(proxysql_exec "$LINENO" \
-                    "SELECT writer_hostgroup || ',' || reader_hostgroup || ',' ||
-                            backup_writer_hostgroup || ',' || offline_hostgroup
-                     FROM mysql_galera_hostgroups
-                     WHERE writer_hostgroup = $WRITER_HOSTGROUP_ID")
-  check_cmd $? "$LINENO" "Failed to retrieve the list of hostgroups from ProxySQL" \
-                       "\n-- Please check the ProxySQL connection parameters and status."
+  all_hostgroups=$(get_all_hostgroups_from_writer_hostgroup $WRITER_HOSTGROUP_ID)
+  if [[ -z $all_hostgroups ]]; then
+    error "$LINENO" "Could not find a cluster (with writer_hostgroup:$WRITER_HOSTGROUP_ID) to update"
+    exit 1
+  fi
 
   # get the list of hosts from the hosts given in the various hostgroups
   host_info=$(proxysql_exec "$LINENO" \
@@ -1899,15 +1972,67 @@ function update_cluster()
     add_servers_to_proxysql "$new_node_list"
     proxysql_load_to_runtime_save_to_disk "MYSQL SERVERS" $LINENO
     sleep 5
+  else
+    echo "No new nodes detected."
   fi
 
   echo -e "\nCluster node info"
-  echo "Writer hostgroup        : $WRITER_HOSTGROUP_ID"
-  echo "Reader hostgroup        : $READER_HOSTGROUP_ID"
-  echo "Backup writer hostgroup : $BACKUP_WRITER_HOSTGROUP_ID"
-  echo "Offline hostgroup       : $OFFLINE_HOSTGROUP_ID"
-  proxysql_exec "$LINENO" "SELECT hostname,hostgroup_id,port,weight FROM runtime_mysql_servers WHERE hostgroup_id in ($all_hostgroups)" "-t"
+  proxysql_exec "$LINENO" \
+    "SELECT hostname,
+            CASE hostgroup_id
+              WHEN $WRITER_HOSTGROUP_ID
+                THEN 'writer'
+              WHEN $READER_HOSTGROUP_ID
+                THEN 'reader'
+              WHEN $BACKUP_WRITER_HOSTGROUP_ID
+                THEN 'backup-writer'
+              WHEN $OFFLINE_HOSTGROUP_ID
+                THEN 'offline'
+              ELSE
+                'unknown'
+            END hostgroup,
+            hostgroup_id,
+            port,
+            weight
+     FROM runtime_mysql_servers
+     WHERE hostgroup_id in ($all_hostgroups)
+     ORDER BY hostgroup_id,weight,hostname,port" "-t"
+  echo ""
+}
 
+# Checks if the current configuration has been enabled and is active
+#
+# Globals:
+#   None
+#
+# Arguments:
+#   Parameter 1 : the writer hostgroup
+#
+function check_if_enabled()
+{
+  local write_hg=$1
+  local data
+
+  data=$(proxysql_exec $LINENO \
+          "SELECT active
+           FROM runtime_mysql_galera_hostgroups
+           WHERE
+              writer_hostgroup = $write_hg"
+  )
+  check_cmd "$?" "$LINENO" "Could not get the galera hostgroup information from ProxySQL"
+
+  if [[ -z $data ]]; then
+    # No data, there is no entry in mysql_galera_hostgroups
+    return 1
+  else
+    if [[ $data -eq 0 ]]; then
+      # The entry exists, but is not active
+      return 2
+    fi
+  fi
+
+  # Entry exists and is active
+  return 0
 }
 
 # Parses the script arguments and sets the global variables
@@ -1923,7 +2048,7 @@ function parse_args() {
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hostgroup:,backup-writer-hostgroup:,reader-hostgroup:,offline-hostgroup:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,adduser,syncusers,sync-multi-cluster-users,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,version,debug,help \
+    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hostgroup:,backup-writer-hostgroup:,reader-hostgroup:,offline-hostgroup:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,is-enabled,adduser,syncusers,sync-multi-cluster-users,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,version,debug,help \
     --name="$(basename "$0")" -- "$@")"
     check_cmd $? "$LINENO" "Script error: getopt() failed with arguments: $*"
     eval set -- "$go_out"
@@ -2092,26 +2217,43 @@ function parse_args() {
       -e | --enable )
         shift
         ENABLE=1
+        NEEDS_WRITER_HOSTGROUP=1
+        NEEDS_READER_HOSTGROUP=1
+        NEEDS_BACKUP_WRITER_HOSTGROUP=1
+        NEEDS_OFFLINE_HOSTGROUP=1
         ;;
       --adduser )
         shift
         ADDUSER=1
+        NEEDS_WRITER_HOSTGROUP=1
         ;;
       --syncusers )
         shift
         SYNCUSERS=1
+        NEEDS_WRITER_HOSTGROUP=1
         ;;
       --sync-multi-cluster-users )
         shift
         SYNCMULTICLUSTERUSERS=1
+        NEEDS_WRITER_HOSTGROUP=1
         ;;
       -d | --disable )
         shift
         DISABLE=1
+        NEEDS_WRITER_HOSTGROUP=1
+        NEEDS_READER_HOSTGROUP=1
+        NEEDS_BACKUP_WRITER_HOSTGROUP=1
+        NEEDS_OFFLINE_HOSTGROUP=1
         ;;
       --update-cluster )
         shift
         UPDATE_CLUSTER=1
+        NEEDS_WRITER_HOSTGROUP=1
+        ;;
+      --is-enabled )
+        shift
+        CHECK_IF_ENABLED=1
+        NEEDS_WRITER_HOSTGROUP=1
         ;;
       --node-check-interval )
         NODE_CHECK_INTERVAL="$2"
@@ -2255,25 +2397,33 @@ function parse_args() {
   fi
 
 
-  if [[ -z $WRITER_HOSTGROUP_ID || $WRITER_HOSTGROUP_ID -eq -1 ]]; then
-    error "" "Invalid --writer-hostgroup value: '$WRITER_HOSTGROUP_ID' "
-    echo "Must use a number >= 0"
-    exit 1
+  if [[ $NEEDS_WRITER_HOSTGROUP -eq 1 ]]; then
+    if [[ -z $WRITER_HOSTGROUP_ID || $WRITER_HOSTGROUP_ID -eq -1 ]]; then
+      error "" "Invalid --writer-hostgroup value: '$WRITER_HOSTGROUP_ID' "
+      echo "Must use a number >= 0"
+      exit 1
+    fi
   fi
-  if [[ -z $BACKUP_WRITER_HOSTGROUP_ID || $BACKUP_WRITER_HOSTGROUP_ID -eq -1 ]]; then
-    error "" "Invalid --backup-writer-hostgroup value: '$BACKUP_WRITER_HOSTGROUP_ID' "
-    echo "Must use a number >= 0"
-    exit 1
+  if [[ $NEEDS_BACKUP_WRITER_HOSTGROUP -eq 1 ]]; then
+    if [[ -z $BACKUP_WRITER_HOSTGROUP_ID || $BACKUP_WRITER_HOSTGROUP_ID -eq -1 ]]; then
+      error "" "Invalid --backup-writer-hostgroup value: '$BACKUP_WRITER_HOSTGROUP_ID' "
+      echo "Must use a number >= 0"
+      exit 1
+    fi
   fi
-  if [[ -z $READER_HOSTGROUP_ID || $READER_HOSTGROUP_ID -eq -1 ]]; then
-    error "" "Invalid --reader-hostgroup value: '$READER_HOSTGROUP_ID' "
-    echo "Must use a number >= 0"
-    exit 1
+  if [[ $NEEDS_READER_HOSTGROUP -eq 1 ]]; then
+    if [[ -z $READER_HOSTGROUP_ID || $READER_HOSTGROUP_ID -eq -1 ]]; then
+      error "" "Invalid --reader-hostgroup value: '$READER_HOSTGROUP_ID' "
+      echo "Must use a number >= 0"
+      exit 1
+    fi
   fi
-  if [[ -z $OFFLINE_HOSTGROUP_ID || $OFFLINE_HOSTGROUP_ID -eq -1 ]]; then
-    error "" "Invalid --offline-hostgroup value: '$OFFLINE_HOSTGROUP_ID' "
-    echo "Must use a number >= 0"
-    exit 1
+  if [[ $NEEDS_OFFLINE_HOSTGROUP -eq 1 ]]; then
+    if [[ -z $OFFLINE_HOSTGROUP_ID || $OFFLINE_HOSTGROUP_ID -eq -1 ]]; then
+      error "" "Invalid --offline-hostgroup value: '$OFFLINE_HOSTGROUP_ID' "
+      echo "Must use a number >= 0"
+      exit 1
+    fi
   fi
   readonly WRITER_HOSTGROUP_ID
   readonly READER_HOSTGROUP_ID
@@ -2393,6 +2543,7 @@ function parse_args() {
   readonly SYNCMULTICLUSTERUSERS
   readonly QUICK_DEMO
   readonly UPDATE_CLUSTER
+  readonly CHECK_IF_ENABLED
 
   readonly WITH_CHECK_MONITOR_USER
   readonly WITH_CLUSTER_APP_USER
@@ -2411,16 +2562,46 @@ function parse_args() {
 #   SYNCMULTICLUSTERUSERS
 #   QUICK_DEMO
 #   UPDATE_CLUSTER
+#   CHECK_IF_ENABLED
 #   MODE
 #   CLUSTER_APP_USERNAME
 #   PROXYSQL_HOSTNAME, PROXYSQL_CLIENT_PORT
+#   WRITER_HOSTGROUP_ID
 #
 # Arguments:
 #   None
 #
 function main() {
 
-  if [[ $ENABLE -eq 1 ]]; then
+  if [[ $UPDATE_CLUSTER -eq 1 ]]; then
+
+    if [[ $ENABLE -eq 1 ]]; then
+      # Check to see if mysql_galera_hostgroups already has an
+      # entry for the worker hostgroup
+      local hostgroup_in_use
+      hostgroup_in_use=$(proxysql_exec "$LINENO" \
+                          "SELECT count(*)
+                           FROM mysql_galera_hostgroups
+                           WHERE
+                              writer_hostgroup = $WRITER_HOSTGROUP_ID")
+      check_cmd $? "$LINENO" "Galera hostgroup retrieval failed."\
+                           "\n-- Please check the ProxySQL connection parameters and status."
+
+      if [[ $hostgroup_in_use -eq 0 ]]; then
+        # hostgroup is not in use, so we need to enable it
+        echo -e "ProxySQL has not been configured, enabling"
+        enable_proxysql
+        echo -e "\nProxySQL configuration completed!\n"
+        exit 0
+      fi
+    else
+      cluster_in_proxysql_check $WRITER_HOSTGROUP_ID
+    fi
+
+    update_cluster
+    echo -e "\nCluster membership updated in the ProxySQL database!"
+
+  elif [[ $ENABLE -eq 1 ]]; then
 
     if [[ $QUICK_DEMO -eq 0 ]]; then
       echo -e "\nThis script will assist with configuring ProxySQL for use with"
@@ -2430,6 +2611,7 @@ function main() {
     echo -e "\nProxySQL read/write configuration mode is ${BD}$MODE${NBD}\n"
 
     enable_proxysql
+
     echo -e "\nProxySQL configuration completed!\n"
 
     PROXYSQL_CLIENT_PORT=$(proxysql_exec "$LINENO" "SELECT * FROM runtime_global_variables WHERE variable_name='mysql-interfaces'" |
@@ -2478,14 +2660,25 @@ function main() {
     syncusers
     echo -e "\nSynced PXC users to the ProxySQL database!"
 
-  elif [[ $UPDATE_CLUSTER -eq 1 ]]; then
+  elif [[ $CHECK_IF_ENABLED -eq 1 ]]; then
+    local errcode
 
-    update_cluster
-    echo -e "\nCluster membership updated in the ProxySQL database!"
+    check_if_enabled $WRITER_HOSTGROUP_ID
+    errcode=$?
+    if [[ $errcode -eq 1 ]]; then
+      error "$LINENO" "The current configuration has not been enabled"
+      exit 1
+    elif [[ $errcode -eq 2 ]]; then
+      error "$LINENO" "The current configuration has been enabled, but is not active"
+      exit 2
+    else
+      echo -e "The current configuration has been enabled and is active"
+      exit 0
+    fi
 
   else
 
-    error "" "Must specify an operation: --enable, --disable, --adduser, --quick-demo, --syncusers, or --sync-multi-cluster-users"
+    error "" "Must specify an operation: --enable, --disable, --update-cluster, --is-enabled, --adduser, --quick-demo, --syncusers, or --sync-multi-cluster-users"
     exit 1
 
   fi
@@ -2561,6 +2754,7 @@ parse_args "$@"
 
 # We now use the tables for configuration and thus they should reflect
 # the current state before we do any modification.
+proxysql_connection_check
 proxysql_exec "$LINENO" "SAVE MYSQL SERVERS FROM RUNTIME"
 proxysql_exec "$LINENO" "SAVE MYSQL QUERY RULES FROM RUNTIME"
 proxysql_exec "$LINENO" "SAVE MYSQL USERS FROM RUNTIME"
