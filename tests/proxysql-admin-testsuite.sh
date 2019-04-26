@@ -54,10 +54,8 @@ This test script expects a certain directory layout for the workdir.
 
   <workdir>/
       proxysql-admin
-      proxysql_galera_checker
-      proxysql_node_monitor
       Percona-XtraDB-Cluster-XXX.tar.gz
-      proxysql-1.4.XXX/
+      proxysql-2.0/
         etc/
           proxysql-admin.cnf
         usr/
@@ -441,7 +439,7 @@ sudo pkill -9 -x proxysql
 pushd "$WORKDIR" > /dev/null
 
 echo "Looking for ProxySQL directory..."
-PROXYSQL_BASE=$(ls -1td proxysql-1* | grep -v ".tar" | head -n1)
+PROXYSQL_BASE=$(ls -1td proxysql-2* | grep -v ".tar" | head -n1)
 if [[ -z $PROXYSQL_BASE ]]; then
   echo "ERROR! Could not find ProxySQL directory. Terminating"
   exit 1

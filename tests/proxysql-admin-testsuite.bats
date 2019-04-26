@@ -176,6 +176,8 @@ fi
     --max-connections=111 \
     --node-check-interval=11200 \
     --max-transactions-behind=113 <<< 'n'
+  echo "$output" >&2
+  [ "$status" -eq 0 ]
 
   # Give ProxySQL some time to converge
   sleep 5
