@@ -34,7 +34,7 @@ else
 fi
 
 if [[ $USE_IPVERSION == "v6" ]]; then
-  HOST_IP="[::1]"
+  HOST_IP="::1"
 else
   HOST_IP="127.0.0.1"
 fi
@@ -328,8 +328,8 @@ fi
   # -----------------------------------------------------------
   # change node3 to be a read-only node
   echo "$LINENO : changing node3 to read-only" >&2
-  run mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=1"
-  [ "$status" -eq 0 ]
+  mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=1"
+  [ "$?" -eq 0 ]
 
   # -----------------------------------------------------------
   # Use default value for --writers-are-readers
@@ -408,8 +408,8 @@ fi
   # -----------------------------------------------------------
   # revert node3 to be a read/write node
   echo "$LINENO : changing node3 back to read-only=0" >&2
-  run mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=0"
-  [ "$status" -eq 0 ]
+  mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=0"
+  [ "$?" -eq 0 ]
 
 }
 
@@ -494,8 +494,8 @@ fi
   # -----------------------------------------------------------
   # change node3 to be a read-only node
   echo "$LINENO : changing node3 to read-only" >&2
-  run mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=1"
-  [ "$status" -eq 0 ]
+  mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=1"
+  [ "$?" -eq 0 ]
 
   echo "$LINENO : proxysql-admin --enable --mode=loadbal" >&2
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --mode=loadbal <<< 'n'
@@ -521,8 +521,8 @@ fi
   # -----------------------------------------------------------
   # revert node3 to be a read/write node
   echo "$LINENO : changing node3 back to read-only=0" >&2
-  run mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=0"
-  [ "$status" -eq 0 ]
+  mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=0"
+  [ "$?" -eq 0 ]
 
 }
 
@@ -575,8 +575,8 @@ fi
   # -----------------------------------------------------------
   # change node3 to be a read-only node
   echo "$LINENO : changing node3 to read-only" >&2
-  run mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=1"
-  [ "$status" -eq 0 ]
+  mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=1"
+  [ "$?" -eq 0 ]
 
   # -----------------------------------------------------------
   # This should fail, since a write-node cannot be read-only
@@ -587,8 +587,8 @@ fi
   # -----------------------------------------------------------
   # revert node3 to be a read/write node
   echo "$LINENO : changing node3 back to read-only=0" >&2
-  run mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=0"
-  [ "$status" -eq 0 ]
+  mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=0"
+  [ "$?" -eq 0 ]
 }
 
 

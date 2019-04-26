@@ -124,7 +124,7 @@ declare -i MAX_TRANSACTIONS_BEHIND=100
 declare    WRITERS_ARE_READERS="backup"
 declare -i WRITERS_ARE_READERS_OPTION=-1
 
-declare -i CLEAR_SERVER_LIST=0
+declare -i REMOVE_ALL_SERVERS=0
 
 #
 # Set these values if a parameter is needed by the operation
@@ -253,7 +253,7 @@ Options:
                                      If set to 'backup', then only the backup-writers
                                      will be added to the reader hostgroup.
                                      (default: backup)
-  --clear-server-list                When using --update-cluster, this will remove all
+  --remove-all-servers               When using --update-cluster, this will remove all
                                      servers belonging to the current cluster before
                                      updating the list.
   --debug                            Enables additional debug logging.
@@ -2004,7 +2004,7 @@ function update_cluster()
     return
   fi
 
-  if [[ $CLEAR_SERVER_LIST -eq 1 ]]; then
+  if [[ $REMOVE_ALL_SERVERS -eq 1 ]]; then
     echo "Removing all servers from ProxySQL"
     proxysql_exec "$LINENO" \
       "DELETE FROM mysql_servers
@@ -2024,7 +2024,10 @@ function update_cluster()
     debug "$LINENO" "Looking for '$i' in '${current_hosts}'"
 
     # if we have a match, then the PXC node is in ProxySQL and we can skip
-    if [[ -n $current_hosts && " ${current_hosts} " =~ [[:space:]]${i}[[:space:]] ]]; then
+    local escaped_i
+    escaped_i=${i/[/\\[}
+    escaped_i=${escaped_i/]/\\]}
+    if [[ -n $current_hosts && " ${current_hosts} " =~ [[:space:]]${escaped_i}[[:space:]] ]]; then
       continue
     fi
 
@@ -2231,7 +2234,7 @@ function parse_args() {
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hostgroup:,backup-writer-hostgroup:,reader-hostgroup:,offline-hostgroup:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,is-enabled,adduser,syncusers,sync-multi-cluster-users,status,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,clear-server-list,version,debug,help \
+    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hostgroup:,backup-writer-hostgroup:,reader-hostgroup:,offline-hostgroup:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,is-enabled,adduser,syncusers,sync-multi-cluster-users,status,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,remove-all-servers,version,debug,help \
     --name="$(basename "$0")" -- "$@")"
     check_cmd $? "$LINENO" "Script error: getopt() failed with arguments: $*"
     eval set -- "$go_out"
@@ -2527,8 +2530,8 @@ function parse_args() {
         WRITERS_ARE_READERS=$2
         shift 2
         ;;
-      --clear-server-list )
-        CLEAR_SERVER_LIST=1
+      --remove-all-servers )
+        REMOVE_ALL_SERVERS=1
         shift
         ;;
       -v | --version )
@@ -2752,7 +2755,7 @@ function parse_args() {
   readonly UPDATE_CLUSTER
   readonly CHECK_IF_ENABLED
   readonly REPORT_STATUS
-  readonly CLEAR_SERVER_LIST
+  readonly REMOVE_ALL_SERVERS
 
   readonly WITH_CHECK_MONITOR_USER
   readonly WITH_CLUSTER_APP_USER
