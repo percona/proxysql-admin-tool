@@ -206,22 +206,22 @@ Options:
                                      assigned to this hostgroup.
 
   --proxysql-datadir=<datadir>       Specify the proxysql data directory location
-  --proxysql-username=user_name      ProxySQL service username
-  --proxysql-password[=password]     ProxySQL service password
-  --proxysql-port=port_num           ProxySQL service port number
-  --proxysql-hostname=host_name      ProxySQL service hostname
+  --proxysql-username=<user_name>    ProxySQL service username
+  --proxysql-password[=<password>]   ProxySQL service password
+  --proxysql-port=<port_num>         ProxySQL service port number
+  --proxysql-hostname=<host_name>    ProxySQL service hostname
 
-  --cluster-username=user_name       Percona XtraDB Cluster node username
-  --cluster-password[=password]      Percona XtraDB Cluster node password
-  --cluster-port=port_num            Percona XtraDB Cluster node port number
-  --cluster-hostname=host_name       Percona XtraDB Cluster node hostname
+  --cluster-username=<user_name>     Percona XtraDB Cluster node username
+  --cluster-password[=<password>]    Percona XtraDB Cluster node password
+  --cluster-port=<port_num>          Percona XtraDB Cluster node port number
+  --cluster-hostname=<host_name>     Percona XtraDB Cluster node hostname
 
-  --cluster-app-username=user_name   Percona XtraDB Cluster node application username
-  --cluster-app-password[=password]  Percona XtraDB Cluster node application passwrod
+  --cluster-app-username=<user_name> Percona XtraDB Cluster node application username
+  --cluster-app-password[=<password>] Percona XtraDB Cluster node application passwrod
   --without-cluster-app-user         Configure Percona XtraDB Cluster without application user
 
-  --monitor-username=user_name       Username for monitoring Percona XtraDB Cluster nodes through ProxySQL
-  --monitor-password[=password]      Password for monitoring Percona XtraDB Cluster nodes through ProxySQL
+  --monitor-username=<user_name>     Username for monitoring Percona XtraDB Cluster nodes through ProxySQL
+  --monitor-password[=<password>]    Password for monitoring Percona XtraDB Cluster nodes through ProxySQL
   --use-existing-monitor-password    Do not prompt for a new monitor password if one is provided.
 
   --node-check-interval=<NUMBER>     The interval at which the proxy should connect
@@ -1547,7 +1547,7 @@ function disable_proxysql(){
     # find the hostgroup, just return immediately, since we can't depend on
     # the values matching up with the config file
     if [[ $WRITER_HOSTGROUP_COMMAND_LINE -eq 1 ]]; then
-      error "$LINENO" "Could not find a cluster (with writer_hostgroup:$WRITER_HOSTGROUP_ID) to update"
+      error "$LINENO" "Could not find a cluster (with writer_hostgroup:$WRITER_HOSTGROUP_ID) to disable"
       exit 0
     fi
 
@@ -1922,12 +1922,42 @@ function syncusers() {
 }
 
 
+# Returns 0 (success) if max_writers is 1
+# (which we consider singlewrite mode)
+#
+# Globals:
+#   None
+#
+# Arguments:
+#   Parameter 1: the writer hostgroup to be checked
+#
+# Returns:
+#   0 : (success) if the galera hostgroup corresponding to
+#       the writer hostgroup has max_writers == 1
+#   1 : (failure) otherwsie
+function is_mode_singlewrite()
+{
+  local data
+  local write_hg=$1
+  data=$(proxysql_exec "$LINENO" \
+          "SELECT max_writers
+            FROM mysql_galera_hostgroups
+            WHERE writer_hostgroup = $write_hg")
+
+  if [[ -n $data && $data -eq 1 ]]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
 # Update the cluster membership
 # New members will be added to the configuration.
 # By design, members that are no longer in the cluster will not be removed.
 #
 # Globals:
 #   WRITER_HOSTGROUP_ID
+#   WRITE_NODE
 #
 # Parameters:
 #   None
@@ -1940,6 +1970,8 @@ function update_cluster()
   local cluster_host cluster_port
   local all_hostgroups
   local cluster_addresses=""
+  local data
+  local -i force_to_runtime=0
 
   all_hostgroups=$(get_all_hostgroups_from_writer_hostgroup $WRITER_HOSTGROUP_ID)
   if [[ -z $all_hostgroups ]]; then
@@ -1947,82 +1979,8 @@ function update_cluster()
     exit 1
   fi
 
-  # get the list of hosts from the hosts given in the various hostgroups
-  host_info=$(proxysql_exec "$LINENO" \
-                "SELECT DISTINCT hostname, port
-                 FROM mysql_servers
-                 WHERE hostgroup_id in ($all_hostgroups)")
-  check_cmd $? "$LINENO" "Failed to retrieve host information from ProxySQL"\
-                       "\n-- Please check the ProxySQL connection parameters and status."
-
-  if [[ -n $host_info ]]; then
-    # Extract the hostname and port from the rows
-    # Creates a string of "host:port" separated by spaces
-    while read line; do
-      if [[ -z $line ]]; then
-        continue
-      fi
-
-      local net_address
-      ip_addr=$(echo "$line" | cut -f1)
-      port=$(echo "$line" | cut -f2)
-      net_address=$(combine_ip_port_into_address "$ip_addr" "$port")
-      current_hosts+="$net_address "
-    done< <(printf "%s\n" "$host_info")
-
-    current_hosts=${current_hosts% }
-  fi
-
-  # First, try the CLUSTER_HOSTNAME first
-  status=$(mysql_exec "$LINENO" \
-            "SHOW STATUS LIKE 'wsrep_cluster_status';
-             SHOW STATUS LIKE 'wsrep_incoming_addresses'" \
-             "--skip-column-names --silent")
-  if [[ $? -eq 0 && -n $status ]]; then
-    local cluster_status
-    cluster_status=$(echo -en "$status" | grep "wsrep_cluster_status" | cut -f2)
-    if [[ $cluster_status == "Primary" ]]; then
-      debug "$LINENO" "Using informataion from the CLUSTER_HOSTNAME:$CLUSTER_HOSTNAME"
-      cluster_addresses=$(echo -en "$status" | grep "wsrep_incoming_addresses" | cut -f2 | tr ',' ' ')
-    fi
-  fi
-
-  # Second, If that doesn't work, iterate through our known list of hosts
-  # till we find an active host
-  # (Must also check that this is a primary partition)
-  if [[ -z $cluster_addresses ]]; then
-    for i in $current_hosts; do
-      [[ -z $i ]] && continue;
-
-      net_address=$(separate_ip_port_from_address "$i")
-
-      local ip_addr port
-      local status=""
-      ip_addr=$(echo "$net_address" | cut -d' ' -f1)
-      port=$(echo "$net_address" | cut -d' ' -f2)
-
-      # This call may fail (the node may be offline)
-      status=$(cluster_exec "$LINENO" "$ip_addr" "$port" \
-                "SHOW STATUS LIKE 'wsrep_cluster_status';
-                 SHOW STATUS LIKE 'wsrep_incoming_addresses'" \
-               "--skip-column-names --silent")
-      [[ $? -ne 0 || -z $status ]] && continue;
-
-      local cluster_status
-      cluster_status=$(echo -en "$status" | grep "wsrep_cluster_status" | cut -f2)
-      if [[ $cluster_status == "Primary" ]]; then
-        debug "$LINENO" "Using informataion from the ProxySQL node list"
-        cluster_addresses=$(echo -en "$status" | grep "wsrep_incoming_addresses" | cut -f2 | tr ',' ' ')
-        break
-      fi
-    done
-  fi
-
-  if [[ -z $cluster_addresses && -z $current_hosts ]]; then
-    warning "$LINENO" "update_cluster: both PXC and ProxySQL have no active nodes"
-    return
-  fi
-
+  # First, reset the list of servers if desired (this will force us to use
+  # the CLUSTER_HOSTNAME to find the cluster)
   if [[ $REMOVE_ALL_SERVERS -eq 1 ]]; then
     echo "Removing all servers from ProxySQL"
     proxysql_exec "$LINENO" \
@@ -2031,11 +1989,89 @@ function update_cluster()
         hostgroup_id IN (${all_hostgroups})"
     check_cmd "$?" "$LINENO" "Failed to remove the list of servers from ProxySQL"
     current_hosts=""
+  else
+    # If we're not removing all of the servers
+    # then try get the list of servers from ProxySQL
+    # Second, get the list of hosts from the hosts given in the galera hostgroups
+    host_info=$(proxysql_exec "$LINENO" \
+                  "SELECT DISTINCT hostname, port
+                   FROM mysql_servers
+                   WHERE hostgroup_id in ($all_hostgroups)")
+    check_cmd $? "$LINENO" "Failed to retrieve host information from ProxySQL"\
+                         "\n-- Please check the ProxySQL connection parameters and status."
+    if [[ -n $host_info ]]; then
+      # Extract the hostname and port from the rows
+      # Creates a string of "host:port" separated by spaces
+      while read line; do
+        if [[ -z $line ]]; then
+          continue
+        fi
+
+        local net_address
+        ip_addr=$(echo "$line" | cut -f1)
+        port=$(echo "$line" | cut -f2)
+        net_address=$(combine_ip_port_into_address "$ip_addr" "$port")
+        current_hosts+="$net_address "
+      done< <(printf "%s\n" "$host_info")
+
+      current_hosts=${current_hosts% }
+    fi
+  fi
+
+  # Third, iterate through our known list of hosts
+  # till we find an active host
+  # (Must also check that this is a primary partition)
+  for i in $current_hosts; do
+    [[ -z $i ]] && continue;
+
+    net_address=$(separate_ip_port_from_address "$i")
+
+    local ip_addr port
+    local status=""
+    ip_addr=$(echo "$net_address" | cut -d' ' -f1)
+    port=$(echo "$net_address" | cut -d' ' -f2)
+
+    # This call may fail (the node may be offline)
+    status=$(cluster_exec "$LINENO" "$ip_addr" "$port" \
+              "SHOW STATUS LIKE 'wsrep_cluster_status';
+               SHOW STATUS LIKE 'wsrep_incoming_addresses'" \
+             "--skip-column-names --silent")
+    [[ $? -ne 0 || -z $status ]] && continue;
+
+    local cluster_status
+    cluster_status=$(echo -en "$status" | grep "wsrep_cluster_status" | cut -f2)
+    if [[ $cluster_status == "Primary" ]]; then
+      debug "$LINENO" "Using informataion from the ProxySQL node list"
+      cluster_addresses=$(echo -en "$status" | grep "wsrep_incoming_addresses" | cut -f2 | tr ',' ' ')
+      break
+    fi
+  done
+
+  # Fourth, if we still have no cluster addresses, try the CLUSTER_HOSTNAME
+  if [[ -z $cluster_addresses ]]; then
+    status=$(mysql_exec "$LINENO" \
+              "SHOW STATUS LIKE 'wsrep_cluster_status';
+               SHOW STATUS LIKE 'wsrep_incoming_addresses'" \
+               "--skip-column-names --silent")
+    if [[ $? -eq 0 && -n $status ]]; then
+      local cluster_status
+      cluster_status=$(echo -en "$status" | grep "wsrep_cluster_status" | cut -f2)
+      if [[ $cluster_status == "Primary" ]]; then
+        debug "$LINENO" "Using informataion from the CLUSTER_HOSTNAME:$CLUSTER_HOSTNAME"
+        cluster_addresses=$(echo -en "$status" | grep "wsrep_incoming_addresses" | cut -f2 | tr ',' ' ')
+      fi
+    fi
+  fi
+
+
+  if [[ -z $cluster_addresses && -z $current_hosts ]]; then
+    warning "$LINENO" "update_cluster: both PXC and ProxySQL have no active nodes"
+    return
   fi
 
   #
   # Given the WSREP members, compare to ProxySQL
-  # If missing from ProxySQL, add to ProxySQL as a reader.
+  # If missing from ProxySQL, add to ProxySQL as a writer
   #
   debug "$LINENO" "Looking for PXC nodes not in ProxySQL"
   local new_node_list=""
@@ -2062,24 +2098,123 @@ function update_cluster()
 
   if [[ -n $new_node_list ]]; then
     add_servers_to_proxysql "$new_node_list"
-    proxysql_load_to_runtime_save_to_disk "MYSQL SERVERS" $LINENO
-    echo "Waiting for ProxySQL to process the new nodes..."
-    sleep 5
   else
     echo "No new nodes detected."
   fi
+
+
+  # Now that the nodes are up-to-date, do we have to check
+  # for a write-node?  If we don't have a write-node, leave
+  # things the way they are.
+  if [[ -n $WRITE_NODE ]]; then
+    # Check if max_writers is 1, we only need to check this
+    # if we are in singlewrite mode
+    if ! is_mode_singlewrite "$WRITER_HOSTGROUP_ID"; then
+      warning "$LINENO" "Ignoring --write-node, since this is not using" \
+                        "singlewrite mode (max-writers is not 1)"
+    else
+      local writer_ws_address
+      local writer_ws_ip
+      local writer_ws_port
+
+      writer_ws_address=$(separate_ip_port_from_address "$WRITE_NODE")
+      writer_ws_ip=$(echo "$writer_ws_address" | cut -d' ' -f1)
+      writer_ws_port=$(echo "$writer_ws_address" | cut -d' ' -f2)
+      writer_ws_address=$(combine_ip_port_into_address "$writer_ws_ip" "$writer_ws_port")
+
+      # see if our node exists in mysql_servers
+      data=$(proxysql_exec "$LINENO" \
+              "SELECT COUNT(*)
+                FROM mysql_servers
+                WHERE
+                  hostname = '$writer_ws_ip' AND
+                  port = $writer_ws_port AND
+                  hostgroup_id in ($all_hostgroups)")
+      check_cmd $? "$LINENO" "Failed to search for the write-node" \
+                           "\n-- Please check the ProxySQL connection parameters and status."
+
+      # If it exists, then we need to update the table, otherwise
+      # ignore
+      if [[ -z $data || $data -eq 0 ]]; then
+        warning "$LINENO" "Could not find write-node in list of cluster nodes: $writer_ws_address"
+      else
+        # The server exists
+
+        # First, remove all the entries
+        proxysql_exec "$LINENO" \
+            "DELETE FROM mysql_servers
+              WHERE
+                hostname = '$writer_ws_ip' AND
+                port = $writer_ws_port AND
+                hostgroup_id in ($all_hostgroups)"
+        check_cmd $? "$LINENO" "Failed to delete other write node rows" \
+                             "\n-- Please check the ProxySQL connection parameters and status."
+
+        # readd as a writer node
+        add_servers_to_proxysql $writer_ws_address
+        force_to_runtime=1
+
+        # Clear any other previous write-node
+        proxysql_exec "$LINENO" \
+          "UPDATE mysql_servers
+            SET weight = 1000
+            WHERE
+              hostgroup_id IN ($all_hostgroups) AND
+              weight = 1000000"
+        check_cmd $? "$LINENO" "Failed to update the write-node" \
+                             "\n-- Please check the ProxySQL connection parameters and status."
+
+        # Update the write_node to have a higher priority
+        proxysql_exec "$LINENO" \
+          "UPDATE mysql_servers
+            SET weight = 1000000
+            WHERE
+              hostname = '$writer_ws_ip' AND
+              port = $writer_ws_port AND
+              hostgroup_id = $WRITER_HOSTGROUP_ID;"
+        check_cmd $? "$LINENO" "Failed to update the writer-node" \
+                             "\n-- Please check the ProxySQL connection parameters and status."
+      fi
+    fi
+  fi
+
+  if [[ -n $new_node_list || $force_to_runtime -eq 1 ]]; then
+    proxysql_load_to_runtime_save_to_disk "MYSQL SERVERS" $LINENO
+    echo "Waiting for ProxySQL to process the new nodes..."
+    if is_mode_singlewrite $WRITER_HOSTGROUP_ID; then
+      sleep 5
+      for i in `seq 1 10`;
+      do
+        # Check if there is only 1 writer
+        data=$(proxysql_exec "$LINENO" \
+                "SELECT COUNT(*)
+                  FROM runtime_mysql_servers
+                  WHERE
+                    hostgroup_id = $WRITER_HOSTGROUP_ID")
+        [[ -n $data && $data -eq 1 ]] && break
+
+        sleep 2
+      done
+    fi
+  fi
+
+  local write_hg reader_hg backup_hg offline_hg
+  writer_hg=$(echo "$all_hostgroups" | cut -d',' -f1)
+  reader_hg=$(echo "$all_hostgroups" | cut -d',' -f2)
+  backup_hg=$(echo "$all_hostgroups" | cut -d',' -f3)
+  offline_hg=$(echo "$all_hostgroups" | cut -d',' -f4)
 
   echo -e "\nCluster node info"
   proxysql_exec "$LINENO" \
     "SELECT
             CASE hostgroup_id
-              WHEN $WRITER_HOSTGROUP_ID
+              WHEN $writer_hg
                 THEN 'writer'
-              WHEN $READER_HOSTGROUP_ID
+              WHEN $reader_hg
                 THEN 'reader'
-              WHEN $BACKUP_WRITER_HOSTGROUP_ID
+              WHEN $backup_hg
                 THEN 'backup-writer'
-              WHEN $OFFLINE_HOSTGROUP_ID
+              WHEN $offline_hg
                 THEN 'offline'
               ELSE
                 'unknown'
