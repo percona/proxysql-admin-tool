@@ -89,6 +89,7 @@ declare    MODE="singlewrite"
 declare -i NODE_CHECK_INTERVAL=-1
 
 declare -i WRITER_HOSTGROUP_ID=-1
+declare -i WRITER_HOSTGROUP_COMMAND_LINE=0
 declare -i READER_HOSTGROUP_ID=-1
 declare -i BACKUP_WRITER_HOSTGROUP_ID=-1
 declare -i OFFLINE_HOSTGROUP_ID=-1
@@ -128,7 +129,7 @@ declare -i REMOVE_ALL_SERVERS=0
 
 #
 # Set these values if a parameter is needed by the operation
-# (For example, --disable only needs --writer-hostgroup)
+# (For example, --disable only needs --writer-hg)
 #
 declare   NEEDS_WRITER_HOSTGROUP=0
 declare   NEEDS_READER_HOSTGROUP=0
@@ -192,16 +193,16 @@ Options:
   --config-file=<config-file>        Read login credentials from a configuration file
                                      (command line options override any configuration file values)
 
-  --writer-hostgroup=<number>        The hostgroup that all traffic will be sent to
+  --writer-hg=<number>               The hostgroup that all traffic will be sent to
                                      by default. Nodes that have 'read-only=0' in MySQL
                                      will be assigned to this hostgroup.
-  --backup-writer-hostgroup=<number> If the cluster has multiple nodes with 'read-only=0'
+  --backup-writer-hg=<number>        If the cluster has multiple nodes with 'read-only=0'
                                      and max_writers set, then additional nodes (in excess
                                      of max_writers), will be assigned to this hostgroup.
-  --reader-hostgroup=<number>        The hostgroup that read traffic should be sent to.
+  --reader-hg=<number>               The hostgroup that read traffic should be sent to.
                                      Nodes with 'read-only=0' in MySQL will be assigned
                                      to this hostgroup.
-  --offline-hostgroup=<number>       Nodes that are determined to be OFFLINE will
+  --offline-hg=<number>              Nodes that are determined to be OFFLINE will
                                      assigned to this hostgroup.
 
   --proxysql-datadir=<datadir>       Specify the proxysql data directory location
@@ -253,7 +254,7 @@ Options:
                                      If set to 'backup', then only the backup-writers
                                      will be added to the reader hostgroup.
                                      (default: backup)
-  --remove-all-servers               When using --update-cluster, this will remove all
+  --remove-all-servers               When used with --update-cluster, this will remove all
                                      servers belonging to the current cluster before
                                      updating the list.
   --debug                            Enables additional debug logging.
@@ -274,7 +275,11 @@ One of the options below must be provided.
                                      May be used with --enable.
                                      (doesn't delete ProxySQL users not in MySQL)
   --is-enabled                       Checks if the current configuration is enabled in ProxySQL.
-  --status                           Returns a status report on the current configuration
+  --status                           Returns a status report on the current configuration.
+                                     If "--writer-hg=<NUM>" is specified, than the
+                                     data corresponding to the galera cluster with that
+                                     writer hostgroup is displayed. Otherwise, information
+                                     for all clusters will be displayed.
   --version, -v                      Prints the version info
 
 EOF
@@ -1527,12 +1532,8 @@ function enable_proxysql() {
 # Removing Percona XtraDB Cluster configuration from proxysql
 #
 # Globals:
-#   CLUSTER_HOSTNAME, CLUSTER_PORT
 #   CLUSTER_APP_USERNAME
 #   WRITER_HOSTGROUP_ID
-#   READER_HOSTGROUP_ID
-#   BACKUP_WRITER_HOSTGROUP_ID
-#   OFFLINE_HOSTGROUP_ID
 #
 # Arguments:
 #
@@ -1540,32 +1541,50 @@ function disable_proxysql(){
   debug "$LINENO" "disable_proxysql ()"
 
   local all_hostgroups
-  all_hostgroups="$WRITER_HOSTGROUP_ID,$BACKUP_WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID,$OFFLINE_HOSTGROUP_ID"
+  all_hostgroups=$(get_all_hostgroups_from_writer_hostgroup $WRITER_HOSTGROUP_ID)
+  if [[ -z $all_hostgroups ]]; then
+    # If the writer hostgroup was set by the command-line and we couldn't
+    # find the hostgroup, just return immediately, since we can't depend on
+    # the values matching up with the config file
+    if [[ $WRITER_HOSTGROUP_COMMAND_LINE -eq 1 ]]; then
+      error "$LINENO" "Could not find a cluster (with writer_hostgroup:$WRITER_HOSTGROUP_ID) to update"
+      exit 0
+    fi
 
-  if [[ -n $CLUSTER_APP_USERNAME ]]; then
-    SAFE_CLUSTER_APP_USERNAME=${CLUSTER_APP_USERNAME//\'/\'\'}
-    echo "Removing default cluster application user from the ProxySQL database."
-    proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE username='$SAFE_CLUSTER_APP_USERNAME';"
-    check_cmd $? "$LINENO" "Failed to delete the PXC user ($CLUSTER_APP_USERNAME) from ProxySQL."\
-                         "\n-- Please check the ProxySQL connection parameters and status."
+    all_hostgroups="$WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID,$BACKUP_WRITER_HOSTGROUP_ID,$OFFLINE_HOSTGROUP_ID"
   fi
 
+  echo "Removing cluster application users from the ProxySQL database."
+  proxysql_exec "$LINENO" \
+    "DELETE FROM mysql_users
+      WHERE default_hostgroup IN ($all_hostgroups)"
+  check_cmd $? "$LINENO" "Failed to delete the PXC user ($CLUSTER_APP_USERNAME) from ProxySQL."\
+                       "\n-- Please check the ProxySQL connection parameters and status."
+
   echo "Removing cluster nodes from the ProxySQL database."
-  proxysql_exec "$LINENO" "DELETE FROM mysql_servers WHERE hostgroup_id in ($all_hostgroups);"
+  proxysql_exec "$LINENO" \
+    "DELETE FROM mysql_servers
+      WHERE hostgroup_id in ($all_hostgroups);"
   check_cmd $? "$LINENO" "Failed to delete the PXC nodes from ProxySQL."\
                        "\n-- Please check the ProxySQL connection parameters and status."
 
   echo "Removing query rules from the ProxySQL database if any."
-  proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE destination_hostgroup in ($all_hostgroups)"
+  proxysql_exec "$LINENO" \
+    "DELETE FROM mysql_query_rules
+      WHERE destination_hostgroup in ($all_hostgroups)"
   check_cmd $? "$LINENO" "Failed to delete the query rules from ProxySQL."\
+                       "\n-- Please check the ProxySQL connection parameters amd status."
+
+  proxysql_exec "$LINENO" \
+    "DELETE FROM  mysql_query_rules_fast_routing
+      WHERE destination_hostgroup in ($all_hostgroups)"
+  check_cmd $? "$LINENO" "Failed to delete the fast query routing rules from ProxySQL."\
                        "\n-- Please check the ProxySQL connection parameters amd status."
 
   echo "Removing the cluster from the ProxySQL database."
   proxysql_exec "$LINENO" "DELETE FROM mysql_galera_hostgroups WHERE writer_hostgroup = $WRITER_HOSTGROUP_ID"
   check_cmd $? "$LINENO" "Failed to delete the galera hostgroup entry from ProxySQL."\
                        "\n-- Please check the ProxySQL connection parameters amd status."
-
-  # TODO: do we need to remove the rows from the fast query routing table?
 
   proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO
   proxysql_load_to_runtime_save_to_disk "MYSQL SERVERS" $LINENO
@@ -2114,9 +2133,7 @@ function check_if_enabled()
 #
 # Globals:
 #   WRITER_HOSTGROUP_ID
-#   READER_HOSTGROUP_ID
-#   BACKUP_WRITER_HOSTGROUP_ID
-#   OFFLINE_HOSTGROUP_ID
+#   WRITER_HOSTGROUP_COMMAND_LINE
 #
 # Arguments:
 #   Parameter 1 : the writer hostgroup id
@@ -2124,40 +2141,55 @@ function check_if_enabled()
 function report_status()
 {
   local write_hg=$1
-  local all_hostgroups
+  local all_hostgroups=""
   local data
   local read_hg backup_hg offline_hg
-  all_hostgroups=$(get_all_hostgroups_from_writer_hostgroup $write_hg)
-  if [[ -z $all_hostgroups ]]; then
-    error "$LINENO" "Could not find a cluster (with writer_hostgroup:$write_hg)"
-    exit 1
-  fi
-  data=$(echo "$all_hostgroups" | tr ',' '\t')
-  write_hg=$(echo "$data" | cut -f1)
-  read_hg=$(echo "$data" | cut -f2)
-  backup_hg=$(echo "$data" | cut -f3)
-  offline_hg=$(echo "$data" | cut -f4)
 
-  if [[ -n "$READER_HOSTGROUP_ID" && "$read_hg" != "$READER_HOSTGROUP_ID" ]]; then
-    warning "$LINENO" "The ProxySQL reader hostgroup does not match the configuration" \
-                    "\n-- ProxySQL reader hostgroup      : $read_hg" \
-                    "\n-- Configuration reader hostgroup : $READER_HOSTGROUP_ID"
-  fi
-
-  if [[ -n "$BACKUP_WRITER_HOSTGROUP_ID" && "$backup_hg" != "$BACKUP_WRITER_HOSTGROUP_ID" ]]; then
-    warning "$LINENO" "The ProxySQL backup writer hostgroup does not match the configuration" \
-                    "\n-- ProxySQL backup writer hostgroup      : $backup_hg" \
-                    "\n-- Configuration backup writer hostgroup : $BACKUP_WRITER_HOSTGROUP_ID"
-  fi
-
-  if [[ -n "$OFFLINE_HOSTGROUP_ID" && "$offline_hg" != "$OFFLINE_HOSTGROUP_ID" ]]; then
-    warning "$LINENO" "The ProxySQL offline hostgroup does not match the configuration" \
-                    "\n-- ProxySQL offline hostgroup      : $offline_hg" \
-                    "\n-- Configuration offline hostgroup : $OFFLINE_HOSTGROUP_ID"
+  if [[ $WRITER_HOSTGROUP_COMMAND_LINE -eq 1 ]]; then
+    all_hostgroups=$(get_all_hostgroups_from_writer_hostgroup $write_hg)
+    if [[ -z $all_hostgroups ]]; then
+      error "$LINENO" "Could not find a cluster (with writer_hostgroup:$write_hg)"
+      exit 1
+    fi
+    data=$(echo "$all_hostgroups" | tr ',' '\t')
+    write_hg=$(echo "$data" | cut -f1)
+    read_hg=$(echo "$data" | cut -f2)
+    backup_hg=$(echo "$data" | cut -f3)
+    offline_hg=$(echo "$data" | cut -f4)
+  else
+    # Get lists of all hostgroups
+    local hg_list
+    write_hg=$(proxysql_exec "$LINENO" \
+                "SELECT writer_hostgroup
+                 FROM mysql_galera_hostgroups" \
+              | tr '\n' ',')
+    check_cmd "$?" "$LINENO" "Cannot retrieve hostgroup information from ProxySQL" \
+                           "\n-- Please check the ProxySQL configuration and status."
+    read_hg=$(proxysql_exec "$LINENO" \
+                "SELECT reader_hostgroup
+                 FROM mysql_galera_hostgroups" \
+              | tr '\n' ',')
+    check_cmd "$?" "$LINENO" "Cannot retrieve hostgroup information from ProxySQL" \
+                           "\n-- Please check the ProxySQL configuration and status."
+    backup_hg=$(proxysql_exec "$LINENO" \
+                "SELECT backup_writer_hostgroup
+                 FROM mysql_galera_hostgroups" \
+              | tr '\n' ',')
+    check_cmd "$?" "$LINENO" "Cannot retrieve hostgroup information from ProxySQL" \
+                           "\n-- Please check the ProxySQL configuration and status."
+    offline_hg=$(proxysql_exec "$LINENO" \
+                "SELECT offline_hostgroup
+                 FROM mysql_galera_hostgroups" \
+              | tr '\n' ',')
+    check_cmd "$?" "$LINENO" "Cannot retrieve hostgroup information from ProxySQL" \
+                           "\n-- Please check the ProxySQL configuration and status."
+    if [[ -n $write_hg ]]; then
+      all_hostgroups="${write_hg},${read_hg},${backup_hg},${offline_hg}"
+    fi
   fi
 
   echo -e "\nmysql_galera_hostgroups row for writer-hostgroup: $write_hg"
-  proxysql_exec "$LINENO" \
+  data=$(proxysql_exec "$LINENO" \
           "SELECT
                 writer_hostgroup as writer,
                 reader_hostgroup as reader,
@@ -2168,34 +2200,42 @@ function report_status()
                 writer_is_also_reader,
                 max_transactions_behind as max_trans_behind
            FROM runtime_mysql_galera_hostgroups
-           WHERE writer_hostgroup = $write_hg" "-t"
-  echo -e "\n"
+           WHERE writer_hostgroup IN ($write_hg)" "-t"
+        )
+  if [[ -z $data ]]; then
+    echo "-- No data found"
+  fi
+  echo -e "$data\n"
 
   echo -e "mysql_servers rows for this configuration"
-  proxysql_exec "$LINENO" \
-    "SELECT
-        CASE hostgroup_id
-          WHEN $write_hg
-            THEN 'writer'
-          WHEN $read_hg
-            THEN 'reader'
-          WHEN $backup_hg
-            THEN 'backup-writer'
-          WHEN $offline_hg
-            THEN 'offline'
-          ELSE
-            'unknown'
-        END hostgroup,
-        hostgroup_id as hg_id,
-        hostname,
-        port,
-        status,
-        weight,
-        max_connections as max_conn,
-        use_ssl,
-        gtid_port
-      FROM runtime_mysql_servers
-      WHERE hostgroup_id IN ($all_hostgroups)" "-t"
+  if [[ -z $all_hostgroups ]]; then
+    echo "-- No data found"
+  else
+    proxysql_exec "$LINENO" \
+      "SELECT
+          CASE
+            WHEN hostgroup_id IN ($write_hg)
+              THEN 'writer'
+            WHEN hostgroup_id IN ($read_hg)
+              THEN 'reader'
+            WHEN hostgroup_id IN ($backup_hg)
+              THEN 'backup-writer'
+            WHEN hostgroup_id IN ($offline_hg)
+              THEN 'offline'
+            ELSE
+              'unknown'
+          END hostgroup,
+          hostgroup_id as hg_id,
+          hostname,
+          port,
+          status,
+          weight,
+          max_connections as max_conn,
+          use_ssl,
+          gtid_port
+        FROM runtime_mysql_servers
+        WHERE hostgroup_id IN ($all_hostgroups)" "-t"
+  fi
   echo ""
 }
 
@@ -2234,7 +2274,7 @@ function parse_args() {
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hostgroup:,backup-writer-hostgroup:,reader-hostgroup:,offline-hostgroup:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,is-enabled,adduser,syncusers,sync-multi-cluster-users,status,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,remove-all-servers,version,debug,help \
+    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hg:,backup-writer-hg:,reader-hg:,offline-hg:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,is-enabled,adduser,syncusers,sync-multi-cluster-users,status,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,remove-all-servers,version,debug,help \
     --name="$(basename "$0")" -- "$@")"
     check_cmd $? "$LINENO" "Script error: getopt() failed with arguments: $*"
     eval set -- "$go_out"
@@ -2454,7 +2494,6 @@ function parse_args() {
       --status )
         shift
         REPORT_STATUS=1
-        NEEDS_WRITER_HOSTGROUP=1
         ;;
       --node-check-interval )
         if ! is_integer "$2"; then
@@ -2510,19 +2549,22 @@ function parse_args() {
         USE_SSL="$2"
         shift 2
         ;;
-      --writer-hostgroup )
+      --writer-hg )
         WRITER_HOSTGROUP_ID=$2
         shift 2
+
+        # Mark that this was set via the command-line
+        WRITER_HOSTGROUP_COMMAND_LINE=1
         ;;
-      --backup-writer-hostgroup )
+      --backup-writer-hg )
         BACKUP_WRITER_HOSTGROUP_ID=$2
         shift 2
         ;;
-      --reader-hostgroup )
+      --reader-hg )
         READER_HOSTGROUP_ID=$2
         shift 2
         ;;
-      --offline-hostgroup )
+      --offline-hg )
         OFFLINE_HOSTGROUP_ID=$2
         shift 2
         ;;
@@ -2611,33 +2653,34 @@ function parse_args() {
 
   if [[ $NEEDS_WRITER_HOSTGROUP -eq 1 ]]; then
     if [[ -z $WRITER_HOSTGROUP_ID || $WRITER_HOSTGROUP_ID -eq -1 ]]; then
-      error "" "Invalid --writer-hostgroup value: '$WRITER_HOSTGROUP_ID' "
+      error "" "Invalid --writer-hg value: '$WRITER_HOSTGROUP_ID' "
       echo "Must use a number >= 0"
       exit 1
     fi
   fi
   if [[ $NEEDS_BACKUP_WRITER_HOSTGROUP -eq 1 ]]; then
     if [[ -z $BACKUP_WRITER_HOSTGROUP_ID || $BACKUP_WRITER_HOSTGROUP_ID -eq -1 ]]; then
-      error "" "Invalid --backup-writer-hostgroup value: '$BACKUP_WRITER_HOSTGROUP_ID' "
+      error "" "Invalid --backup-writer-hg value: '$BACKUP_WRITER_HOSTGROUP_ID' "
       echo "Must use a number >= 0"
       exit 1
     fi
   fi
   if [[ $NEEDS_READER_HOSTGROUP -eq 1 ]]; then
     if [[ -z $READER_HOSTGROUP_ID || $READER_HOSTGROUP_ID -eq -1 ]]; then
-      error "" "Invalid --reader-hostgroup value: '$READER_HOSTGROUP_ID' "
+      error "" "Invalid --reader-hg value: '$READER_HOSTGROUP_ID' "
       echo "Must use a number >= 0"
       exit 1
     fi
   fi
   if [[ $NEEDS_OFFLINE_HOSTGROUP -eq 1 ]]; then
     if [[ -z $OFFLINE_HOSTGROUP_ID || $OFFLINE_HOSTGROUP_ID -eq -1 ]]; then
-      error "" "Invalid --offline-hostgroup value: '$OFFLINE_HOSTGROUP_ID' "
+      error "" "Invalid --offline-hg value: '$OFFLINE_HOSTGROUP_ID' "
       echo "Must use a number >= 0"
       exit 1
     fi
   fi
   readonly WRITER_HOSTGROUP_ID
+  readonly WRITER_HOSTGROUP_COMMAND_LINE
   readonly READER_HOSTGROUP_ID
   readonly BACKUP_WRITER_HOSTGROUP_ID
   readonly OFFLINE_HOSTGROUP_ID

@@ -162,8 +162,8 @@ fi
 @test "run the check for --quick-demo ($WSREP_CLUSTER_NAME)" {
   #skip
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin  --enable \
-      --writer-hostgroup=10 --reader-hostgroup=11 --backup-writer-hostgroup=12 \
-      --offline-hostgroup=13 --quick-demo <<< n
+      --writer-hg=10 --reader-hg=11 --backup-writer-hg=12 \
+      --offline-hg=13 --quick-demo <<< n
   [ "$status" -eq 0 ]
   echo "$output" >&2
   [ "${lines[7]}" = "You have selected No. Terminating." ]
