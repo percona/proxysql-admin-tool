@@ -164,8 +164,8 @@ fi
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin  --enable \
       --writer-hg=10 --reader-hg=11 --backup-writer-hg=12 \
       --offline-hg=13 --quick-demo <<< n
-  [ "$status" -eq 0 ]
   echo "$output" >&2
+  [ "$status" -eq 0 ]
   [ "${lines[7]}" = "You have selected No. Terminating." ]
 }
 

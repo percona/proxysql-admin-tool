@@ -1595,6 +1595,8 @@ function disable_proxysql(){
 #
 # Globals:
 #   WRITER_HOSTGROUP_ID
+#   CLUSTER_HOSTNAME (overwrites)
+#   CLUSTER_PORT (overwrites)
 #
 # Arguments:
 #   None
@@ -1602,8 +1604,19 @@ function disable_proxysql(){
 function adduser(){
   debug "$LINENO" "adduser ()"
 
-  cluster_connection_check
+  local cluster_node
+
   cluster_in_proxysql_check $WRITER_HOSTGROUP_ID
+
+  # Find a cluster node that belongs to the cluster with $WRITER_HOSTGROUP_ID
+  cluster_node=$(find_cluster_node "$WRITER_HOSTGROUP_ID")
+  check_cmd $? "$LINENO" "Could not find a primary cluster node"
+
+  # Reset the central cluster node (so that calls to mysql_exec) will
+  # work with this new node, rather than the node in the config file
+  CLUSTER_HOSTNAME=$(echo -e "$cluster_node" | cut -f1)
+  CLUSTER_PORT=$(echo -e "$cluster_node" | cut -f2)
+  cluster_connection_check
 
   local cluster_app_write_username
   local cluster_app_write_password
@@ -1736,6 +1749,68 @@ function proxysql_admin_user_check(){
   printf "%s" "$is_proxysql_admin_user"
 }
 
+# Tries to find a cluster node in the cluster that contains
+# the given writer hostgroup/  The node must be a Primary node.
+#
+# Globals:
+#   None
+#
+# Parameters:
+#   Argument 1: The writer hostgroup
+#
+# Ouput:
+#   If a node is found, then "<ip-addr> <port>" is printed to stdout.
+#
+# Returns:
+#   0 : if a node is found (the address is printed to stdout)
+#   1 : if a node could not be found
+function find_cluster_node()
+{
+  local write_hg=$1
+  local host_info
+  local all_hostgroups
+
+  all_hostgroups=$(get_all_hostgroups_from_writer_hostgroup $write_hg)
+  if [[ -z $all_hostgroups ]]; then
+    error "$LINENO" "Could not find a cluster (with writer_hostgroup:$write_hg) to update"
+    exit 1
+  fi
+
+  host_info=$(proxysql_exec "$LINENO" \
+                "SELECT DISTINCT hostname, port
+                 FROM mysql_servers
+                 WHERE hostgroup_id in ($all_hostgroups)")
+    check_cmd $? "$LINENO" "Failed to retrieve host information from ProxySQL"\
+                         "\n-- Please check the ProxySQL connection parameters and status."
+  if [[ -z $host_info ]]; then
+    error "$LINENO" "Could not find any nodes belonging to the cluster with writer hostgroup:$write_hg"
+    exit 1
+  fi
+
+  # Check each node to see if it is Primary
+  while read line; do
+    [[ -z $line ]] && continue
+
+    local ip_addr port
+    local data
+
+    ip_addr=$(echo "$line" | cut -f1)
+    port=$(echo "$line" | cut -f2)
+
+    data=$(cluster_exec "$LINENO" "$ip_addr" "$port" \
+              "SHOW STATUS LIKE 'wsrep_cluster_status'")
+    [[ $? -ne 0 ]] && continue;
+
+    data=$(echo -e "$data" | cut -f2)
+    if [[ $data == "Primary" ]]; then
+      echo -e "${ip_addr}\t${port}"
+      return 0
+    fi
+  done< <(printf "%s\n" "$host_info")
+
+  # Failed to find a cluster node
+  return 1
+}
 
 # Synchronizes the users between ProxySQL and PXC
 #
@@ -1756,6 +1831,8 @@ function proxysql_admin_user_check(){
 # Globals:
 #   WRITER_HOSTGROUP_ID
 #   SYNCUSERS
+#   CLUSTER_HOSTNAME (overwrites)
+#   CLUSTER_PORT (overwrites)
 #
 # Arguments:
 #   None
@@ -1763,16 +1840,23 @@ function proxysql_admin_user_check(){
 function syncusers() {
   debug "$LINENO" "syncusers ()"
 
-  cluster_connection_check
   cluster_in_proxysql_check $WRITER_HOSTGROUP_ID
 
   local mysql_version
   local password_field
-
-  # TODO: kennt, this assumes that the original cluster node
-  # (in the proxysql-admin.cnf) is up-and-running.
+  local cluster_node
 
   # Get current MySQL users, filter out header row and mysql.sys user
+  # Find a cluster node that belongs to the cluster with $WRITER_HOSTGROUP_ID
+  cluster_node=$(find_cluster_node "$WRITER_HOSTGROUP_ID")
+  check_cmd $? "$LINENO" "Could not find a primary cluster node"
+
+  # Reset the central cluster node (so that calls to mysql_exec) will
+  # work with this new node, rather than the node in the config file
+  CLUSTER_HOSTNAME=$(echo -e "$cluster_node" | cut -f1)
+  CLUSTER_PORT=$(echo -e "$cluster_node" | cut -f2)
+  cluster_connection_check
+
   mysql_version=$(mysql_exec "$LINENO" "SELECT VERSION();" | tail -1 | cut -d'.' -f1,2 )
   check_cmd $? "$LINENO" "Could not connect to the PXC node."\
                        "\n-- Please check the PXC connection parameters and status."
@@ -2921,8 +3005,6 @@ function parse_args() {
 
   readonly CLUSTER_USERNAME
   readonly CLUSTER_PASSWORD
-  readonly CLUSTER_PORT
-  readonly CLUSTER_HOSTNAME
 
   readonly ENABLE
   readonly DISABLE
