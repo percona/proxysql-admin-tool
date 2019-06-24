@@ -1,4 +1,5 @@
-FROM centos:latest
+# FROM centos:latest
+FROM ellerbrock/alpine-mysql-client
 
 RUN mkdir -p /opt/proxysql-admin-tool/etc /opt/proxysql-admin-tool/var
 
