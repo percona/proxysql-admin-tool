@@ -1,5 +1,7 @@
-# FROM centos:latest
-FROM ellerbrock/alpine-mysql-client
+FROM centos:latest
+
+RUN yum -y install https://repo.percona.com/yum/percona-release-latest.noarch.rpm
+RUN yum -y install Percona-XtraDB-Cluster-client
 
 RUN mkdir -p /opt/proxysql-admin-tool/etc /opt/proxysql-admin-tool/var
 
