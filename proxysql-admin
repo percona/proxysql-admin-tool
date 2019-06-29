@@ -1507,7 +1507,20 @@ function enable_proxysql() {
                            "\n-- Please check the ProxySQL connection parameters and status."
     fi
   fi
+  
+  # Update mysql server version details in proxysql db 
+  proxysql_mysql_version_string=$(proxysql_exec "$LINENO" "select variable_value from global_variables where variable_name like 'mysql-server_version'")
+  mysql_version_string=$(mysql_exec "$LINENO" "SELECT VERSION();" | tail -1 | cut -d'-' -f1 )
+  if [[ $proxysql_mysql_version_string == $mysql_version_string ]]; 
+    proxysql_exec "$LINENO" \
+    "UPDATE global_variables
+      SET variable_value='$mysql_version_string'
+      WHERE variable_name='mysql-server_version';"
+    check_cmd $? "$LINENO"  "Failed to set the mysql-server_version variables in ProxySQL."\
+                          "\n-- Please check the ProxySQL connection parameters and status."
 
+    proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
+  fi
   proxysql_exec "$LINENO" \
     "INSERT INTO mysql_galera_hostgroups (writer_hostgroup,
                                          backup_writer_hostgroup,
@@ -2063,6 +2076,20 @@ function update_cluster()
     exit 1
   fi
 
+  # Update mysql server version details in proxysql db 
+  proxysql_mysql_version_string=$(proxysql_exec "$LINENO" "select variable_value from global_variables where variable_name like 'mysql-server_version'")
+  mysql_version_string=$(mysql_exec "$LINENO" "SELECT VERSION();" | tail -1 | cut -d'-' -f1 )
+  if [[ $proxysql_mysql_version_string == $mysql_version_string ]]; 
+    proxysql_exec "$LINENO" \
+    "UPDATE global_variables
+      SET variable_value='$mysql_version_string'
+      WHERE variable_name='mysql-server_version';"
+    check_cmd $? "$LINENO"  "Failed to set the mysql-server_version variables in ProxySQL."\
+                          "\n-- Please check the ProxySQL connection parameters and status."
+
+    proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
+  fi
+  
   # First, reset the list of servers if desired (this will force us to use
   # the CLUSTER_HOSTNAME to find the cluster)
   if [[ $REMOVE_ALL_SERVERS -eq 1 ]]; then
