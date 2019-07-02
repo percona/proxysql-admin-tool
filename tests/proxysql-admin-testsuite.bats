@@ -145,6 +145,13 @@ fi
   [ "$status" -eq  0 ]
 }
 
+@test "run proxysql-admin --syncusers --add-query-rule ($WSREP_CLUSTER_NAME)" {
+  mysql_exec "$HOST_IP" "$PORT_3" "create user test_query_rule@'%' identified by 'test';"
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers --add-query-rule
+  echo "$output" >&2
+  [ "$status" -eq  0 ]
+  [ "${lines[4]}" = "  Added query rule for user: test_query_rule" ]
+}
 
 @test "run the check for --syncusers ($WSREP_CLUSTER_NAME)" {
 

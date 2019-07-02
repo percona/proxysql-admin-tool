@@ -96,6 +96,9 @@ One of the options below must be provided.
   --sync-multi-cluster-users         Sync user accounts currently configured in MySQL to ProxySQL
                                      May be used with --enable.
                                      (doesn't delete ProxySQL users not in MySQL)
+  --add-query-rule                   Create query rules for synced mysql user. This is applicable only
+                                     for singlewrite mode and works only with --syncusers
+                                     and --sync-multi-cluster-users options.
   --is-enabled                       Checks if the current configuration is enabled in ProxySQL.
   --status                           Returns a status report on the current configuration.
                                      If "--writer-hg=<NUM>" is specified, than the
@@ -328,8 +331,27 @@ mysql>
   This option works in the same way as --syncusers but it does not delete ProxySQL users
   that are not present in the Percona XtraDB Cluster. It is to be used when syncing proxysql
   instances that manage multiple clusters.
+  
+  __6) --add-query-rule__
 
-  __6) --quick-demo__
+  Create query rules for synced mysql user. This is applicable only for singlewrite mode and
+  works only with --syncusers and --sync-multi-cluster-users options.
+
+```bash
+$ sudo proxysql-admin  --syncusers --add-query-rule
+
+Syncing user accounts from PXC to ProxySQL
+
+Note : 'admin' is in proxysql admin user list, this user cannot be addded to ProxySQL
+-- (For more info, see https://github.com/sysown/proxysql/issues/709)
+Adding user to ProxySQL: test_query_rule
+  Added query rule for user: test_query_rule
+
+Synced PXC users to the ProxySQL database!
+$
+```
+
+  __7) --quick-demo__
 
   This option is used to setup a dummy proxysql configuration.
 
@@ -391,7 +413,7 @@ mysql>
  
 ```
 
-  __7) --update-cluster__
+  __8) --update-cluster__
 
   This option will check the Percona XtraDB Cluster to see if any new nodes
   have joined the cluster.  If so, the new nodes are added to ProxySQL.
@@ -432,7 +454,7 @@ Cluster membership updated in the ProxySQL database!
 
 ```
 
-  __8) --is-enabled__
+  __9) --is-enabled__
 
   This option will check if a galera cluster (specified by the writer hostgroup,
   either from __--writer-hg__ or from the config file) has any active entries
@@ -455,7 +477,7 @@ ERROR (line:2925) : The current configuration has not been enabled
 
 ```
 
-  __9) --status__
+  __10) --status__
 
   If used with the __--writer-hg__ option, this will display information about
   the given Galera cluster which uses that writer hostgroup.  Otherwise it will
@@ -486,7 +508,7 @@ mysql_servers rows for this configuration
 
 ```
 
-  __10) --update-mysql-version__
+  __11) --update-mysql-version__
   
   This option will updates mysql server version (specified by the writer hostgroup,
   either from __--writer-hg__ or from the config file) in proxysql db based on 
