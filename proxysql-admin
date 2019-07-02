@@ -267,6 +267,8 @@ One of the options below must be provided.
   --enable, -e                       Auto-configure Percona XtraDB Cluster nodes into ProxySQL
   --update-cluster                   Updates the cluster membership, adds new cluster nodes
                                      to the configuration.
+  --update-mysql-version             Updates mysql server version in proxysql db based on
+                                     online writer node.
   --quick-demo                       Setup a quick demo with no authentication
   --syncusers                        Sync user accounts currently configured in MySQL to ProxySQL
                                      May be used with --enable.
@@ -1021,6 +1023,45 @@ function get_all_hostgroups_from_writer_hostgroup()
   echo "$hg_list"
 }
 
+# Update mysql server version details in proxysql db 
+# Globals:
+#   WRITER_HOSTGROUP_ID
+#   CLUSTER_HOSTNAME (overwrites)
+#   CLUSTER_PORT (overwrites)
+#
+# Arguments:
+#   None
+
+function update_mysql_version()
+{
+  local cluster_node
+
+  cluster_in_proxysql_check $WRITER_HOSTGROUP_ID
+
+  # Find a cluster node that belongs to the cluster with $WRITER_HOSTGROUP_ID
+  cluster_node=$(find_cluster_node "$WRITER_HOSTGROUP_ID")
+  check_cmd $? "$LINENO" "Could not find a primary cluster node"
+
+  # Reset the central cluster node (so that calls to mysql_exec) will
+  # work with this new node, rather than the node in the config file
+  CLUSTER_HOSTNAME=$(echo -e "$cluster_node" | cut -f1)
+  CLUSTER_PORT=$(echo -e "$cluster_node" | cut -f2)
+  cluster_connection_check
+  
+  proxysql_mysql_version_string=$(proxysql_exec "$LINENO" "select variable_value from global_variables where variable_name like 'mysql-server_version'")
+  mysql_version_string=$(mysql_exec "$LINENO" "SELECT VERSION();" | tail -1 | cut -d'-' -f1 )
+  if [[ $proxysql_mysql_version_string != $mysql_version_string ]]; then
+    proxysql_exec "$LINENO" \
+    "UPDATE global_variables
+      SET variable_value='$mysql_version_string'
+      WHERE variable_name='mysql-server_version';"
+    check_cmd $? "$LINENO"  "Failed to set the mysql-server_version variables in ProxySQL."\
+                          "\n-- Please check the ProxySQL connection parameters and status."
+    echo "ProxySQL MySQL version changed to $mysql_version_string"
+    proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
+  fi
+}
+
 # Adds the list of servers to ProxySQL
 # This will add all of the servers in the list to the WRITER hostgroup
 # ProxySQL is responsible for moving them to the correct hostgroup
@@ -1508,19 +1549,6 @@ function enable_proxysql() {
     fi
   fi
   
-  # Update mysql server version details in proxysql db 
-  proxysql_mysql_version_string=$(proxysql_exec "$LINENO" "select variable_value from global_variables where variable_name like 'mysql-server_version'")
-  mysql_version_string=$(mysql_exec "$LINENO" "SELECT VERSION();" | tail -1 | cut -d'-' -f1 )
-  if [[ $proxysql_mysql_version_string != $mysql_version_string ]]; then
-    proxysql_exec "$LINENO" \
-    "UPDATE global_variables
-      SET variable_value='$mysql_version_string'
-      WHERE variable_name='mysql-server_version';"
-    check_cmd $? "$LINENO"  "Failed to set the mysql-server_version variables in ProxySQL."\
-                          "\n-- Please check the ProxySQL connection parameters and status."
-
-    proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
-  fi
   proxysql_exec "$LINENO" \
     "INSERT INTO mysql_galera_hostgroups (writer_hostgroup,
                                          backup_writer_hostgroup,
@@ -2075,20 +2103,6 @@ function update_cluster()
     error "$LINENO" "Could not find a cluster (with writer_hostgroup:$WRITER_HOSTGROUP_ID) to update"
     exit 1
   fi
-
-  # Update mysql server version details in proxysql db 
-  proxysql_mysql_version_string=$(proxysql_exec "$LINENO" "select variable_value from global_variables where variable_name like 'mysql-server_version'")
-  mysql_version_string=$(mysql_exec "$LINENO" "SELECT VERSION();" | tail -1 | cut -d'-' -f1 )
-  if [[ $proxysql_mysql_version_string != $mysql_version_string ]]; then
-    proxysql_exec "$LINENO" \
-    "UPDATE global_variables
-      SET variable_value='$mysql_version_string'
-      WHERE variable_name='mysql-server_version';"
-    check_cmd $? "$LINENO"  "Failed to set the mysql-server_version variables in ProxySQL."\
-                          "\n-- Please check the ProxySQL connection parameters and status."
-
-    proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
-  fi
   
   # First, reset the list of servers if desired (this will force us to use
   # the CLUSTER_HOSTNAME to find the cluster)
@@ -2520,7 +2534,7 @@ function parse_args() {
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hg:,backup-writer-hg:,reader-hg:,offline-hg:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,is-enabled,adduser,syncusers,sync-multi-cluster-users,status,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,remove-all-servers,version,debug,help \
+    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hg:,backup-writer-hg:,reader-hg:,offline-hg:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,update-mysql-version,is-enabled,adduser,syncusers,sync-multi-cluster-users,status,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,remove-all-servers,version,debug,help \
     --name="$(basename "$0")" -- "$@")"
     check_cmd $? "$LINENO" "Script error: getopt() failed with arguments: $*"
     eval set -- "$go_out"
@@ -2731,6 +2745,10 @@ function parse_args() {
         shift
         UPDATE_CLUSTER=1
         NEEDS_WRITER_HOSTGROUP=1
+        ;;
+      --update-mysql-version )
+        shift
+        UPDATE_MYSQL_VERSION=1
         ;;
       --is-enabled )
         shift
@@ -3040,6 +3058,7 @@ function parse_args() {
   readonly SYNCMULTICLUSTERUSERS
   readonly QUICK_DEMO
   readonly UPDATE_CLUSTER
+  readonly UPDATE_MYSQL_VERSION
   readonly CHECK_IF_ENABLED
   readonly REPORT_STATUS
   readonly REMOVE_ALL_SERVERS
@@ -3061,6 +3080,7 @@ function parse_args() {
 #   SYNCMULTICLUSTERUSERS
 #   QUICK_DEMO
 #   UPDATE_CLUSTER
+#   UPDATE_MYSQL_VERSION
 #   CHECK_IF_ENABLED
 #   REPORT_STATUS
 #   MODE
@@ -3179,6 +3199,9 @@ function main() {
   elif [[ $REPORT_STATUS -eq 1 ]]; then
 
     report_status $WRITER_HOSTGROUP_ID
+  elif [[ $UPDATE_MYSQL_VERSION -eq 1 ]]; then
+
+    update_mysql_version
 
   else
 

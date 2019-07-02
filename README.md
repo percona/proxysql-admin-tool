@@ -87,6 +87,8 @@ One of the options below must be provided.
   --enable, -e                       Auto-configure Percona XtraDB Cluster nodes into ProxySQL
   --update-cluster                   Updates the cluster membership, adds new cluster nodes
                                      to the configuration.
+  --update-mysql-version             Updates mysql server version in proxysql db based on
+                                     online writer node.
   --quick-demo                       Setup a quick demo with no authentication
   --syncusers                        Sync user accounts currently configured in MySQL to ProxySQL
                                      May be used with --enable.
@@ -459,7 +461,7 @@ ERROR (line:2925) : The current configuration has not been enabled
   the given Galera cluster which uses that writer hostgroup.  Otherwise it will
   display information about all Galera hostgroups (and their servers) being
   supported by this ProxySQL instance.
-
+  
 ```bash
 
 $ sudo proxysql-admin --status --writer-hg=10
@@ -484,6 +486,19 @@ mysql_servers rows for this configuration
 
 ```
 
+  __10) --update-mysql-version__
+  
+  This option will updates mysql server version (specified by the writer hostgroup,
+  either from __--writer-hg__ or from the config file) in proxysql db based on 
+  online writer node.
+  
+```bash
+
+$  sudo proxysql-admin --update-mysql-version --writer-hg=10
+ProxySQL MySQL version changed to 5.7.26
+$
+
+```
 
 ___Extra options___
 -------------------
