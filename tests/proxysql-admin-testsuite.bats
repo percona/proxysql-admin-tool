@@ -151,6 +151,8 @@ fi
   echo "$output" >&2
   [ "$status" -eq  0 ]
   [ "${lines[4]}" = "  Added query rule for user: test_query_rule" ]
+  run_check_query_rule_user=$(proxysql_exec "select 1 from mysql_query_rules where username='test_query_rule' limit 1" | awk '{print $0}')
+  [[ "$run_check_query_rule_user" -eq 1 ]]
 }
 
 @test "run the check for --syncusers ($WSREP_CLUSTER_NAME)" {

@@ -1862,7 +1862,7 @@ function find_cluster_node()
 #   WRITER_HOSTGROUP_ID
 #
 # Arguments:
-#   None
+#   Parameter 1: the username
 function add_query_rule()
 {
   local username=$1
@@ -2012,6 +2012,9 @@ function syncusers() {
           proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE username='${user}' and default_hostgroup=$WRITER_HOSTGROUP_ID"
           check_cmd $? "$LINENO" "Failed to delete the user ($user) from ProxySQL database."\
                                "\n-- Please check the ProxySQL connection parameters and status."
+          proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE username='${user}' and destination_hostgroup in($WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID)"
+          check_cmd $? "$LINENO" "Failed to delete the query rule for user ($user) from ProxySQL database."\
+                               "\n-- Please check the ProxySQL connection parameters and status."          
           break
         fi
       done< <(printf "%s\n" "${proxysql_users}")
@@ -2073,6 +2076,9 @@ function syncusers() {
         proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE username='${user}' and default_hostgroup=$WRITER_HOSTGROUP_ID"
         check_cmd $? "$LINENO" "Failed to delete the user ($user) from ProxySQL database."\
                              "\n-- Please check the ProxySQL connection parameters and status."
+        proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE username='${user}' and destination_hostgroup in($WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID)"
+        check_cmd $? "$LINENO" "Failed to delete the query rule for user ($user) from ProxySQL database."\
+                               "\n-- Please check the ProxySQL connection parameters and status."   
       fi
     done< <(printf "%s\n" "$proxysql_users")
   fi
