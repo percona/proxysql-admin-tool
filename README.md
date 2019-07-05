@@ -87,8 +87,8 @@ One of the options below must be provided.
   --enable, -e                       Auto-configure Percona XtraDB Cluster nodes into ProxySQL
   --update-cluster                   Updates the cluster membership, adds new cluster nodes
                                      to the configuration.
-  --update-mysql-version             Updates mysql server version in proxysql db based on
-                                     online writer node.
+  --update-mysql-version             Updates the mysql-server_version variable in ProxySQL with the version
+                                     from a node in the cluster.
   --quick-demo                       Setup a quick demo with no authentication
   --syncusers                        Sync user accounts currently configured in MySQL to ProxySQL
                                      May be used with --enable.

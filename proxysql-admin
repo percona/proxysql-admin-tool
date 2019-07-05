@@ -101,6 +101,7 @@ declare -i ADDUSER=0
 declare -i SYNCUSERS=0
 declare -i SYNCMULTICLUSTERUSERS=0
 declare -i UPDATE_CLUSTER=0
+declare -i UPDATE_MYSQL_VERSION=0
 declare -i CHECK_IF_ENABLED=0
 declare -i REPORT_STATUS=0
 
@@ -267,8 +268,8 @@ One of the options below must be provided.
   --enable, -e                       Auto-configure Percona XtraDB Cluster nodes into ProxySQL
   --update-cluster                   Updates the cluster membership, adds new cluster nodes
                                      to the configuration.
-  --update-mysql-version             Updates mysql server version in proxysql db based on
-                                     online writer node.
+  --update-mysql-version             Updates the mysql-server_version variable in ProxySQL with the version 
+                                     from a node in the cluster.
   --quick-demo                       Setup a quick demo with no authentication
   --syncusers                        Sync user accounts currently configured in MySQL to ProxySQL
                                      May be used with --enable.
@@ -1031,7 +1032,6 @@ function get_all_hostgroups_from_writer_hostgroup()
 #
 # Arguments:
 #   None
-
 function update_mysql_version()
 {
   local cluster_node
@@ -1049,7 +1049,11 @@ function update_mysql_version()
   cluster_connection_check
   
   proxysql_mysql_version_string=$(proxysql_exec "$LINENO" "select variable_value from global_variables where variable_name like 'mysql-server_version'")
+  check_cmd $? "$LINENO"  "Failed to select the mysql-server_version variables from ProxySQL."\
+                          "\n-- Please check the ProxySQL connection parameters and status."
   mysql_version_string=$(mysql_exec "$LINENO" "SELECT VERSION();" | tail -1 | cut -d'-' -f1 )
+  check_cmd $? "$LINENO"  "Failed to select the mysql version info from Cluster node."\
+                          "\n-- Please check the PXC connection parameters and status."
   if [[ $proxysql_mysql_version_string != $mysql_version_string ]]; then
     proxysql_exec "$LINENO" \
     "UPDATE global_variables
@@ -3199,6 +3203,7 @@ function main() {
   elif [[ $REPORT_STATUS -eq 1 ]]; then
 
     report_status $WRITER_HOSTGROUP_ID
+
   elif [[ $UPDATE_MYSQL_VERSION -eq 1 ]]; then
 
     update_mysql_version
