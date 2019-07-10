@@ -128,9 +128,10 @@ fi
 }
 
 @test "run the check for --update-mysql-version ($WSREP_CLUSTER_NAME)" {
-  local check_mysql_version=$(mysql_exec "$HOST_IP" "$PORT_3" "SELECT VERSION();" | tail -1 | cut -d'-' -f1)
-  local check_proxysql_mysql_version=$(proxysql_exec "select variable_value from global_variables where variable_name like 'mysql-server_version'" | awk '{print $0}')
-  [ "$check_proxysql_mysql_version" == "$check_mysql_version" ]
+  local mysql_version=$(mysql_exec "$HOST_IP" "$PORT_3" "SELECT VERSION();" | tail -1 | cut -d'-' -f1)
+  local proxysql_mysql_version=$(proxysql_exec "select variable_value from global_variables where variable_name like 'mysql-server_version'" | awk '{print $0}')
+  echo "mysql_version:$mysql_version  proxysql_mysql_version:$proxysql_mysql_version" >&2
+  [ "$mysql_version" = "$proxysql_mysql_version" ]
 }
 
 @test "run the check for --adduser ($WSREP_CLUSTER_NAME)" {
