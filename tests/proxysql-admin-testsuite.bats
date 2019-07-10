@@ -146,6 +146,38 @@ fi
   [ "$status" -eq  0 ]
 }
 
+@test "run proxysql-admin --syncusers --add-query-rule ($WSREP_CLUSTER_NAME)" {
+  # Check whether user and query rule exists in  ProxySQL DB
+  run_check_user=$(proxysql_exec "select 1 from mysql_users where username='test_query_rule'" | awk '{print $0}')
+  run_query_rule=$(proxysql_exec "select 1 from mysql_query_rules where username='test_query_rule'" | awk '{print $0}')
+  echo "$LINENO : Check query rule user count(test_query_rule) :$run_check_user expected:0"  >&2
+  [[ "$run_check_user" -eq 0 ]]
+  echo "$LINENO : Check query rule count for user(test_query_rule):$run_query_rule expected:0"  >&2
+  [[ "$run_query_rule" -eq 0 ]]
+  mysql_exec "$HOST_IP" "$PORT_3" "create user test_query_rule@'%' identified by 'test';"
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers --add-query-rule
+  echo "$output" >&2
+  [ "$status" -eq  0 ]
+  [ "${lines[4]}" = "  Added query rule for user: test_query_rule" ]
+  run_write_hg_query_rule_user=$(proxysql_exec "select 1 from mysql_query_rules where username='test_query_rule' and match_digest='^SELECT.*FOR UPDATE'" | awk '{print $0}')
+  echo "$LINENO : Query rule count for user 'test_query_rule' with writer hostgroup:$run_write_hg_query_rule_user expected:1"  >&2
+  [[ "$run_write_hg_query_rule_user" -eq 1 ]]
+  run_read_hg_query_rule_user=$(proxysql_exec "select 1 from mysql_query_rules where username='test_query_rule' and match_digest='^SELECT '" | awk '{print $0}')
+  echo "$LINENO : Query rule count for user 'test_query_rule' with reader hostgroup:$run_read_hg_query_rule_user expected:1"  >&2
+  [[ "$run_read_hg_query_rule_user" -eq 1 ]]
+  
+  # Dropping user 'test_query_rule' from MySQL server to test the query rule delete operation 
+  mysql_exec "$HOST_IP" "$PORT_3" "drop user test_query_rule@'%';"
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers --add-query-rule
+  echo "$output" >&2
+  [ "$status" -eq  0 ]
+  run_check_user=$(proxysql_exec "select 1 from mysql_users where username='test_query_rule'" | awk '{print $0}')
+  run_query_rule=$(proxysql_exec "select 1 from mysql_query_rules where username='test_query_rule'" | awk '{print $0}')
+  echo "$LINENO : Check query rule user count(test_query_rule) :$run_check_user expected:0"  >&2
+  [[ "$run_check_user" -eq 0 ]]
+  echo "$LINENO : Check query rule count for user(test_query_rule):$run_query_rule expected:0"  >&2
+  [[ "$run_query_rule" -eq 0 ]]
+}
 
 @test "run the check for --syncusers ($WSREP_CLUSTER_NAME)" {
 
