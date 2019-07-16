@@ -49,7 +49,7 @@ fi
 #
 # Script parameters/constants
 #
-readonly    PROXYSQL_ADMIN_VERSION="2.0.4"
+readonly    PROXYSQL_ADMIN_VERSION="2.0.5"
 declare  -i DEBUG=0
 
 # default timeout is 10 seconds
@@ -100,7 +100,9 @@ declare -i DISABLE=0
 declare -i ADDUSER=0
 declare -i SYNCUSERS=0
 declare -i SYNCMULTICLUSTERUSERS=0
+declare -i ADD_QUERY_RULE=0
 declare -i UPDATE_CLUSTER=0
+declare -i UPDATE_MYSQL_VERSION=0
 declare -i CHECK_IF_ENABLED=0
 declare -i FORCE=0
 declare -i REPORT_STATUS=0
@@ -268,6 +270,8 @@ One of the options below must be provided.
   --enable, -e                       Auto-configure Percona XtraDB Cluster nodes into ProxySQL
   --update-cluster                   Updates the cluster membership, adds new cluster nodes
                                      to the configuration.
+  --update-mysql-version             Updates the mysql-server_version variable in ProxySQL with the version 
+                                     from a node in the cluster.
   --quick-demo                       Setup a quick demo with no authentication
   --syncusers                        Sync user accounts currently configured in MySQL to ProxySQL
                                      May be used with --enable.
@@ -275,6 +279,9 @@ One of the options below must be provided.
   --sync-multi-cluster-users         Sync user accounts currently configured in MySQL to ProxySQL
                                      May be used with --enable.
                                      (doesn't delete ProxySQL users not in MySQL)
+  --add-query-rule                   Create query rules for synced mysql user. This is applicable only 
+                                     for singlewrite mode and works only with --syncusers 
+                                     and --sync-multi-cluster-users options.
   --is-enabled                       Checks if the current configuration is enabled in ProxySQL.
   --status                           Returns a status report on the current configuration.
                                      If "--writer-hg=<NUM>" is specified, than the
@@ -1034,6 +1041,48 @@ function get_all_hostgroups_from_writer_hostgroup()
   echo "$hg_list"
 }
 
+# Update mysql server version details in proxysql db 
+# Globals:
+#   WRITER_HOSTGROUP_ID
+#   CLUSTER_HOSTNAME (overwrites)
+#   CLUSTER_PORT (overwrites)
+#
+# Arguments:
+#   None
+function update_mysql_version()
+{
+  local cluster_node
+
+  cluster_in_proxysql_check $WRITER_HOSTGROUP_ID
+
+  # Find a cluster node that belongs to the cluster with $WRITER_HOSTGROUP_ID
+  cluster_node=$(find_cluster_node "$WRITER_HOSTGROUP_ID")
+  check_cmd $? "$LINENO" "Could not find a primary cluster node"
+
+  # Reset the central cluster node (so that calls to mysql_exec) will
+  # work with this new node, rather than the node in the config file
+  CLUSTER_HOSTNAME=$(echo -e "$cluster_node" | cut -f1)
+  CLUSTER_PORT=$(echo -e "$cluster_node" | cut -f2)
+  cluster_connection_check
+  
+  proxysql_mysql_version_string=$(proxysql_exec "$LINENO" "select variable_value from global_variables where variable_name like 'mysql-server_version'")
+  check_cmd $? "$LINENO"  "Failed to select the mysql-server_version variables from ProxySQL."\
+                          "\n-- Please check the ProxySQL connection parameters and status."
+  mysql_version_string=$(mysql_exec "$LINENO" "SELECT VERSION();" | tail -1 | cut -d'-' -f1 )
+  check_cmd $? "$LINENO"  "Failed to select the mysql version info from Cluster node."\
+                          "\n-- Please check the PXC connection parameters and status."
+  if [[ $proxysql_mysql_version_string != $mysql_version_string ]]; then
+    proxysql_exec "$LINENO" \
+    "UPDATE global_variables
+      SET variable_value='$mysql_version_string'
+      WHERE variable_name='mysql-server_version';"
+    check_cmd $? "$LINENO"  "Failed to set the mysql-server_version variables in ProxySQL."\
+                          "\n-- Please check the ProxySQL connection parameters and status."
+    echo "ProxySQL MySQL version changed to $mysql_version_string"
+    proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
+  fi
+}
+
 # Adds the list of servers to ProxySQL
 # This will add all of the servers in the list to the WRITER hostgroup
 # ProxySQL is responsible for moving them to the correct hostgroup
@@ -1529,7 +1578,7 @@ function enable_proxysql() {
                            "\n-- Please check the ProxySQL connection parameters and status."
     fi
   fi
-
+  
   proxysql_exec "$LINENO" \
     "INSERT INTO mysql_galera_hostgroups (writer_hostgroup,
                                          backup_writer_hostgroup,
@@ -1834,6 +1883,32 @@ function find_cluster_node()
   return 1
 }
 
+# Create query rules for given user. This is applicable only for singlewrite mode  
+# Globals:
+#   WRITER_HOSTGROUP_ID
+#
+# Arguments:
+#   Parameter 1: the username
+function add_query_rule()
+{
+  local username=$1
+  if ! is_mode_singlewrite "$WRITER_HOSTGROUP_ID"; then
+      warning "$LINENO" "Ignoring query rule for $username, since this is not using" \
+        "singlewrite mode (max-writers is not 1)"
+  else
+    proxysql_exec "$LINENO" \
+      "INSERT INTO mysql_query_rules
+        (username,destination_hostgroup,active,match_digest,apply)
+       VALUES
+        ('$username',$WRITER_HOSTGROUP_ID,1,'^SELECT.*FOR UPDATE',1),
+        ('$username',$READER_HOSTGROUP_ID,1,'^SELECT ',1);"
+    
+    check_cmd $? "$LINENO" "Failed to add the read query rule to ProxySQL."\
+                         "\n-- Please check the ProxySQL connection parameters and status."
+	echo -e "  Added query rule for user: $username"
+  fi
+}
+
 # Synchronizes the users between ProxySQL and PXC
 #
 # This function was created to auto sync all the existing users already
@@ -1963,6 +2038,9 @@ function syncusers() {
           proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE username='${user}' and default_hostgroup=$WRITER_HOSTGROUP_ID"
           check_cmd $? "$LINENO" "Failed to delete the user ($user) from ProxySQL database."\
                                "\n-- Please check the ProxySQL connection parameters and status."
+          proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE username='${user}' and destination_hostgroup in($WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID)"
+          check_cmd $? "$LINENO" "Failed to delete the query rule for user ($user) from ProxySQL database."\
+                               "\n-- Please check the ProxySQL connection parameters and status."          
           break
         fi
       done< <(printf "%s\n" "${proxysql_users}")
@@ -1983,6 +2061,9 @@ function syncusers() {
               ('${user}', '${password}', 1, $WRITER_HOSTGROUP_ID)"
           check_cmd $? "$LINENO" "Failed to add the user ($user) from PXC to ProxySQL database."\
                                "\n-- Please check the ProxySQL connection parameters and status."
+          if [[ $ADD_QUERY_RULE -eq 1 ]];then
+            add_query_rule ${user}
+          fi
         else
           echo "Cannot add the user (${user}). The user (${user}) already exists in ProxySQL database with different hostgroup."
           check_user=""
@@ -2021,6 +2102,9 @@ function syncusers() {
         proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE username='${user}' and default_hostgroup=$WRITER_HOSTGROUP_ID"
         check_cmd $? "$LINENO" "Failed to delete the user ($user) from ProxySQL database."\
                              "\n-- Please check the ProxySQL connection parameters and status."
+        proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE username='${user}' and destination_hostgroup in($WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID)"
+        check_cmd $? "$LINENO" "Failed to delete the query rule for user ($user) from ProxySQL database."\
+                               "\n-- Please check the ProxySQL connection parameters and status."   
       fi
     done< <(printf "%s\n" "$proxysql_users")
   fi
@@ -2084,7 +2168,7 @@ function update_cluster()
     error "$LINENO" "Could not find a cluster (with writer_hostgroup:$WRITER_HOSTGROUP_ID) to update"
     exit 1
   fi
-
+  
   # First, reset the list of servers if desired (this will force us to use
   # the CLUSTER_HOSTNAME to find the cluster)
   if [[ $REMOVE_ALL_SERVERS -eq 1 ]]; then
@@ -2515,7 +2599,7 @@ function parse_args() {
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hg:,backup-writer-hg:,reader-hg:,offline-hg:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,is-enabled,adduser,syncusers,sync-multi-cluster-users,status,force,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,remove-all-servers,version,debug,help \
+    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hg:,backup-writer-hg:,reader-hg:,offline-hg:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,is-enabled,adduser,syncusers,sync-multi-cluster-users,update-mysql-version,add-query-rule,status,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,remove-all-servers,version,debug,help \
     --name="$(basename "$0")" -- "$@")"
     check_cmd $? "$LINENO" "Script error: getopt() failed with arguments: $*"
     eval set -- "$go_out"
@@ -2714,6 +2798,11 @@ function parse_args() {
         SYNCMULTICLUSTERUSERS=1
         NEEDS_WRITER_HOSTGROUP=1
         ;;
+      --add-query-rule )
+        shift
+        ADD_QUERY_RULE=1
+        NEEDS_WRITER_HOSTGROUP=1
+        ;;
       -d | --disable )
         shift
         DISABLE=1
@@ -2726,6 +2815,10 @@ function parse_args() {
         shift
         UPDATE_CLUSTER=1
         NEEDS_WRITER_HOSTGROUP=1
+        ;;
+      --update-mysql-version )
+        shift
+        UPDATE_MYSQL_VERSION=1
         ;;
       --is-enabled )
         shift
@@ -3037,8 +3130,10 @@ function parse_args() {
   readonly ADDUSER
   readonly SYNCUSERS
   readonly SYNCMULTICLUSTERUSERS
+  readonly ADD_QUERY_RULE
   readonly QUICK_DEMO
   readonly UPDATE_CLUSTER
+  readonly UPDATE_MYSQL_VERSION
   readonly CHECK_IF_ENABLED
   readonly REPORT_STATUS
   readonly REMOVE_ALL_SERVERS
@@ -3060,6 +3155,7 @@ function parse_args() {
 #   SYNCMULTICLUSTERUSERS
 #   QUICK_DEMO
 #   UPDATE_CLUSTER
+#   UPDATE_MYSQL_VERSION
 #   CHECK_IF_ENABLED
 #   REPORT_STATUS
 #   MODE
@@ -3159,6 +3255,10 @@ function main() {
     syncusers
     echo -e "\nSynced PXC users to the ProxySQL database!"
 
+  elif [[ $ADD_QUERY_RULE -eq 1 ]]; then
+
+    add_query_rule
+	
   elif [[ $CHECK_IF_ENABLED -eq 1 ]]; then
     local errcode
 
@@ -3178,6 +3278,10 @@ function main() {
   elif [[ $REPORT_STATUS -eq 1 ]]; then
 
     report_status $WRITER_HOSTGROUP_ID
+	
+  elif [[ $UPDATE_MYSQL_VERSION -eq 1 ]]; then
+
+    update_mysql_version
 
   else
 
