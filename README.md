@@ -105,6 +105,9 @@ One of the options below must be provided.
                                      data corresponding to the galera cluster with that
                                      writer hostgroup is displayed. Otherwise, information
                                      for all clusters will be displayed.
+  --force                            This option will skip existing configuration checks in mysql_servers, 
+                                     mysql_users and mysql_galera_hostgroups tables. This option will only 
+									 work with __proxysql-admin --enable__.
   --version, -v                      Prints the version info
 ```
 Prerequisites
@@ -508,7 +511,12 @@ mysql_servers rows for this configuration
 
 ```
 
-  __11) --update-mysql-version__
+  __11) --force__
+
+  This will skip existing configuration checks with __--enable__ option in mysql_servers, 
+  mysql_users and mysql_galera_hostgroups tables
+
+  __12) --update-mysql-version__
   
   This option will updates mysql server version (specified by the writer hostgroup,
   either from __--writer-hg__ or from the config file) in proxysql db based on 

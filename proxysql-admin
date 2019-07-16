@@ -104,6 +104,7 @@ declare -i ADD_QUERY_RULE=0
 declare -i UPDATE_CLUSTER=0
 declare -i UPDATE_MYSQL_VERSION=0
 declare -i CHECK_IF_ENABLED=0
+declare -i FORCE=0
 declare -i REPORT_STATUS=0
 
 declare -i USE_EXISTING_MONITOR_PASSWORD=0
@@ -287,6 +288,9 @@ One of the options below must be provided.
                                      data corresponding to the galera cluster with that
                                      writer hostgroup is displayed. Otherwise, information
                                      for all clusters will be displayed.
+  --force                            This option will skip existing configuration checks in mysql_servers, 
+                                     mysql_users and mysql_galera_hostgroups tables. This option will only 
+									 work with __proxysql-admin --enable__.
   --version, -v                      Prints the version info
 
 EOF
@@ -894,6 +898,11 @@ function user_input_check() {
                          "\n-- Please check the PXC connection parameters and status."
 
     if [[ -z "$check_user" ]]; then
+      if [[ $FORCE -eq 1 ]]; then
+        proxysql_exec "$LINENO" "DELETE FROM mysql_users where username='$safe_username';"
+        check_cmd $? "$LINENO" "Failed to delete the PXC application user: '$username' from the ProxySQL database."\
+                             "\n-- Please check the ProxySQL connection parameters and status."
+      fi
       local precheck_user
       precheck_user=$(proxysql_exec "$LINENO" "SELECT username FROM mysql_users where username='$safe_username'")
       check_cmd $? "$LINENO" "Failed to query ProxySQL for the user."\
@@ -932,11 +941,15 @@ function user_input_check() {
         exit 1
       fi
     else
+      if [[ $FORCE -eq 1 ]]; then
+        proxysql_exec "$LINENO" "DELETE FROM mysql_users where username='$safe_username';"
+        check_cmd $? "$LINENO" "Failed to delete the PXC application user: '$safe_username' from the ProxySQL database."\
+                             "\n-- Please check the ProxySQL connection parameters and status."
+      fi
       local check_user
       check_user=$(proxysql_exec "$LINENO" "SELECT username FROM mysql_users where username='$safe_username'")
       check_cmd $? "$LINENO" "Could not retrieve the users from the ProxySQL database."\
                            "\n-- Please check the ProxySQL connection parameters and status."
-
       if [[ -z "$check_user" ]]; then
         echo -e "\nApplication user '${BD}${username}'@'$USER_HOST_RANGE${NBD}' already present in PXC.\n"
         proxysql_exec "$LINENO" "INSERT INTO mysql_users (username,password,active,default_hostgroup) values ('$safe_username','$safe_password',1,$hostgroup_id);"
@@ -1141,63 +1154,66 @@ function enable_proxysql() {
   local check_hgs
 
   # First, check to see if mysql_galera_hostgroups is using any of these
-  # hostgroups
-  check_hgs=$(proxysql_exec "$LINENO" \
-    "SELECT COUNT(*)
-      FROM mysql_galera_hostgroups
-      WHERE
-        writer_hostgroup IN ($all_hostgroups) OR
-        reader_hostgroup IN ($all_hostgroups) OR
-        backup_writer_hostgroup IN ($all_hostgroups) OR
-        offline_hostgroup IN ($all_hostgroups)")
-  check_cmd $? "$LINENO" "Could not retrieve hostgroup information from ProxySQL"\
-                       "\n-- Please check the ProxySQL connection parameters and status."
-  if [[ -n $check_hgs && $check_hgs -ne 0 ]]; then
-    error "$LINENO" "One or more of the hostgroups($all_hostgroups) is already being used" \
-                  "\n-- by ProxySQL in mysql_galera_hostgroups." \
-                  "\n-- To avoid conflicts, please use different values for the hostgroups."
-    proxysql_exec "$LINENO" \
-      "SELECT
-          writer_hostgroup AS writer,
-          reader_hostgroup AS reader,
-          backup_writer_hostgroup AS backup_writer,
-          offline_hostgroup AS offline,
-          comment
+  # hostgroups. This check will be ignored if we use --force option.
+  if [[ $FORCE -ne 1 ]]; then
+    check_hgs=$(proxysql_exec "$LINENO" \
+      "SELECT COUNT(*)
         FROM mysql_galera_hostgroups
         WHERE
           writer_hostgroup IN ($all_hostgroups) OR
           reader_hostgroup IN ($all_hostgroups) OR
           backup_writer_hostgroup IN ($all_hostgroups) OR
-          offline_hostgroup IN ($all_hostgroups)" "-t"
-    echo ""
-    exit 1
+          offline_hostgroup IN ($all_hostgroups)")
+    check_cmd $? "$LINENO" "Could not retrieve hostgroup information from ProxySQL"\
+                         "\n-- Please check the ProxySQL connection parameters and status."
+    if [[ -n $check_hgs && $check_hgs -ne 0 ]]; then
+      error "$LINENO" "One or more of the hostgroups($all_hostgroups) is already being used" \
+                    "\n-- by ProxySQL in mysql_galera_hostgroups." \
+                    "\n-- To avoid conflicts, please use different values for the hostgroups."
+      proxysql_exec "$LINENO" \
+        "SELECT
+            writer_hostgroup AS writer,
+            reader_hostgroup AS reader,
+            backup_writer_hostgroup AS backup_writer,
+            offline_hostgroup AS offline,
+            comment
+          FROM mysql_galera_hostgroups
+          WHERE
+            writer_hostgroup IN ($all_hostgroups) OR
+            reader_hostgroup IN ($all_hostgroups) OR
+            backup_writer_hostgroup IN ($all_hostgroups) OR
+            offline_hostgroup IN ($all_hostgroups)" "-t"
+      echo ""
+      exit 1
+    fi
   fi
-
   # Now, check to see if there are any entries in mysql_servers
-  # using these hostgroups
-  check_hgs=$(proxysql_exec "$LINENO" \
-    "SELECT hostgroup_id
-      FROM mysql_servers
-      WHERE
-        hostgroup_id IN ($all_hostgroups) AND
-        status <> 'OFFLINE_HARD'")
-  check_cmd $? "$LINENO" "Could not retrieve hostgroup and server information from ProxySQL"\
-                       "\n-- Please check the ProxySQL connection parameters and status."
-  if [[ -n "$check_hgs" ]]; then
-    error "$LINENO" "One or more of the hostgroups($all_hostgroups) has a server assigned to that hostgroup."\
-                  "\n-- To avoid conflicts, please use different values for the hostgroups."
-    proxysql_exec "$LINENO" \
-      "SELECT
-          hostgroup_id,
-          hostname,
-          port,
-          status,
-          weight
+  # using these hostgroups. This check will be ignored if we use --force option.
+  if [[ $FORCE -ne 1 ]]; then
+    check_hgs=$(proxysql_exec "$LINENO" \
+      "SELECT hostgroup_id
         FROM mysql_servers
         WHERE
-          hostgroup_id IN ($all_hostgroups)" "-t"
-    echo ""
-    exit 1
+          hostgroup_id IN ($all_hostgroups) AND
+          status <> 'OFFLINE_HARD'")
+    check_cmd $? "$LINENO" "Could not retrieve hostgroup and server information from ProxySQL"\
+                         "\n-- Please check the ProxySQL connection parameters and status."
+    if [[ -n "$check_hgs" ]]; then
+      error "$LINENO" "One or more of the hostgroups($all_hostgroups) has a server assigned to that hostgroup."\
+                    "\n-- To avoid conflicts, please use different values for the hostgroups."
+      proxysql_exec "$LINENO" \
+        "SELECT
+            hostgroup_id,
+            hostname,
+            port,
+            status,
+            weight
+          FROM mysql_servers
+          WHERE
+            hostgroup_id IN ($all_hostgroups)" "-t"
+      echo ""
+      exit 1
+    fi
   fi
 
   # Clear out any servers that are OFFLINE_HARD
@@ -1461,6 +1477,12 @@ function enable_proxysql() {
   check_cmd $? "$LINENO" "Failed to delete the existing servers with hostgroup: ${all_hostgroups}"\
                        "\n-- Please check the ProxySQL connection parameters and status."
 
+  if [[ $FORCE -eq 1 ]]; then
+    # Remove any existing entry from mysql_galera_hostgroups
+    proxysql_exec "$LINENO" "DELETE FROM mysql_galera_hostgroups WHERE writer_hostgroup IN ($all_hostgroups) OR reader_hostgroup in ($all_hostgroups) OR backup_writer_hostgroup in ($all_hostgroups) OR offline_hostgroup in ($all_hostgroups)"
+    check_cmd $? "$LINENO" "Failed to delete the existing galera hostgroups from  mysql_galera_hostgroups table: ${all_hostgroups}"\
+                       "\n-- Please check the ProxySQL connection parameters and status."
+  fi
   # Remove any existing query rules
   proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE destination_hostgroup in ($all_hostgroups)"
   check_cmd $? "$LINENO" "Failed to delete the existing query rules for hostgroup: $all_hostgroups"\
@@ -2577,7 +2599,7 @@ function parse_args() {
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hg:,backup-writer-hg:,reader-hg:,offline-hg:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,update-mysql-version,is-enabled,adduser,syncusers,sync-multi-cluster-users,add-query-rule,status,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,remove-all-servers,version,debug,help \
+    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hg:,backup-writer-hg:,reader-hg:,offline-hg:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,is-enabled,adduser,syncusers,sync-multi-cluster-users,update-mysql-version,add-query-rule,status,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,remove-all-servers,version,debug,help \
     --name="$(basename "$0")" -- "$@")"
     check_cmd $? "$LINENO" "Script error: getopt() failed with arguments: $*"
     eval set -- "$go_out"
@@ -2806,6 +2828,10 @@ function parse_args() {
       --status )
         shift
         REPORT_STATUS=1
+        ;;
+      --force )
+        shift
+        FORCE=1
         ;;
       --node-check-interval )
         if ! is_integer "$2"; then
