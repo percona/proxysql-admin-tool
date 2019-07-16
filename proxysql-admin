@@ -260,6 +260,12 @@ Options:
   --remove-all-servers               When used with --update-cluster, this will remove all
                                      servers belonging to the current cluster before
                                      updating the list.
+  --add-query-rule                   Create query rules for synced mysql user. This is applicable only
+                                     for singlewrite mode and works only with --syncusers
+                                     and --sync-multi-cluster-users options.
+  --force                            This option will skip existing configuration checks in mysql_servers,
+                                     mysql_users and mysql_galera_hostgroups tables. This option will only
+                                     work with 'proxysql-admin --enable'.
   --debug                            Enables additional debug logging.
   --help                             Dispalys this help text.
 
@@ -279,18 +285,12 @@ One of the options below must be provided.
   --sync-multi-cluster-users         Sync user accounts currently configured in MySQL to ProxySQL
                                      May be used with --enable.
                                      (doesn't delete ProxySQL users not in MySQL)
-  --add-query-rule                   Create query rules for synced mysql user. This is applicable only 
-                                     for singlewrite mode and works only with --syncusers 
-                                     and --sync-multi-cluster-users options.
   --is-enabled                       Checks if the current configuration is enabled in ProxySQL.
   --status                           Returns a status report on the current configuration.
                                      If "--writer-hg=<NUM>" is specified, than the
                                      data corresponding to the galera cluster with that
                                      writer hostgroup is displayed. Otherwise, information
                                      for all clusters will be displayed.
-  --force                            This option will skip existing configuration checks in mysql_servers, 
-                                     mysql_users and mysql_galera_hostgroups tables. This option will only 
-									 work with __proxysql-admin --enable__.
   --version, -v                      Prints the version info
 
 EOF
@@ -1905,7 +1905,7 @@ function add_query_rule()
     
     check_cmd $? "$LINENO" "Failed to add the read query rule to ProxySQL."\
                          "\n-- Please check the ProxySQL connection parameters and status."
-	echo -e "  Added query rule for user: $username"
+    echo -e "  Added query rule for user: $username"
   fi
 }
 
@@ -2599,7 +2599,7 @@ function parse_args() {
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hg:,backup-writer-hg:,reader-hg:,offline-hg:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,is-enabled,adduser,syncusers,sync-multi-cluster-users,update-mysql-version,add-query-rule,status,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,remove-all-servers,version,debug,help \
+    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hg:,backup-writer-hg:,reader-hg:,offline-hg:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,is-enabled,adduser,syncusers,sync-multi-cluster-users,update-mysql-version,add-query-rule,status,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,remove-all-servers,force,version,debug,help \
     --name="$(basename "$0")" -- "$@")"
     check_cmd $? "$LINENO" "Script error: getopt() failed with arguments: $*"
     eval set -- "$go_out"
@@ -3258,7 +3258,7 @@ function main() {
   elif [[ $ADD_QUERY_RULE -eq 1 ]]; then
 
     add_query_rule
-	
+
   elif [[ $CHECK_IF_ENABLED -eq 1 ]]; then
     local errcode
 
@@ -3278,14 +3278,14 @@ function main() {
   elif [[ $REPORT_STATUS -eq 1 ]]; then
 
     report_status $WRITER_HOSTGROUP_ID
-	
+
   elif [[ $UPDATE_MYSQL_VERSION -eq 1 ]]; then
 
     update_mysql_version
 
   else
 
-    error "" "Must specify an operation: --enable, --disable, --update-cluster, --is-enabled, --adduser, --quick-demo, --syncusers, or --sync-multi-cluster-users"
+    error "" "Must specify an operation: --enable, --disable, --update-cluster, --is-enabled, --adduser, --quick-demo, --syncusers, --sync-multi-cluster-users, or --update-mysql-version"
     exit 1
 
   fi
