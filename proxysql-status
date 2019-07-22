@@ -16,6 +16,8 @@ Usage example:
     --stats                 : display stats tables
     --table=<table_name>    : display only tables that contain the table name
                               (note: this is a case-sensitive match)
+    --with-stats-reset      : display _reset tables, by default _reset tables
+                              will not query.
 
   The default is to display all tables and files.
 
@@ -42,12 +44,10 @@ function mysql_exec() {
   local query=$2
   local retvalue
   local retoutput
-
   retoutput=$(printf "[client]\nuser=${USER}\npassword=\"${PASSWORD}\"\nhost=${HOST}\nport=${PORT}"  \
       | mysql --defaults-file=/dev/stdin --protocol=tcp \
             ${args} -e "${query}")
   retvalue=$?
-
   if [[ -n $retoutput ]]; then
     retoutput+="\n"
   fi
@@ -67,6 +67,7 @@ declare DUMP_STATS=0
 declare DUMP_MONITOR=0
 declare DUMP_FILES=0
 declare TABLE_FILTER=""
+declare DUMP_STATS_RESET_TABLE=0
 
 
 function parse_args() {
@@ -75,7 +76,7 @@ function parse_args() {
    # TODO: kennt, what happens if we don't have a functional getopt()?
     # Check if we have a functional getopt(1)
     if ! getopt --test; then
-        go_out="$(getopt --options=h --longoptions=runtime,main,stats,monitor,files,table:,help \
+        go_out="$(getopt --options=h --longoptions=runtime,main,stats,monitor,files,table:,with-stats-reset,help \
         --name="$(basename "$0")" -- "$@")"
         if [[ $? -ne 0 ]]; then
             # no place to send output
@@ -118,6 +119,10 @@ function parse_args() {
             --table )
                 TABLE_FILTER=$2
                 shift 2
+                ;;
+            --with-stats-reset )
+                shift
+                DUMP_STATS_RESET_TABLE=1
                 ;;
             -h | --help )
                 usage
@@ -170,11 +175,17 @@ fi
 
 if [[ $DUMP_ALL -eq 1 || $DUMP_STATS -eq 1 ]]; then
     echo "............ DUMPING STATS DATABASE ............"
-    TABLES=$(mysql_exec -BN "SHOW TABLES FROM stats" 2> /dev/null)
+    TABLES=$(mysql_exec -BN "SHOW TABLES FROM stats" 2> /dev/null)      
     for table in $TABLES
     do
         if [[ -n $TABLE_FILTER && $table != *${TABLE_FILTER}* ]]; then
             continue
+        fi
+		# Dump _reset tables only if we specify option --with-stats-reset
+        if [[ $DUMP_STATS_RESET_TABLE -eq 0 ]]; then
+			if echo "$table" | grep -q "_reset$"; then
+				continue
+			fi
         fi
         echo "***** DUMPING stats.$table *****"
         mysql_exec "-t --database=stats" "SELECT * FROM $table" 2> /dev/null
