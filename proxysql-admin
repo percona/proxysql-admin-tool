@@ -2062,7 +2062,7 @@ function syncusers() {
           check_cmd $? "$LINENO" "Failed to add the user ($user) from PXC to ProxySQL database."\
                                "\n-- Please check the ProxySQL connection parameters and status."
           if [[ $ADD_QUERY_RULE -eq 1 ]];then
-            add_query_rule ${user}
+            add_query_rule "${user}"
           fi
         else
           echo "Cannot add the user (${user}). The user (${user}) already exists in ProxySQL database with different hostgroup."
@@ -2109,6 +2109,7 @@ function syncusers() {
     done< <(printf "%s\n" "$proxysql_users")
   fi
   proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO
+  proxysql_load_to_runtime_save_to_disk "MYSQL QUERY RULES" $LINENO
 }
 
 
