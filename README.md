@@ -77,6 +77,17 @@ Options:
   --remove-all-servers               When used with --update-cluster, this will remove all
                                      servers belonging to the current cluster before
                                      updating the list.
+  --add-query-rule                   Create query rules for synced mysql user. This is applicable
+                                     only for singlewrite mode and works only with --syncusers
+                                     and --sync-multi-cluster-users options.
+  --force                            This option will skip existing configuration checks in
+                                     mysql_servers, mysql_users and mysql_galera_hostgroups tables.
+                                     This option will only work with __proxysql-admin --enable__.
+  --disable-updates                  Disable admin updates for ProxySQL cluster for the
+                                     current operation. The default is to not change the
+                                     admin variable settings.  If this option is specifed,
+                                     these options will be set to false.
+                                     (default: updates are not disabled)
   --debug                            Enables additional debug logging.
   --help                             Dispalys this help text.
 
@@ -96,18 +107,12 @@ One of the options below must be provided.
   --sync-multi-cluster-users         Sync user accounts currently configured in MySQL to ProxySQL
                                      May be used with --enable.
                                      (doesn't delete ProxySQL users not in MySQL)
-  --add-query-rule                   Create query rules for synced mysql user. This is applicable only
-                                     for singlewrite mode and works only with --syncusers
-                                     and --sync-multi-cluster-users options.
   --is-enabled                       Checks if the current configuration is enabled in ProxySQL.
   --status                           Returns a status report on the current configuration.
                                      If "--writer-hg=<NUM>" is specified, than the
                                      data corresponding to the galera cluster with that
                                      writer hostgroup is displayed. Otherwise, information
                                      for all clusters will be displayed.
-  --force                            This option will skip existing configuration checks in mysql_servers, 
-                                     mysql_users and mysql_galera_hostgroups tables. This option will only 
-									 work with __proxysql-admin --enable__.
   --version, -v                      Prints the version info
 ```
 Prerequisites
@@ -511,12 +516,7 @@ mysql_servers rows for this configuration
 
 ```
 
-  __11) --force__
-
-  This will skip existing configuration checks with __--enable__ option in mysql_servers, 
-  mysql_users and mysql_galera_hostgroups tables
-
-  __12) --update-mysql-version__
+  __11) --update-mysql-version__
   
   This option will updates mysql server version (specified by the writer hostgroup,
   either from __--writer-hg__ or from the config file) in proxysql db based on 
@@ -626,6 +626,21 @@ is _singlewrite_.  This option can be used with __--enable__ and __--update-clus
 
 A single IP address and port combination is expected.
 For instance, "--write-node=127.0.0.1:3306"
+
+__iv) --force__
+
+  This will skip existing configuration checks with __--enable__ option in mysql_servers,
+  mysql_users and mysql_galera_hostgroups tables
+
+
+__v) --disable_updates__
+
+This option (when used with any command), will disable updating of the
+ProxySQL admin checksums (for the mysql query rules, mysql servers,
+and mysql users tables). The default is to not to change the admin checksum
+variable settings. If this option is specified, then the values of
+the admin-checksum_mysql_query_rules, admin-checksum_mysql_servers,
+and admin-checksum_mysql_users will be set to 'false'.
 
 
 ## ProxySQL Status
