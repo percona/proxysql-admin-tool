@@ -71,6 +71,9 @@ declare    CLUSTER_PASSWORD=""
 declare    CLUSTER_HOSTNAME=""
 declare    CLUSTER_PORT=""
 
+declare    CLUSTER_APP_USERNAME=""
+declare    CLUSTER_APP_PASSWORD=""
+
 declare    MONITOR_USERNAME=""
 declare    MONITOR_PASSWORD=""
 
@@ -109,6 +112,17 @@ declare -i REPORT_STATUS=0
 
 declare -i USE_EXISTING_MONITOR_PASSWORD=0
 declare -i WITH_CLUSTER_APP_USER=1
+
+declare -i DISABLE_UPDATES=0
+
+# If we have to disable updates, store the original values
+# so that we can restore them back to these values.
+# These variables have the value of 'true' | 'false'
+declare    ADMIN_CHECKSUM_MYSQL_QUERY_RULES_ORIGINAL_VALUE=""
+declare    ADMIN_CHECKSUM_MYSQL_SERVERS_ORIGINAL_VALUE=""
+declare    ADMIN_CHECKSUM_MYSQL_USERS_ORIGINAL_VALUE=""
+declare    ADMIN_CLUSTER_USERNAME_ORIGINAL_VALUE=""
+declare    ADMIN_CLUSTER_CHECK_INTERVAL_ORIGINAL_VALUE=""
 
 declare    MYSQL_CLIENT_VERSION=""
 
@@ -260,6 +274,17 @@ Options:
   --remove-all-servers               When used with --update-cluster, this will remove all
                                      servers belonging to the current cluster before
                                      updating the list.
+  --add-query-rule                   Create query rules for synced mysql user. This is applicable only
+                                     for singlewrite mode and works only with --syncusers
+                                     and --sync-multi-cluster-users options.
+  --force                            This option will skip existing configuration checks in mysql_servers,
+                                     mysql_users and mysql_galera_hostgroups tables. This option will only
+                                     work with 'proxysql-admin --enable'.
+  --disable-updates                  Disable admin updates for ProxySQL cluster for the
+                                     current operation. The default is to not change the
+                                     admin variable settings.  If this option is specifed,
+                                     these options will be set to false.
+                                     (default: updates are not disabled)
   --debug                            Enables additional debug logging.
   --help                             Dispalys this help text.
 
@@ -279,18 +304,12 @@ One of the options below must be provided.
   --sync-multi-cluster-users         Sync user accounts currently configured in MySQL to ProxySQL
                                      May be used with --enable.
                                      (doesn't delete ProxySQL users not in MySQL)
-  --add-query-rule                   Create query rules for synced mysql user. This is applicable only 
-                                     for singlewrite mode and works only with --syncusers 
-                                     and --sync-multi-cluster-users options.
   --is-enabled                       Checks if the current configuration is enabled in ProxySQL.
   --status                           Returns a status report on the current configuration.
                                      If "--writer-hg=<NUM>" is specified, than the
                                      data corresponding to the galera cluster with that
                                      writer hostgroup is displayed. Otherwise, information
                                      for all clusters will be displayed.
-  --force                            This option will skip existing configuration checks in mysql_servers, 
-                                     mysql_users and mysql_galera_hostgroups tables. This option will only 
-									 work with __proxysql-admin --enable__.
   --version, -v                      Prints the version info
 
 EOF
@@ -1483,10 +1502,7 @@ function enable_proxysql() {
     check_cmd $? "$LINENO" "Failed to delete the existing galera hostgroups from  mysql_galera_hostgroups table: ${all_hostgroups}"\
                        "\n-- Please check the ProxySQL connection parameters and status."
   fi
-  # Remove any existing query rules
-  proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE destination_hostgroup in ($all_hostgroups)"
-  check_cmd $? "$LINENO" "Failed to delete the existing query rules for hostgroup: $all_hostgroups"\
-                       "\n-- Please check the ProxySQL connection parameters and status."
+
   # TODO: also remove fast query rules
 
   # Add all nodes as writer nodes (to begin with)
@@ -1546,12 +1562,72 @@ function enable_proxysql() {
     echo ""
 
     if [[ $WITH_CLUSTER_APP_USER -eq 1 ]]; then
-      proxysql_exec "$LINENO" \
-        "INSERT INTO mysql_query_rules
-          (username,destination_hostgroup,active,match_digest,apply)
-         VALUES
-          ('$SAFE_CLUSTER_APP_USERNAME',$WRITER_HOSTGROUP_ID,1,'^SELECT.*FOR UPDATE',1),
-          ('$SAFE_CLUSTER_APP_USERNAME',$READER_HOSTGROUP_ID,1,'^SELECT ',1);"
+      local reader_query_rule_check
+      local writer_query_rule_check
+
+      writer_query_rule_check=$(proxysql_exec $LINENO \
+        "SELECT COUNT(*)
+          FROM mysql_query_rules
+          WHERE username = '$SAFE_CLUSTER_APP_USERNAME' AND
+            destination_hostgroup = $WRITER_HOSTGROUP_ID AND
+            active = 1 AND
+            match_digest = '^SELECT.*FOR UPDATE'")
+      check_cmd $? "$LINENO" "Failed to retrieve query rules from ProxySQL."\
+                           "\n-- Please check the ProxySQL connection parameters and status."
+      if [[ $writer_query_rule_check -ge 1 ]]; then
+        if [[ $FORCE -eq 1 ]]; then
+          # issue a warning
+          warning $LINENO "Query rules already exist for user:$SAFE_CLUSTER_APP_USERNAME" \
+                        "\n-- and hostgroup:$WRITER_HOSTGROUP_ID." \
+                        "\n-- Please verify that they are still valid for this instance."
+        else
+          # issue an error and exit
+          error $LINENO "Query rules already exist for this user:$SAFE_CLUSTER_APP_USERNAME" \
+                      "\n-- and hostgroup:$WRITER_HOSTGROUP_ID.  Exiting in case of a possible conflict."
+          exit 1
+        fi
+      else
+        # rule doesn't exist, add it
+        proxysql_exec "$LINENO" \
+          "INSERT INTO mysql_query_rules
+            (username,destination_hostgroup,active,match_digest,apply)
+           VALUES
+            ('$SAFE_CLUSTER_APP_USERNAME',$WRITER_HOSTGROUP_ID,1,'^SELECT.*FOR UPDATE',1)"
+        check_cmd $? "$LINENO" "Failed to add query rules to ProxySQL."\
+                             "\n-- Please check the ProxySQL connection parameters and status."
+      fi
+
+      reader_query_rule_check=$(proxysql_exec $LINENO \
+        "SELECT COUNT(*)
+          FROM mysql_query_rules
+          WHERE username = '$SAFE_CLUSTER_APP_USERNAME' AND
+            destination_hostgroup = $READER_HOSTGROUP_ID AND
+            active = 1 AND
+            match_digest = '^SELECT '")
+      check_cmd $? "$LINENO" "Failed to retrieve query rules from ProxySQL."\
+                           "\n-- Please check the ProxySQL connection parameters and status."
+
+      if [[ $reader_query_rule_check -ge 1 ]]; then
+        if [[ $FORCE -eq 1 ]]; then
+          # issue a warning
+          warning $LINENO "Query rules already exist for user:$SAFE_CLUSTER_APP_USERNAME" \
+                        "\n-- and hostgroup:$READER_HOSTGROUP_ID." \
+                        "\n-- Please verify that they are still valid for this instance."
+        else
+          # issue an error and exit
+          error $LINENO "Query rules already exist for this user:$SAFE_CLUSTER_APP_USERNAME" \
+                      "\n-- and hostgroup:$READER_HOSTGROUP_ID.  Exiting in case of a possible conflict."
+          exit 1
+        fi
+      else
+        proxysql_exec "$LINENO" \
+          "INSERT INTO mysql_query_rules
+            (username,destination_hostgroup,active,match_digest,apply)
+           VALUES
+            ('$SAFE_CLUSTER_APP_USERNAME',$READER_HOSTGROUP_ID,1,'^SELECT ',1);"
+        check_cmd $? "$LINENO" "Failed to add query rules to ProxySQL."\
+                             "\n-- Please check the ProxySQL connection parameters and status."
+      fi
 
       check_cmd $? "$LINENO" "Failed to add the read query rule to ProxySQL."\
                            "\n-- Please check the ProxySQL connection parameters and status."
@@ -1629,7 +1705,7 @@ function disable_proxysql(){
   proxysql_exec "$LINENO" \
     "DELETE FROM mysql_users
       WHERE default_hostgroup IN ($all_hostgroups)"
-  check_cmd $? "$LINENO" "Failed to delete the PXC user ($CLUSTER_APP_USERNAME) from ProxySQL."\
+  check_cmd $? "$LINENO" "Failed to delete the mysql users from ProxySQL."\
                        "\n-- Please check the ProxySQL connection parameters and status."
 
   echo "Removing cluster nodes from the ProxySQL database."
@@ -1905,7 +1981,7 @@ function add_query_rule()
     
     check_cmd $? "$LINENO" "Failed to add the read query rule to ProxySQL."\
                          "\n-- Please check the ProxySQL connection parameters and status."
-	echo -e "  Added query rule for user: $username"
+    echo -e "  Added query rule for user: $username"
   fi
 }
 
@@ -2062,7 +2138,7 @@ function syncusers() {
           check_cmd $? "$LINENO" "Failed to add the user ($user) from PXC to ProxySQL database."\
                                "\n-- Please check the ProxySQL connection parameters and status."
           if [[ $ADD_QUERY_RULE -eq 1 ]];then
-            add_query_rule ${user}
+            add_query_rule "${user}"
           fi
         else
           echo "Cannot add the user (${user}). The user (${user}) already exists in ProxySQL database with different hostgroup."
@@ -2109,6 +2185,7 @@ function syncusers() {
     done< <(printf "%s\n" "$proxysql_users")
   fi
   proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO
+  proxysql_load_to_runtime_save_to_disk "MYSQL QUERY RULES" $LINENO
 }
 
 
@@ -2599,7 +2676,7 @@ function parse_args() {
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hg:,backup-writer-hg:,reader-hg:,offline-hg:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,is-enabled,adduser,syncusers,sync-multi-cluster-users,update-mysql-version,add-query-rule,status,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,remove-all-servers,version,debug,help \
+    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hg:,backup-writer-hg:,reader-hg:,offline-hg:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,is-enabled,adduser,syncusers,sync-multi-cluster-users,update-mysql-version,add-query-rule,status,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,remove-all-servers,disable-updates,force,version,debug,help \
     --name="$(basename "$0")" -- "$@")"
     check_cmd $? "$LINENO" "Script error: getopt() failed with arguments: $*"
     eval set -- "$go_out"
@@ -2912,6 +2989,10 @@ function parse_args() {
         ;;
       --remove-all-servers )
         REMOVE_ALL_SERVERS=1
+        shift
+        ;;
+      --disable-updates )
+        DISABLE_UPDATES=1
         shift
         ;;
       -v | --version )
@@ -3255,10 +3336,6 @@ function main() {
     syncusers
     echo -e "\nSynced PXC users to the ProxySQL database!"
 
-  elif [[ $ADD_QUERY_RULE -eq 1 ]]; then
-
-    add_query_rule
-	
   elif [[ $CHECK_IF_ENABLED -eq 1 ]]; then
     local errcode
 
@@ -3278,14 +3355,14 @@ function main() {
   elif [[ $REPORT_STATUS -eq 1 ]]; then
 
     report_status $WRITER_HOSTGROUP_ID
-	
+
   elif [[ $UPDATE_MYSQL_VERSION -eq 1 ]]; then
 
     update_mysql_version
 
   else
 
-    error "" "Must specify an operation: --enable, --disable, --update-cluster, --is-enabled, --adduser, --quick-demo, --syncusers, or --sync-multi-cluster-users"
+    error "" "Must specify an operation: --enable, --disable, --update-cluster, --is-enabled, --adduser, --quick-demo, --syncusers, --sync-multi-cluster-users, or --update-mysql-version"
     exit 1
 
   fi
@@ -3329,6 +3406,230 @@ function get_mysql_version()
   return 0
 }
 
+# Disable ProxySQL Cluster updates
+#
+# Globals
+#   ADMIN_CHECKSUM_MYSQL_QUERY_RULES_ORIGINAL_VALUE (sets the value)
+#   ADMIN_CHECKSUM_MYSQL_SERVERS_ORIGINAL_VALUE (sets the value)
+#   ADMIN_CHECKSUM_MYSQL_USERS_ORIGINAL_VALUE (sets the value)
+#
+# Arguments
+#   None
+#
+function disable_updates()
+{
+  debug "$LINENO" "Disabling ProxySQL checksum updates"
+
+  proxysql_exec $LINENO "SAVE ADMIN VARIABLES FROM RUNTIME"
+  check_cmd $? "$LINENO" "Failed to retrieve admin variables from ProxySQL."\
+                       "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
+                       "\n-- Please check the ProxySQL connection parameters and status."
+
+  local query_rules_value
+  local users_value
+  local servers_value
+  local load_to_runtime=0
+
+  query_rules_value=$(proxysql_exec $LINENO \
+    "SELECT variable_value
+      FROM global_variables
+      WHERE variable_name = 'admin-checksum_mysql_query_rules'
+    ")
+  check_cmd $? "$LINENO" "Failed to retrieve admin variables from ProxySQL."\
+                       "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
+                       "\n-- Please check the ProxySQL connection parameters and status."
+
+  servers_value=$(proxysql_exec $LINENO \
+    "SELECT variable_value
+      FROM global_variables
+      WHERE variable_name = 'admin-checksum_mysql_servers'
+    ")
+  check_cmd $? "$LINENO" "Failed to retrieve admin variables from ProxySQL."\
+                       "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
+                       "\n-- Please check the ProxySQL connection parameters and status."
+
+  users_value=$(proxysql_exec $LINENO \
+    "SELECT variable_value
+      FROM global_variables
+      WHERE variable_name = 'admin-checksum_mysql_users'
+    ")
+  check_cmd $? "$LINENO" "Failed to retrieve admin variables from ProxySQL."\
+                       "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
+                       "\n-- Please check the ProxySQL connection parameters and status."
+
+
+  # If the value is set to true, then set the ORIGINAL_VALUE vars so
+  # that the value will be reset on exit.  If the value is already false,
+  # there's no need to reset the value on exit.
+  if [[ $query_rules_value == 'true' ]]; then
+    ADMIN_CHECKSUM_MYSQL_QUERY_RULES_ORIGINAL_VALUE=$query_rules_value
+    proxysql_exec $LINENO "SET admin-checksum_mysql_query_rules = 'false'"
+    check_cmd $? "$LINENO" "Failed to set the admin-checksum_mysql_query_rules variable in ProxySQL."\
+                         "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
+                         "\n-- Please check the ProxySQL connection parameters and status."
+    load_to_runtime=1
+  else
+    ADMIN_CHECKSUM_MYSQL_QUERY_RULES_ORIGINAL_VALUE=""
+  fi
+
+  if [[ $servers_value == 'true' ]]; then
+    ADMIN_CHECKSUM_MYSQL_SERVERS_ORIGINAL_VALUE=$servers_value
+    proxysql_exec $LINENO "SET admin-checksum_mysql_servers = 'false'"
+    check_cmd $? "$LINENO" "Failed to set the admin-checksum_mysql_servers variable in ProxySQL."\
+                         "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
+                         "\n-- Please check the ProxySQL connection parameters and status."
+    load_to_runtime=1
+  else
+    ADMIN_CHECKSUM_MYSQL_SERVERS_ORIGINAL_VALUE=""
+  fi
+
+  if [[ $users_value == 'true' ]]; then
+    ADMIN_CHECKSUM_MYSQL_USERS_ORIGINAL_VALUE=$users_value
+    proxysql_exec $LINENO "SET admin-checksum_mysql_users = 'false'"
+    check_cmd $? "$LINENO" "Failed to set the admin-checksum_mysql_users variable in ProxySQL."\
+                         "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
+                         "\n-- Please check the ProxySQL connection parameters and status."
+    load_to_runtime=1
+  else
+    ADMIN_CHECKSUM_MYSQL_USERS_ORIGINAL_VALUE=""
+  fi
+
+  # Set this to '', to disable clustering replication
+  ADMIN_CLUSTER_USERNAME_ORIGINAL_VALUE=$(proxysql_exec $LINENO \
+    "SELECT variable_value
+      FROM global_variables
+      WHERE variable_name = 'admin-cluster_username'
+    ")
+  check_cmd $? "$LINENO" "Failed to retrieve admin variables from ProxySQL."\
+                       "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
+                       "\n-- Please check the ProxySQL connection parameters and status."
+  if [[ -n $ADMIN_CLUSTER_USERNAME_ORIGINAL_VALUE ]]; then
+    proxysql_exec $LINENO "SET admin-cluster_username = '';"
+    check_cmd $? "$LINENO" "Failed to set the admin-cluster_username variable in ProxySQL."\
+                         "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
+                         "\n-- Please check the ProxySQL connection parameters and status."
+    load_to_runtime=1
+  fi
+
+  # BUG WORKAROUND
+  # ProxySQL 'load admin variables to runtime' will not clear the cluster_username
+  # so we change the frequency instead
+  ADMIN_CLUSTER_CHECK_INTERVAL_ORIGINAL_VALUE=$(proxysql_exec $LINENO \
+    "SELECT variable_value
+      FROM global_variables
+      WHERE variable_name = 'admin-cluster_check_interval_ms'")
+  check_cmd $? "$LINENO" "Failed to retrieve admin variables from ProxySQL."\
+                       "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
+                       "\n-- Please check the ProxySQL connection parameters and status."
+  if [[ -n $ADMIN_CLUSTER_CHECK_INTERVAL_ORIGINAL_VALUE ]]; then
+    proxysql_exec $LINENO "SET admin-cluster_check_interval_ms = 300000;"
+    check_cmd $? "$LINENO" "Failed to set the admin-cluster_check_interval_ms variable in ProxySQL."\
+                         "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
+                         "\n-- Please check the ProxySQL connection parameters and status."
+    load_to_runtime=1
+  fi
+
+
+  if [[ $load_to_runtime -eq 1 ]]; then
+    proxysql_exec $LINENO "LOAD ADMIN VARIABLES TO RUNTIME"
+    check_cmd $? "$LINENO" "Failed to save the admin variables in ProxySQL."\
+                         "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
+                         "\n-- Please check the ProxySQL connection parameters and status."
+  fi
+
+}
+
+# Restore the ProxySQL Cluster admin update values
+#
+# Globals
+#   ADMIN_CHECKSUM_MYSQL_QUERY_RULES_ORIGINAL_VALUE
+#   ADMIN_CHECKSUM_MYSQL_SERVERS_ORIGINAL_VALUE
+#   ADMIN_CHECKSUM_MYSQL_USERS_ORIGINAL_VALUE
+#
+# Arguments
+#   None
+#
+function restore_updates()
+{
+  debug "$LINENO" "Restoring ProxySQL checksum updates"
+  local vars_changed=0
+  local change_cmds="\n--\tSAVE ADMIN VARIABLES FROM RUNTIME;"
+
+
+  if [[ -n $ADMIN_CLUSTER_USERNAME_ORIGINAL_VALUE ]]; then
+    change_cmds+="\n--\tSET admin-cluster_username='$ADMIN_CLUSTER_USERNAME_ORIGINAL_VALUE';"
+  fi
+  if [[ -n $ADMIN_CLUSTER_CHECK_INTERVAL_ORIGINAL_VALUE ]]; then
+    change_cmds+="\n--\tSET admin-cluster_check_interval_ms='$ADMIN_CLUSTER_CHECK_INTERVAL_ORIGINAL_VALUE';"
+  fi
+
+  if [[ -n $ADMIN_CHECKSUM_MYSQL_QUERY_RULES_ORIGINAL_VALUE ]]; then
+    change_cmds+="\n--\tSET admin-checksum_mysql_query_rules='$ADMIN_CHECKSUM_MYSQL_QUERY_RULES_ORIGINAL_VALUE';"
+  fi
+  if [[ -n $ADMIN_CHECKSUM_MYSQL_SERVERS_ORIGINAL_VALUE ]]; then
+    change_cmds+="\n--\tSET admin-checksum_mysql_servers='$ADMIN_CHECKSUM_MYSQL_SERVERS_ORIGINAL_VALUE';"
+  fi
+  if [[ -n $ADMIN_CHECKSUM_MYSQL_USERS_ORIGINAL_VALUE ]]; then
+    change_cmds+="\n--\tSET admin-checksum_mysql_users='$ADMIN_CHECKSUM_MYSQL_USERS_ORIGINAL_VALUE';"
+  fi
+  change_cmds+="\n--\tLOAD ADMIN VARIABLES TO RUNTIME;"
+
+  if [[ -n $ADMIN_CLUSTER_USERNAME_ORIGINAL_VALUE ]]; then
+    proxysql_exec $LINENO "SET admin-cluster_username = '$ADMIN_CLUSTER_USERNAME_ORIGINAL_VALUE'"
+    check_cmd $? "$LINENO" "Failed to restore the admin-cluster_username variable in ProxySQL."\
+                         "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
+                         "\n-- Please run the following commands manually to restore the state"\
+                         "$change_cmds"
+    vars_changed=1
+  fi
+
+  if [[ -n $ADMIN_CLUSTER_CHECK_INTERVAL_ORIGINAL_VALUE ]]; then
+    proxysql_exec $LINENO "SET admin-cluster_check_interval_ms = '$ADMIN_CLUSTER_CHECK_INTERVAL_ORIGINAL_VALUE'"
+    check_cmd $? "$LINENO" "Failed to restore the admin-cluster_check_interval_ms variable in ProxySQL."\
+                         "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
+                         "\n-- Please run the following commands manually to restore the state"\
+                         "$change_cmds"
+    vars_changed=1
+  fi
+
+  if [[ -n $ADMIN_CHECKSUM_MYSQL_QUERY_RULES_ORIGINAL_VALUE ]]; then
+    proxysql_exec $LINENO "SET admin-checksum_mysql_query_rules = '$ADMIN_CHECKSUM_MYSQL_QUERY_RULES_ORIGINAL_VALUE'"
+    check_cmd $? "$LINENO" "Failed to restore the admin-checksum_mysql_query_rules variable in ProxySQL."\
+                         "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
+                         "\n-- Please run the following commands manually to restore the state"\
+                         "$change_cmds"
+    vars_changed=1
+  fi
+
+  if [[ -n $ADMIN_CHECKSUM_MYSQL_SERVERS_ORIGINAL_VALUE ]]; then
+    proxysql_exec $LINENO "SET admin-checksum_mysql_servers = '$ADMIN_CHECKSUM_MYSQL_SERVERS_ORIGINAL_VALUE'"
+    check_cmd $? "$LINENO" "Failed to restore the admin-checksum_mysql_servers variable in ProxySQL."\
+                         "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
+                         "\n-- Please run the following commands manually to restore the state"\
+                         "$change_cmds"
+    vars_changed=1
+  fi
+
+  if [[ -n $ADMIN_CHECKSUM_MYSQL_USERS_ORIGINAL_VALUE ]]; then
+    proxysql_exec $LINENO "SET admin-checksum_mysql_users = '$ADMIN_CHECKSUM_MYSQL_USERS_ORIGINAL_VALUE'"
+    check_cmd $? "$LINENO" "Failed to restore the admin-checksum_mysql_users variable in ProxySQL."\
+                         "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
+                         "\n-- Please run the following commands manually to restore the state"\
+                         "$change_cmds"
+    vars_changed=1
+  fi
+
+
+
+  if [[ $vars_changed -eq 1 ]]; then
+    proxysql_exec $LINENO "LOAD ADMIN VARIABLES TO RUNTIME"
+    check_cmd $? "$LINENO" "Failed to save the admin variables in ProxySQL."\
+                         "\n-- Could not connect to ProxySQL at $PROXYSQL_HOSTNAME:$PROXYSQL_PORT"\
+                         "\n-- Please run the following commands manually to restore the state"\
+                         "$change_cmds"
+  fi
+}
+
 #-------------------------------------------------------------------------------
 #
 # Step 4 : Begin script execution
@@ -3341,6 +3642,15 @@ if [ -e "/dummypathnonexisting/.mylogin.cnf" ]; then
 else
   export HOME="/dummypathnonexisting"
 fi
+
+
+function on_exit()
+{
+  if [[ $DISABLE_UPDATES -eq 1 ]]; then
+    restore_updates
+  fi
+}
+
 
 #
 # Check that we can find the mysql client
@@ -3366,6 +3676,17 @@ proxysql_exec "$LINENO" "SAVE MYSQL SERVERS FROM RUNTIME"
 proxysql_exec "$LINENO" "SAVE MYSQL QUERY RULES FROM RUNTIME"
 proxysql_exec "$LINENO" "SAVE MYSQL USERS FROM RUNTIME"
 proxysql_exec "$LINENO" "SAVE MYSQL VARIABLES FROM RUNTIME"
+
+# on_exit will restore the update variables
+trap on_exit EXIT
+
+if [[ $DISABLE_UPDATES -eq 1 ]]; then
+  disable_updates
+
+  # sleep to ensure that any ongoing update has completed
+  # before we continue
+  sleep 3
+fi
 
 main
 

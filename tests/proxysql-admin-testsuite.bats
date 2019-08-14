@@ -122,16 +122,25 @@ fi
 
 
 @test "run proxysql-admin --update-mysql-version ($WSREP_CLUSTER_NAME)" {
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --update-mysql-version
-  echo "$output" >&2
-  [ "$status" -eq  0 ]
-}
 
-@test "run the check for --update-mysql-version ($WSREP_CLUSTER_NAME)" {
   local mysql_version=$(mysql_exec "$HOST_IP" "$PORT_3" "SELECT VERSION();" | tail -1 | cut -d'-' -f1)
   local proxysql_mysql_version=$(proxysql_exec "select variable_value from global_variables where variable_name like 'mysql-server_version'" | awk '{print $0}')
-  echo "mysql_version:$mysql_version  proxysql_mysql_version:$proxysql_mysql_version" >&2
-  [ "$mysql_version" = "$proxysql_mysql_version" ]
+  echo "$LINENO: mysql_version:$mysql_version  proxysql_mysql_version:$proxysql_mysql_version" >&2
+  if [[ $mysql_version != $proxysql_mysql_version ]]; then
+  
+    run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --update-mysql-version
+    echo "$output" >&2
+    [ "$status" -eq  0 ]
+
+    mysql_version=$(mysql_exec "$HOST_IP" "$PORT_3" "SELECT VERSION();" | tail -1 | cut -d'-' -f1)
+    proxysql_mysql_version=$(proxysql_exec "select variable_value from global_variables where variable_name like 'mysql-server_version'" | awk '{print $0}')
+    echo "$LINENO: mysql_version:$mysql_version  proxysql_mysql_version:$proxysql_mysql_version" >&2
+    [ "$mysql_version" = "$proxysql_mysql_version" ]
+  else
+    run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --update-mysql-version
+    echo "$output" >&2
+    [ "$status" -eq  0 ]
+  fi
 }
 
 @test "run the check for --adduser ($WSREP_CLUSTER_NAME)" {
