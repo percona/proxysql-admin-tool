@@ -789,6 +789,27 @@ fi
 
 }
 
+@test "run --update-cluster with read-only --write-node server ($WSREP_CLUSTER_NAME)" {
+  # Run --update-cluster with read-only --write-node server
+  echo "$LINENO : changing node2 to read-only" >&2
+  mysql_exec "$HOST_IP" "$PORT_2" "SET global read_only=1"
+  [ "$?" -eq 0 ]
+  
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --update-cluster --write-node=$HOST_IP:$PORT_2
+  echo "$LINENO : proxysql-admin --update-cluster --write-node=$HOST_IP:$PORT_2 " >&2
+  echo "$output" >& 2
+  [ "$status" -eq 1 ]
+
+  # revert node2 to be a read/write node
+  echo "$LINENO : changing node2 back to read-only=0" >&2
+  mysql_exec "$HOST_IP" "$PORT_2" "SET global read_only=0"
+  [ "$?" -eq 0 ]
+  
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
+  echo "$output" >& 2
+  [ "$status" -eq 0 ]
+}
+
 # Test --enable --update-cluster
 @test "test --enable --update-cluster ($WSREP_CLUSTER_NAME)" {
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
@@ -865,4 +886,5 @@ fi
   proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $BACKUP_WRITER_HOSTGROUP_ID " | awk '{print $0}')
   echo "$LINENO : backup writer count:$proxysql_cluster_count expected:2"  >&2
   [ "$proxysql_cluster_count" -eq 2 ]
+  
 }
