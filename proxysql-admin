@@ -2047,6 +2047,9 @@ function syncusers() {
     10.3)
       password_field="Password"
       ;;
+    10.4)
+      password_field="Password"
+      ;;
     *)
       error "$LINENO" "Unexpected database server version: ${mysql_version}"\
                     "\n-- This version of proxysql-admin needs to be updated."
@@ -3417,6 +3420,8 @@ function get_mysql_version()
     echo "10.2"
   elif echo "$version_string" | grep -qe "[[:space:]]10\.3\."; then
     echo "10.3"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.4\."; then
+    echo "10.4"
   else
     echo "$version_string"
     return 1
