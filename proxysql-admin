@@ -1753,8 +1753,6 @@ function adduser(){
 
   local cluster_node
 
-  cluster_in_proxysql_check $WRITER_HOSTGROUP_ID
-
   # Find a cluster node that belongs to the cluster with $WRITER_HOSTGROUP_ID
   cluster_node=$(find_cluster_node "$WRITER_HOSTGROUP_ID")
   check_cmd $? "$LINENO" "Could not find a primary cluster node"
@@ -2012,8 +2010,6 @@ function add_query_rule()
 #
 function syncusers() {
   debug "$LINENO" "syncusers ()"
-
-  cluster_in_proxysql_check $WRITER_HOSTGROUP_ID
 
   local mysql_version
   local password_field
