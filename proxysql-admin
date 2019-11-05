@@ -49,7 +49,7 @@ fi
 #
 # Script parameters/constants
 #
-readonly    PROXYSQL_ADMIN_VERSION="2.0.6"
+readonly    PROXYSQL_ADMIN_VERSION="2.0.7"
 declare  -i DEBUG=0
 
 # default timeout is 10 seconds
@@ -2047,6 +2047,9 @@ function syncusers() {
     10.3)
       password_field="Password"
       ;;
+    10.4)
+      password_field="Password"
+      ;;
     *)
       error "$LINENO" "Unexpected database server version: ${mysql_version}"\
                     "\n-- This version of proxysql-admin needs to be updated."
@@ -2240,6 +2243,24 @@ function update_cluster()
   local data
   local -i force_to_runtime=0
 
+  if [[ -n $WRITE_NODE ]]; then
+    local ws_address ws_ip ws_port
+    ws_address=$(separate_ip_port_from_address "$WRITE_NODE")
+    ws_ip=$(echo "$ws_address" | cut -d' ' -f1)
+    ws_port=$(echo "$ws_address" | cut -d' ' -f2)
+
+    local is_read_only
+    is_read_only=$(exec_sql "$LINENO" "$CLUSTER_USERNAME" "$CLUSTER_PASSWORD" "$ws_ip" "$ws_port" \
+      "select @@global.read_only")
+    if [[ $? -eq 0 && $is_read_only -eq 1 ]]; then
+      writer_ws_ip=$ws_ip
+      writer_ws_port=$ws_port
+      writer_ws_address=$(combine_ip_port_into_address "$writer_ws_ip" "$writer_ws_port")
+
+      error "$LINENO" "--write-node is a read-only node($writer_ws_address). Terminating."
+      exit 1
+    fi
+  fi
   all_hostgroups=$(get_all_hostgroups_from_writer_hostgroup $WRITER_HOSTGROUP_ID)
   if [[ -z $all_hostgroups ]]; then
     error "$LINENO" "Could not find a cluster (with writer_hostgroup:$WRITER_HOSTGROUP_ID) to update"
@@ -3399,6 +3420,8 @@ function get_mysql_version()
     echo "10.2"
   elif echo "$version_string" | grep -qe "[[:space:]]10\.3\."; then
     echo "10.3"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.4\."; then
+    echo "10.4"
   else
     echo "$version_string"
     return 1
