@@ -49,7 +49,7 @@ fi
 #
 # Script parameters/constants
 #
-readonly    PROXYSQL_ADMIN_VERSION="2.0.7"
+readonly    PROXYSQL_ADMIN_VERSION="2.0.8"
 declare  -i DEBUG=0
 
 # default timeout is 10 seconds
