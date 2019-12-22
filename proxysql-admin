@@ -1552,9 +1552,6 @@ function syncusers() {
               ('${user}', '${password}', 1, $WRITE_HOSTGROUP_ID)"
           check_cmd $? "$LINENO" "Failed to add the user ($user) from PXC to ProxySQL database."\
                                "\n-- Please check the ProxySQL connection parameters and status."
-          if [[ $ADD_QUERY_RULE -eq 1 ]];then
-            add_query_rule "${user}"
-          fi
         else
           echo "Cannot add the user (${user}). The user (${user}) already exists in ProxySQL database with different hostgroup."
           check_user=""
