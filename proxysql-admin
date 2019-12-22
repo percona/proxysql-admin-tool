@@ -1590,7 +1590,7 @@ function syncusers() {
         proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE username='${user}'"
         check_cmd $? "$LINENO" "Failed to delete the user ($user) from ProxySQL database."\
                              "\n-- Please check the ProxySQL connection parameters and status."
-        proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE username='${user}' and destination_hostgroup in($WRITE_HOSTGROUP_ID,$READE_HOSTGROUP_ID)"
+        proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE username='${user}' and destination_hostgroup in($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID)"
         check_cmd $? "$LINENO" "Failed to delete the query rule for user ($user) from ProxySQL database."\
                                "\n-- Please check the ProxySQL connection parameters and status."   
       fi
