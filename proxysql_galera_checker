@@ -624,9 +624,13 @@ function change_server_status() {
 
   address=$(combine_ip_port_into_address "$server" "$port")
 
-  # If we have a PRIORITY_NODE, then we don't have a WRITER entry
-  # to upgrade, but we do have a READER entry, so upgrade that
-  if [[ $reader_status == "PRIORITY_NODE" ]]; then
+  # If we already have a row, upgrade the data
+  # Otherwise, create a new row
+  local row_count
+  row_count=$(proxysql_exec $LINENO -Ns "SELECT count(*) FROM mysql_servers WHERE hostgroup_id=$hostgroup AND hostname='$server' AND port=$port")
+  check_cmd_and_exit $LINENO $? "Could not check if row exists (query failed). Exiting."
+
+  if [[ $row_count -eq 0 ]]; then
     proxysql_exec $lineno -Ns "INSERT INTO mysql_servers
           (hostname,hostgroup_id,port,weight,status,comment,max_connections)
           VALUES ('$server',$hostgroup,$port,1000000,'$status','WRITE',$MAX_CONNECTIONS);"
@@ -1040,9 +1044,9 @@ function writer_is_reader_check() {
       fi
     elif [[ $WRITER_IS_READER == "never" ]]; then
       #
-      # Ensure that there is NO corresponding entry in mysql_servers
+      # Ensure that there is NO corresponding ONLINE entry in mysql_servers
       #
-      if [[ $servers =~ $regex ]]; then
+      if [[ $stat == 'ONLINE' && $servers =~ $regex ]]; then
         # Delete the corresponding READER entry
         proxysql_exec $LINENO -Ns "DELETE FROM mysql_servers WHERE hostgroup_id=$HOSTGROUP_READER_ID and hostname='$server' and port=$port"
         check_cmd_and_exit $LINENO $? "writer-is-reader(never): Failed to remove $HOSTGROUP_READER_ID:$address (query failed). Exiting."
@@ -1362,7 +1366,6 @@ function update_writers() {
       AND reader.hostname = writer.hostname
       AND reader.port = writer.port
     WHERE writer.hostgroup_id = $HOSTGROUP_WRITER_ID
-      AND writer.status <> 'OFFLINE_HARD'
     ORDER BY writer.status DESC"
 
   proxysql_list=$(proxysql_exec $LINENO -Ns "$writer_proxysql_query")
@@ -1475,7 +1478,21 @@ function update_writers() {
                                  "max write nodes reached (${NUMBER_WRITERS})"
             echo "1" > ${reload_check_file}
           elif [[ $rdstat != "PRIORITY_NODE" ]]; then
-             log $LINENO "server $hostgroup:$address is already OFFLINE_SOFT, max write nodes reached (${NUMBER_WRITERS})"
+            log $LINENO "server $hostgroup:$address is already OFFLINE_SOFT, max write nodes reached (${NUMBER_WRITERS})"
+
+            # If not there, add node as a reader
+            local reader_count=$(proxysql_exec $LINENO -Ns "SELECT count(*) FROM mysql_servers WHERE hostgroup_id=$HOSTGROUP_READER_ID AND hostname='$server' AND port=$port")
+            check_cmd_and_exit $LINENO $? "Could not get reader count (query failed). Exiting."
+            if [[ $reader_count -eq 0 ]]; then
+              proxysql_exec $LINENO -Ns \
+                "INSERT INTO mysql_servers (hostname,hostgroup_id,port,weight,status,comment,max_connections)
+                 VALUES ('$server',$HOSTGROUP_READER_ID,$port,1000,'ONLINE','READ',$MAX_CONNECTIONS);"
+              check_cmd_and_exit $LINENO $? "Cannot add a PXC reader node to ProxySQL (query failed). Exiting."
+              log_if_success $LINENO $? "Added $HOSTGROUP_READER_ID:$address as a reader."
+              echo "1" > ${reload_check_file}
+            else
+              log $LINENO "$hostgroup:$address already exists in $stat state"
+            fi
           fi
         fi
       # we do not have to limit
@@ -2495,11 +2512,15 @@ function main() {
     restore_reload_check "${reload_check_file}" $save_reload_state
   fi
 
-
   if [[ $(cat ${reload_check_file}) -ne 0 ]] ; then
       log "" "###### Loading mysql_servers config into runtime ######"
       proxysql_exec $LINENO -Ns "LOAD MYSQL SERVERS TO RUNTIME;" 2>>${ERR_FILE}
       check_cmd_and_exit $LINENO $? "Could not update the mysql_servers table in ProxySQL. Exiting."
+      if [[ $DEBUG -eq 1 ]]; then
+        debug "$LINENO" "#### Dumping mysql_servers table"
+        proxysql_exec $LINENO "" "SELECT * FROM mysql_servers;" >>${ERR_FILE} 2>&1
+        debug '' "####"
+      fi
   else
       log "" "###### Not loading mysql_servers, no change needed ######"
   fi

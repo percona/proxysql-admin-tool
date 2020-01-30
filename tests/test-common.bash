@@ -225,11 +225,11 @@ function wait_for_server_start() {
     sleep 1
     if ${PXC_BASEDIR}/bin/mysqladmin -uroot -S${socket} ping > /dev/null 2>&1; then
       # Check the WSREP_READY status
-      ready_status=$(${PXC_BASEDIR}/bin/mysql -uroot -$${socket} -Ns -e "show status like 'wsrep_ready'")
+      ready_status=$(${PXC_BASEDIR}/bin/mysql --user=root --socket=${socket} -Ns -e "show status like 'wsrep_ready'" | cut -f2)
       if [[ -n $ready_status ]]; then
         ready_status=$(echo "$ready_status" | awk '{ print $2 }')
         if [[ $ready_status == "ON" ]]; then
-          size=$(${PXC_BASEDIR}/bin/mysql -uroot -$${socket} -Ns -e "show status like 'wsrep_cluster_size'")
+          size=$(${PXC_BASEDIR}/bin/mysql -uroot -$${socket} -Ns -e "show status like 'wsrep_cluster_size'" | cut -f2)
           if [[ -n $size ]]; then
             size=$(echo "$size" | awk '{ print $2 }')
             if [[ $size -eq $cluster_size ]]; then
@@ -249,7 +249,10 @@ function wait_for_server_shutdown() {
 
   for X in $( seq 0 30 ); do
     sleep 1
-    if ! ${PXC_BASEDIR}/bin/mysqladmin -uroot -S${socket} ping > /dev/null 2>&1; then
+    if [[ ! -e $socket ]]; then
+      return 0
+    fi
+    if ! ${PXC_BASEDIR}/bin/mysqladmin --user=root --socket=${socket} ping > /dev/null; then
       return 0
     fi
   done
@@ -295,9 +298,8 @@ function restart_server() {
 }
 
 function dump_nodes() {
-  local lineno=$1
-  local msg=$2
-  echo "$lineno Dumping server info : $msg" >&2
+  local msg=$1
+  echo "Dumping server info : $msg" >&2
   proxysql_exec "SELECT hostgroup_id,hostname,port,status,comment,weight FROM mysql_servers WHERE hostgroup_id IN ($WRITE_HOSTGROUP_ID, $READ_HOSTGROUP_ID) ORDER BY hostgroup_id,status,hostname,port" >&2
   echo "" >&2
 }

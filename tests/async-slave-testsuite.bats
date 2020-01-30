@@ -95,6 +95,16 @@ function test_preparation() {
 #   None
 #
 function verify_initial_state() {
+   # Remove any non-ONLINE writer nodes (carryover from previous tests)
+  proxysql_exec "SAVE mysql servers FROM RUNTIME"
+  [ "$?" -eq 0 ]
+
+  proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id = $WRITE_HOSTGROUP_ID AND status != 'ONLINE'"
+  [ "$?" -eq 0 ]
+
+  proxysql_exec "LOAD MYSQL SERVERS TO RUNTIME"
+  [ "$?" -eq 0 ]
+
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   echo "$GALERA_CHECKER_ARGS" >&2
   [ "$status" -eq 0 ]
@@ -102,6 +112,7 @@ function verify_initial_state() {
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   # Check the initial setup (3 rows in the table, all ONLINE)
   [ "${#read_host[@]}" -eq 3 ]
@@ -186,12 +197,14 @@ function verify_initial_state() {
   run mysql_exec "$CLUSTER_HOSTNAME" "$PORT_SLAVE1" "STOP SLAVE"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -231,12 +244,14 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
   sleep 3
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -287,12 +302,14 @@ function verify_initial_state() {
   run mysql_exec "$CLUSTER_HOSTNAME" "$PORT_SLAVE1" "STOP SLAVE SQL_THREAD"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -331,12 +348,14 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
   sleep 3
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -374,12 +393,14 @@ function verify_initial_state() {
   run mysql_exec "$CLUSTER_HOSTNAME" "$PORT_SLAVE1" "STOP SLAVE IO_THREAD"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -418,12 +439,14 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
   sleep 3
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -498,34 +521,40 @@ function verify_initial_state() {
   run $PXC_BASEDIR/bin/mysqladmin $pxc_socket2 -u root shutdown
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 1 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
-  [ "${read_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
+  [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $PORT_3 ]
+  [ "${write_port[0]}" -eq $PORT_1 ]
+  [ "${write_port[1]}" -eq $PORT_3 ]
   [[ $PORT_1 -eq ${read_port[0]} || $PORT_1 -eq ${read_port[1]} ]]
   [[ $PORT_2 -eq ${read_port[0]} || $PORT_2 -eq ${read_port[1]} ]]
   [ "${read_port[2]}" -eq $PORT_3 ]
   [ "${slave_port[0]}" -eq $PORT_SLAVE1 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -534,34 +563,39 @@ function verify_initial_state() {
   [ "${slave_hostgroup[0]}" -eq $READ_HOSTGROUP_ID ]
 
   # rerun
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 1 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $PORT_3 ]
+  [ "${write_port[1]}" -eq $PORT_3 ]
   [[ $PORT_1 -eq ${read_port[0]} || $PORT_1 -eq ${read_port[1]} ]]
   [[ $PORT_2 -eq ${read_port[0]} || $PORT_2 -eq ${read_port[1]} ]]
   [ "${read_port[2]}" -eq $PORT_3 ]
   [ "${slave_port[0]}" -eq $PORT_SLAVE1 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -574,27 +608,33 @@ function verify_initial_state() {
   run $PXC_BASEDIR/bin/mysqladmin $pxc_socket3 -u root shutdown
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 0 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 2 ]
 
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
-  [ "${read_status[2]}" = "OFFLINE_SOFT" ]
+  [ "${read_status[2]}" = "OFFLINE_HARD" ]
 
-  [ "${read_port[2]}" -eq $PORT_3 ]
-
+  [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
+  [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -607,27 +647,33 @@ function verify_initial_state() {
   [ "${slave_hostgroup[1]}" -eq $READ_HOSTGROUP_ID ]
 
   # rerun, should move all nodes to OFFLINE_HARD
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 0 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 2 ]
 
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[2]}" = "OFFLINE_HARD" ]
 
-  [ "${read_port[2]}" -eq $PORT_3 ]
-
+  [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
+  [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -640,27 +686,33 @@ function verify_initial_state() {
   [ "${slave_hostgroup[1]}" -eq $READ_HOSTGROUP_ID ]
 
   # rerun, should have no change
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 0 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 2 ]
 
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[2]}" = "OFFLINE_HARD" ]
 
-  [ "${read_port[2]}" -eq $PORT_3 ]
-
+  [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
+  [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -678,26 +730,33 @@ function verify_initial_state() {
   run mysql_exec "$CLUSTER_HOSTNAME" "$PORT_SLAVE1" "STOP SLAVE"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 0 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 1 ]
 
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[2]}" = "OFFLINE_HARD" ]
-  [ "${read_port[2]}" -eq $PORT_3 ]
 
+  [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
+  [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -705,26 +764,33 @@ function verify_initial_state() {
   [ "${slave_status[0]}" = "OFFLINE_HARD" ]
   [ "${slave_hostgroup[0]}" -eq $READ_HOSTGROUP_ID ]
   
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 0 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 1 ]
 
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[2]}" = "OFFLINE_HARD" ]
-  [ "${read_port[2]}" -eq $PORT_3 ]
 
+  [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
+  [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -739,26 +805,33 @@ function verify_initial_state() {
   run mysql_exec "$CLUSTER_HOSTNAME" "$PORT_SLAVE1" "START SLAVE"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 0 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 2 ]
 
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[2]}" = "OFFLINE_HARD" ]
-  [ "${read_port[2]}" -eq $PORT_3 ]
 
+  [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
+  [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -777,34 +850,40 @@ function verify_initial_state() {
   restart_server "$restart_cmd1" "$restart_user1" "bootstrap"
   wait_for_server_start $pxc_socket1 1
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $PORT_1 ]
+  [ "${write_port[0]}" -eq $PORT_3 ]
+  [ "${write_port[1]}" -eq $PORT_1 ]
 
   [ "${read_port[0]}" -eq $PORT_2 ]
   [ "${read_port[1]}" -eq $PORT_3 ]
   [ "${read_port[2]}" -eq $PORT_1 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -827,34 +906,40 @@ function verify_initial_state() {
   restart_server "$restart_cmd3" "$restart_user3"
   wait_for_server_start $pxc_socket3 3
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "ONLINE" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $PORT_1 ]
+  [ "${write_port[0]}" -eq $PORT_3 ]
+  [ "${write_port[1]}" -eq $PORT_1 ]
   [ "${read_port[0]}" -eq $PORT_1 ]
   [ "${read_port[1]}" -eq $PORT_2 ]
   [ "${read_port[2]}" -eq $PORT_3 ]
   [ "${slave_port[0]}" -eq $PORT_SLAVE1 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -889,34 +974,40 @@ function verify_initial_state() {
   run mysql_exec "$host" "$PORT_3" "SET global pxc_maint_mode='maintenance'"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $PORT_1 ]
+  [ "${write_port[0]}" -eq $PORT_3 ]
+  [ "${write_port[1]}" -eq $PORT_1 ]
   [ "${read_port[0]}" -eq $PORT_2 ]
   [ "${read_port[1]}" -eq $PORT_3 ]
   [ "${read_port[2]}" -eq $PORT_1 ]
   [ "${slave_port[0]}" -eq $PORT_SLAVE1 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -930,32 +1021,38 @@ function verify_initial_state() {
   run mysql_exec "$host" "$PORT_1" "SET global pxc_maint_mode='maintenance'"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 2 ]
 
   [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "OFFLINE_SOFT" ]
 
   [ "${write_port[0]}" -eq $PORT_1 ]
+  [ "${write_port[1]}" -eq $PORT_3 ]
   [ "${read_port[0]}" -eq $PORT_1 ]
   [ "${read_port[1]}" -eq $PORT_2 ]
   [ "${read_port[2]}" -eq $PORT_3 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[0]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
+  [ "${write_weight[0]}" -eq 1000000 ]
   [ "${write_weight[0]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
@@ -969,66 +1066,40 @@ function verify_initial_state() {
   [ "${slave_status[1]}" = "ONLINE" ]
   [ "${slave_hostgroup[1]}" -eq $READ_HOSTGROUP_ID ]
 
-  # Rerun the checker, should remove the offline writer
+  # Rerun the checker, should stay the same
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 0 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 2 ]
 
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "OFFLINE_SOFT" ]
 
+  [ "${write_port[0]}" -eq $PORT_1 ]
+  [ "${write_port[1]}" -eq $PORT_3 ]
   [ "${read_port[0]}" -eq $PORT_1 ]
   [ "${read_port[1]}" -eq $PORT_2 ]
   [ "${read_port[2]}" -eq $PORT_3 ]
 
+  [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[0]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
-  [ "${read_weight[0]}" -eq 1000 ]
-  [ "${read_weight[1]}" -eq 1000 ]
-  [ "${read_weight[2]}" -eq 1000 ]
-
-  [ "${slave_port[0]}" -eq $PORT_SLAVE1 ]
-  [ "${slave_status[0]}" = "ONLINE" ]
-  [ "${slave_hostgroup[0]}" -eq $WRITE_HOSTGROUP_ID ]
-
-  [ "${slave_port[1]}" -eq $PORT_SLAVE1 ]
-  [ "${slave_status[1]}" = "ONLINE" ]
-  [ "${slave_hostgroup[1]}" -eq $READ_HOSTGROUP_ID ]
-
-  # Rerun the checker, should show no change
-  run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
-  [ "$status" -eq 0 ]
-
-  retrieve_reader_info
-  retrieve_writer_info
-  retrieve_slave_info
-
-  [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 0 ]
-  [ "${#slave_host[@]}" -eq 2 ]
-
-  [ "${read_status[0]}" = "OFFLINE_SOFT" ]
-  [ "${read_status[1]}" = "OFFLINE_SOFT" ]
-  [ "${read_status[2]}" = "OFFLINE_SOFT" ]
-
-  [ "${read_port[0]}" -eq $PORT_1 ]
-  [ "${read_port[1]}" -eq $PORT_2 ]
-  [ "${read_port[2]}" -eq $PORT_3 ]
-
-  [ "${read_comment[0]}" = "READ" ]
-  [ "${read_comment[1]}" = "READ" ]
-  [ "${read_comment[2]}" = "READ" ]
-
+  [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[0]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1048,29 +1119,39 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # Run the checker
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 0 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 1 ]
 
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "OFFLINE_SOFT" ]
 
+  [ "${write_port[0]}" -eq $PORT_1 ]
+  [ "${write_port[1]}" -eq $PORT_3 ]
   [ "${read_port[0]}" -eq $PORT_1 ]
   [ "${read_port[1]}" -eq $PORT_2 ]
   [ "${read_port[2]}" -eq $PORT_3 ]
 
+  [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
+  [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1085,29 +1166,39 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # Run the checker
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 0 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 2 ]
 
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "OFFLINE_SOFT" ]
 
+  [ "${write_port[0]}" -eq $PORT_1 ]
+  [ "${write_port[1]}" -eq $PORT_3 ]
   [ "${read_port[0]}" -eq $PORT_1 ]
   [ "${read_port[1]}" -eq $PORT_2 ]
   [ "${read_port[2]}" -eq $PORT_3 ]
 
+  [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
+  [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1127,33 +1218,39 @@ function verify_initial_state() {
   run mysql_exec "$host" "$PORT_1" "SET global pxc_maint_mode='disabled'"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $PORT_1 ]
+  [ "${write_port[0]}" -eq $PORT_3 ]
+  [ "${write_port[1]}" -eq $PORT_1 ]
   [ "${read_port[0]}" -eq $PORT_2 ]
   [ "${read_port[1]}" -eq $PORT_3 ]
   [ "${read_port[2]}" -eq $PORT_1 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1177,33 +1274,39 @@ function verify_initial_state() {
   run mysql_exec "$host" "$PORT_3" "SET global pxc_maint_mode='disabled'"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "ONLINE" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $PORT_1 ]
+  [ "${write_port[0]}" -eq $PORT_3 ]
+  [ "${write_port[1]}" -eq $PORT_1 ]
   [ "${read_port[0]}" -eq $PORT_1 ]
   [ "${read_port[1]}" -eq $PORT_2 ]
   [ "${read_port[2]}" -eq $PORT_3 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1273,12 +1376,14 @@ function verify_initial_state() {
   run mysql_exec "$CLUSTER_HOSTNAME" "$PORT_SLAVE1" "STOP SLAVE"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -1318,12 +1423,14 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
   sleep 3
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -1374,12 +1481,14 @@ function verify_initial_state() {
   run mysql_exec "$CLUSTER_HOSTNAME" "$PORT_SLAVE1" "STOP SLAVE SQL_THREAD"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -1418,12 +1527,14 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
   sleep 3
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -1461,12 +1572,14 @@ function verify_initial_state() {
   run mysql_exec "$CLUSTER_HOSTNAME" "$PORT_SLAVE1" "STOP SLAVE IO_THREAD"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -1505,12 +1618,14 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
   sleep 3
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -1585,34 +1700,40 @@ function verify_initial_state() {
   run $PXC_BASEDIR/bin/mysqladmin $pxc_socket2 -u root shutdown
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 1 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
-  [ "${read_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
+  [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $PORT_3 ]
+  [ "${write_port[0]}" -eq $PORT_1 ]
+  [ "${write_port[1]}" -eq $PORT_3 ]
   [[ $PORT_1 -eq ${read_port[0]} || $PORT_1 -eq ${read_port[1]} ]]
   [[ $PORT_2 -eq ${read_port[0]} || $PORT_2 -eq ${read_port[1]} ]]
   [ "${read_port[2]}" -eq $PORT_3 ]
   [ "${slave_port[0]}" -eq $PORT_SLAVE1 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1621,34 +1742,40 @@ function verify_initial_state() {
   [ "${slave_hostgroup[0]}" -eq $READ_HOSTGROUP_ID ]
 
   # rerun
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 1 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $PORT_3 ]
+  [ "${write_port[0]}" -eq $PORT_1 ]
+  [ "${write_port[1]}" -eq $PORT_3 ]
   [[ $PORT_1 -eq ${read_port[0]} || $PORT_1 -eq ${read_port[1]} ]]
   [[ $PORT_2 -eq ${read_port[0]} || $PORT_2 -eq ${read_port[1]} ]]
   [ "${read_port[2]}" -eq $PORT_3 ]
   [ "${slave_port[0]}" -eq $PORT_SLAVE1 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1661,27 +1788,35 @@ function verify_initial_state() {
   run $PXC_BASEDIR/bin/mysqladmin $pxc_socket3 -u root shutdown
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 0 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 1 ]
 
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
-  [ "${read_status[2]}" = "OFFLINE_SOFT" ]
+  [ "${read_status[2]}" = "OFFLINE_HARD" ]
 
   [ "${read_port[2]}" -eq $PORT_3 ]
 
+  [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
+  [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1691,27 +1826,35 @@ function verify_initial_state() {
   [ "${slave_hostgroup[0]}" -eq $READ_HOSTGROUP_ID ]
 
   # rerun, should move all nodes to OFFLINE_HARD
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 0 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 1 ]
 
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[2]}" = "OFFLINE_HARD" ]
 
   [ "${read_port[2]}" -eq $PORT_3 ]
 
+  [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
+  [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1721,27 +1864,35 @@ function verify_initial_state() {
   [ "${slave_hostgroup[0]}" -eq $READ_HOSTGROUP_ID ]
 
   # rerun, should have no change
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 0 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 1 ]
 
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[2]}" = "OFFLINE_HARD" ]
 
   [ "${read_port[2]}" -eq $PORT_3 ]
 
+  [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
+  [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1756,26 +1907,35 @@ function verify_initial_state() {
   run mysql_exec "$CLUSTER_HOSTNAME" "$PORT_SLAVE1" "STOP SLAVE"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 0 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 1 ]
 
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[2]}" = "OFFLINE_HARD" ]
+
   [ "${read_port[2]}" -eq $PORT_3 ]
 
+  [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
+  [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1783,26 +1943,35 @@ function verify_initial_state() {
   [ "${slave_status[0]}" = "OFFLINE_HARD" ]
   [ "${slave_hostgroup[0]}" -eq $READ_HOSTGROUP_ID ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 0 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 1 ]
 
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[2]}" = "OFFLINE_HARD" ]
+
   [ "${read_port[2]}" -eq $PORT_3 ]
 
+  [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
+  [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1817,26 +1986,35 @@ function verify_initial_state() {
   run mysql_exec "$CLUSTER_HOSTNAME" "$PORT_SLAVE1" "START SLAVE"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 0 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 1 ]
 
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[2]}" = "OFFLINE_HARD" ]
+
   [ "${read_port[2]}" -eq $PORT_3 ]
 
+  [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
+  [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1852,34 +2030,40 @@ function verify_initial_state() {
   restart_server "$restart_cmd1" "$restart_user1" "bootstrap"
   wait_for_server_start $pxc_socket1 1
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 1 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $PORT_1 ]
+  [ "${write_port[0]}" -eq $PORT_3 ]
+  [ "${write_port[1]}" -eq $PORT_1 ]
 
   [ "${read_port[0]}" -eq $PORT_2 ]
   [ "${read_port[1]}" -eq $PORT_3 ]
   [ "${read_port[2]}" -eq $PORT_1 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1898,34 +2082,40 @@ function verify_initial_state() {
   restart_server "$restart_cmd3" "$restart_user3"
   wait_for_server_start $pxc_socket3 3
 
-  run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
+  echo "$LINENO Running the galera checker" >&2
+  run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO' --debug")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#slave_host[@]}" -eq 1 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "ONLINE" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $PORT_1 ]
+  [ "${write_port[0]}" -eq $PORT_3 ]
+  [ "${write_port[1]}" -eq $PORT_1 ]
   [ "${read_port[0]}" -eq $PORT_1 ]
   [ "${read_port[1]}" -eq $PORT_2 ]
   [ "${read_port[2]}" -eq $PORT_3 ]
   [ "${slave_port[0]}" -eq $PORT_SLAVE1 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1942,7 +2132,7 @@ function verify_initial_state() {
   # PREPARE for the test
   # ========================================================
   test_preparation
-  #verify_initial_state
+  verify_initial_state
 
   # Store some special variables
   retrieve_writer_info
@@ -1958,12 +2148,14 @@ function verify_initial_state() {
   run mysql_exec "$host" "$PORT_3" "SET global pxc_maint_mode='maintenance'"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -1997,12 +2189,14 @@ function verify_initial_state() {
   run mysql_exec "$host" "$PORT_1" "SET global pxc_maint_mode='maintenance'"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -2033,29 +2227,35 @@ function verify_initial_state() {
   [ "${slave_hostgroup[0]}" -eq $READ_HOSTGROUP_ID ]
 
   # Rerun the checker, should remove the offline writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 0 ]
+  [ "${#write_host[@]}" -eq 1 ]
   [ "${#slave_host[@]}" -eq 1 ]
 
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "OFFLINE_SOFT" ]
 
+  [ "${write_port[0]}" -eq $PORT_1 ]
   [ "${read_port[0]}" -eq $PORT_1 ]
   [ "${read_port[1]}" -eq $PORT_2 ]
   [ "${read_port[2]}" -eq $PORT_3 ]
 
+  [ "${write_comment[0]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
+  [ "${write_weight[0]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -2065,29 +2265,35 @@ function verify_initial_state() {
   [ "${slave_hostgroup[0]}" -eq $READ_HOSTGROUP_ID ]
 
   # Rerun the checker, should show no change
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 0 ]
+  [ "${#write_host[@]}" -eq 1 ]
   [ "${#slave_host[@]}" -eq 1 ]
 
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "OFFLINE_SOFT" ]
 
+  [ "${write_port[0]}" -eq $PORT_1 ]
   [ "${read_port[0]}" -eq $PORT_1 ]
   [ "${read_port[1]}" -eq $PORT_2 ]
   [ "${read_port[2]}" -eq $PORT_3 ]
 
+  [ "${write_comment[0]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
+  [ "${write_weight[0]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -2103,29 +2309,35 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # Run the checker
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 0 ]
+  [ "${#write_host[@]}" -eq 1 ]
   [ "${#slave_host[@]}" -eq 1 ]
 
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "OFFLINE_SOFT" ]
 
+  [ "${write_port[0]}" -eq $PORT_1 ]
   [ "${read_port[0]}" -eq $PORT_1 ]
   [ "${read_port[1]}" -eq $PORT_2 ]
   [ "${read_port[2]}" -eq $PORT_3 ]
 
+  [ "${write_comment[0]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
+  [ "${write_weight[0]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -2140,29 +2352,35 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # Run the checker
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 0 ]
+  [ "${#write_host[@]}" -eq 1 ]
   [ "${#slave_host[@]}" -eq 1 ]
 
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "OFFLINE_SOFT" ]
 
+  [ "${write_port[0]}" -eq $PORT_1 ]
   [ "${read_port[0]}" -eq $PORT_1 ]
   [ "${read_port[1]}" -eq $PORT_2 ]
   [ "${read_port[2]}" -eq $PORT_3 ]
 
+  [ "${write_comment[0]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
+  [ "${write_weight[0]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -2178,12 +2396,14 @@ function verify_initial_state() {
   run mysql_exec "$host" "$PORT_1" "SET global pxc_maint_mode='disabled'"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -2224,12 +2444,14 @@ function verify_initial_state() {
   run mysql_exec "$host" "$PORT_3" "SET global pxc_maint_mode='disabled'"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='async-slave $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
   retrieve_slave_info
+  dump_nodes "async-slave $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]

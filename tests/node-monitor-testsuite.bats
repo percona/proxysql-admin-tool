@@ -122,6 +122,7 @@ function verify_initial_state() {
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "node-monitor $LINENO"
 
   # Check the initial setup (3 rows in the table, all ONLINE)
   [ "${#read_host[@]}" -eq 3 ]
@@ -175,11 +176,13 @@ function verify_initial_state() {
 
   # Run the node monitor
   # (Nothing should have changed)
+  echo "$LINENO Running the node monitor" >&2
   run $(${NODE_MONITOR} ${NODE_MONITOR_ARGS} --log-text="node-monitor $LINENO")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "node-monitor $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -201,6 +204,7 @@ function verify_initial_state() {
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "node-monitor $LINENO"
 
   [ "${#read_host[@]}" -eq 2 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -215,11 +219,13 @@ function verify_initial_state() {
 
   # Run the node monitor
   # The ndde should have been reinserted into ProxySQL
+  echo "$LINENO Running the node monitor" >&2
   run $(${NODE_MONITOR} ${NODE_MONITOR_ARGS} --log-text="node-monitor $LINENO")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "node-monitor $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -267,11 +273,13 @@ function verify_initial_state() {
 
   # Run the node monitor
   # (Nothing should have changed)
+  echo "$LINENO Running the node monitor" >&2
   run $(${NODE_MONITOR} ${NODE_MONITOR_ARGS} --log-text="node-monitor $LINENO")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "node-monitor $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -293,6 +301,7 @@ function verify_initial_state() {
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "node-monitor $LINENO"
 
   [ "${#read_host[@]}" -eq 2 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -307,11 +316,13 @@ function verify_initial_state() {
 
   # Run the node monitor
   # The ndde should have been reinserted into ProxySQL
+  echo "$LINENO Running the node monitor" >&2
   run $(${NODE_MONITOR} ${NODE_MONITOR_ARGS} --log-text="node-monitor $LINENO" --max-connections=2222 --debug)
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "node-monitor $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]

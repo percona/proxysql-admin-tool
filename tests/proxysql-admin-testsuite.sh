@@ -495,7 +495,7 @@ if [[ ! -x $PROXYSQL_BASE/usr/bin/proxysql ]]; then
   echo "ERROR! Could not find proxysql executable : $PROXYSQL_BASE/usr/bin/proxysql"
   exit 1
 fi
-$PROXYSQL_BASE/usr/bin/proxysql -D $WORKDIR/proxysql_db $PROXYSQL_EXTRA_OPTIONS $WORKDIR/proxysql_db/proxysql.log &
+$PROXYSQL_BASE/usr/bin/proxysql --initial -D $WORKDIR/proxysql_db $PROXYSQL_EXTRA_OPTIONS $WORKDIR/proxysql_db/proxysql.log &
 echo "....ProxySQL started"
 
 
@@ -618,8 +618,6 @@ if [[ $RUN_TEST -eq 1 ]]; then
     fi
 
     if [[ $rc -ne 0 ]]; then
-      ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=$LOCALHOST_IP --port=6032 --protocol=tcp \
-        -e "select hostgroup_id,hostname,port,status,comment,max_connections from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
       echo "********************************"
       echo "* $test_file failed, the servers (ProxySQL+PXC) will be left running"
       echo "* for debugging purposes."
@@ -711,8 +709,6 @@ if [[ $RUN_TEST -eq 1 ]]; then
     fi
 
     if [[ $rc -ne 0 ]]; then
-      ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=$LOCALHOST_IP --port=6032 --protocol=tcp \
-        -e "select hostgroup_id,hostname,port,status,comment,max_connections from mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
       echo "********************************"
       echo "* $test_file failed, the servers (ProxySQL+PXC)will be left running"
       echo "* for debugging purposes."
