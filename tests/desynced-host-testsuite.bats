@@ -85,7 +85,16 @@ function test_preparation() {
 #   None
 #
 function verify_initial_state() {
-  # run twice to initialize (depends on the priority list in the scheduler)
+   # Remove any non-ONLINE writer nodes (carryover from previous tests)
+  proxysql_exec "SAVE mysql servers FROM RUNTIME"
+  [ "$?" -eq 0 ]
+
+  proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id = $WRITE_HOSTGROUP_ID AND status != 'ONLINE'"
+  [ "$?" -eq 0 ]
+
+  proxysql_exec "LOAD MYSQL SERVERS TO RUNTIME"
+  [ "$?" -eq 0 ]
+
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='desynced $LINENO'")
   echo "$GALERA_CHECKER_ARGS" >&2
   [ "$status" -eq 0 ]
@@ -96,6 +105,7 @@ function verify_initial_state() {
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "desynced-host $LINENO"
 
   # Check the initial setup (3 rows in the table, all ONLINE)
   [ "${#read_host[@]}" -eq 3 ]
@@ -204,25 +214,32 @@ function verify_initial_state() {
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "desynced-host $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
-  [ "${read_status[0]}" == "OFFLINE_SOFT" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
+  [ "${read_status[0]}" == "OFFLINE_HARD" ]
   [ "${read_status[1]}" == "OFFLINE_SOFT" ]
   [ "${read_status[2]}" == "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $port3 ]
+  [ "${write_port[0]}" -eq $port1 ]
+  [ "${write_port[1]}" -eq $port3 ]
+  [ "${read_port[0]}" -eq $port1 ]
+  [ "${read_port[1]}" -eq $port2 ]
   [ "${read_port[2]}" -eq $port3 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -234,54 +251,69 @@ function verify_initial_state() {
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "desynced-host $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" == "OFFLINE_HARD" ]
   [ "${read_status[1]}" == "OFFLINE_HARD" ]
   [ "${read_status[2]}" == "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $port3 ]
+  [ "${write_port[0]}" -eq $port1 ]
+  [ "${write_port[1]}" -eq $port3 ]
+  [ "${read_port[0]}" -eq $port1 ]
+  [ "${read_port[1]}" -eq $port2 ]
   [ "${read_port[2]}" -eq $port3 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Run the checker, should not change
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='desynced $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "desynced-host $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" == "OFFLINE_HARD" ]
   [ "${read_status[1]}" == "OFFLINE_HARD" ]
   [ "${read_status[2]}" == "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $port3 ]
+  [ "${write_port[0]}" -eq $port1 ]
+  [ "${write_port[1]}" -eq $port3 ]
+  [ "${read_port[0]}" -eq $port1 ]
+  [ "${read_port[1]}" -eq $port2 ]
   [ "${read_port[2]}" -eq $port3 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -293,30 +325,38 @@ function verify_initial_state() {
 
   # Run the checker
   # node1:down  node2:down  node3:ok
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='desynced $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "desynced-host $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" == "OFFLINE_HARD" ]
   [ "${read_status[1]}" == "OFFLINE_HARD" ]
   [ "${read_status[2]}" == "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $port3 ]
+  [ "${write_port[0]}" -eq $port1 ]
+  [ "${write_port[1]}" -eq $port3 ]
+  [ "${read_port[0]}" -eq $port1 ]
+  [ "${read_port[1]}" -eq $port2 ]
   [ "${read_port[2]}" -eq $port3 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -328,30 +368,38 @@ function verify_initial_state() {
 
   # Run the checker
   # node1:down  node2:down  node3:DESYNCED
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='desynced $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "desynced-host $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" == "OFFLINE_HARD" ]
   [ "${read_status[1]}" == "OFFLINE_HARD" ]
   [ "${read_status[2]}" == "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $port3 ]
+  [ "${write_port[0]}" -eq $port1 ]
+  [ "${write_port[1]}" -eq $port3 ]
+  [ "${read_port[0]}" -eq $port1 ]
+  [ "${read_port[1]}" -eq $port2 ]
   [ "${read_port[2]}" -eq $port3 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -363,11 +411,13 @@ function verify_initial_state() {
   wait_for_server_start $pxc_socket1 2
 
   # node1:ok  node2:down  node3:DESYNCED
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='desynced $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "desynced-host $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 2 ]
@@ -403,31 +453,37 @@ function verify_initial_state() {
 
   # Run the checker
   # node1:ok  node2:down  node3:ok
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='desynced $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "desynced-host $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" == "OFFLINE_HARD" ]
   [ "${read_status[1]}" == "OFFLINE_SOFT" ]
   [ "${read_status[2]}" == "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $port1 ]
+  [ "${write_port[0]}" -eq $port3 ]
+  [ "${write_port[1]}" -eq $port1 ]
   [ "${read_port[0]}" -eq $port2 ]
   [ "${read_port[1]}" -eq $port1 ]
   [ "${read_port[2]}" -eq $port3 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -439,31 +495,37 @@ function verify_initial_state() {
   wait_for_server_start $pxc_socket2 3
 
   # node1:ok  node2:ok  node3:ok
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='desynced $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "desynced-host $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" == "OFFLINE_SOFT" ]
   [ "${read_status[1]}" == "ONLINE" ]
   [ "${read_status[2]}" == "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $port1 ]
+  [ "${write_port[0]}" -eq $port3 ]
+  [ "${write_port[1]}" -eq $port1 ]
   [ "${read_port[0]}" -eq $port1 ]
   [ "${read_port[1]}" -eq $port2 ]
   [ "${read_port[2]}" -eq $port3 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -493,11 +555,13 @@ function verify_initial_state() {
   [ "$wsrep_status" -eq 2 ]
 
   # node1:DESYNCED  node2:ok  node3:ok
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='desynced $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "desynced-host $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 2 ]
@@ -525,29 +589,34 @@ function verify_initial_state() {
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Rerun checker
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='desynced $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "desynced-host $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" == "OFFLINE_SOFT" ]
   [ "${read_status[1]}" == "OFFLINE_SOFT" ]
   [ "${read_status[2]}" == "ONLINE" ]
 
   [[ $port1 -eq "${read_port[0]}" ]]
-  [[ ${write_port[0]} -eq ${read_port[1]} || ${write_port[0]} -eq ${read_port[2]} ]]
+  [[ ${write_port[1]} -eq ${read_port[1]} || ${write_port[1]} -eq ${read_port[2]} ]]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -558,28 +627,33 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # node1:ok  node2:ok  node3:ok
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='desynced $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "desynced-host $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" == "OFFLINE_SOFT" ]
   [ "${read_status[1]}" == "ONLINE" ]
   [ "${read_status[2]}" == "ONLINE" ]
 
-  [[ ${write_port[0]} -eq ${read_port[0]} ]]
+  [[ ${write_port[1]} -eq ${read_port[0]} ]]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -624,11 +698,13 @@ function verify_initial_state() {
 
   # desynced node should have taken over
   # 2 nodes disabled, 1 desynced node
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='desynced $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "desynced-host $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -653,11 +729,13 @@ function verify_initial_state() {
 
   # Rerun the checker (nothing should change)
   # 2 nodes disabled, 1 desynced node
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='desynced $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "desynced-host $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
@@ -688,11 +766,13 @@ function verify_initial_state() {
 
   # Run the checker
   # 2 nodes disabled, 1 node ok
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='desynced $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "desynced-host $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
@@ -723,11 +803,13 @@ function verify_initial_state() {
 
   # Run the checker
   # 2 nodes disabled, 1 desynced node
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='desynced $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "desynced-host $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
@@ -758,11 +840,13 @@ function verify_initial_state() {
 
   # node1:ok  node2:down  node3:DESYNCED
   # 1 good node, 1 node disabled, 1 desynced node
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='desynced $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "desynced-host $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 2 ]
@@ -798,31 +882,36 @@ function verify_initial_state() {
 
   # Run the checker
   # 2 nodes ok, 1 node disabled
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='desynced $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "desynced-host $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" == "OFFLINE_SOFT" ]
   [ "${read_status[1]}" == "OFFLINE_SOFT" ]
   [ "${read_status[2]}" == "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $port1 ]
+  [ "${write_port[1]}" -eq $port1 ]
   [[ ${port1} -eq ${read_port[0]} || ${port1} -eq ${read_port[1]} ]]
   [[ ${port2} -eq ${read_port[0]} || ${port2} -eq ${read_port[1]} ]]
   [ "${read_port[2]}" -eq $desync_port ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -833,31 +922,36 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # node1:ok  node2:ok  node3:ok
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='desynced $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "desynced-host $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" == "OFFLINE_SOFT" ]
   [ "${read_status[1]}" == "ONLINE" ]
   [ "${read_status[2]}" == "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $port1 ]
+  [ "${write_port[1]}" -eq $port1 ]
   [ "${read_port[0]}" -eq $port1 ]
   [[ $port2 -eq ${read_port[1]} || $port2 -eq ${read_port[2]} ]]
   [[ $desync_port -eq ${read_port[1]} || $desync_port -eq ${read_port[2]} ]]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]

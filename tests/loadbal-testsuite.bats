@@ -88,6 +88,7 @@ function verify_initial_state() {
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "loadbal $LINENO"
 
   # Check the initial setup (3 rows in the table, all ONLINE)
   [ "${#read_host[@]}" -eq 0 ]
@@ -155,11 +156,13 @@ function verify_initial_state() {
   run $PXC_BASEDIR/bin/mysqladmin $pxc_socket1 -u root shutdown
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='loadbal $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "loadbal $LINENO"
 
   [ "${#read_host[@]}" -eq 0 ]
   [ "${#write_host[@]}" -eq 3 ]
@@ -184,11 +187,13 @@ function verify_initial_state() {
   [ "${write_weight[1]}" -eq 1000 ]
   [ "${write_weight[2]}" -eq 1000 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='loadbal $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "loadbal $LINENO"
 
   [ "${#read_host[@]}" -eq 0 ]
   [ "${#write_host[@]}" -eq 3 ]
@@ -218,11 +223,13 @@ function verify_initial_state() {
   restart_server "$restart_cmd1" "$restart_user1"
   wait_for_server_start $pxc_socket1 3
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='loadbal $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "loadbal $LINENO"
 
   [ "${#read_host[@]}" -eq 0 ]
   [ "${#write_host[@]}" -eq 3 ]
@@ -264,11 +271,13 @@ function verify_initial_state() {
   run mysql_exec "$host" "$PORT_2" "SET global pxc_maint_mode='maintenance'"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='loadbal $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "loadbal $LINENO"
 
   [ "${#read_host[@]}" -eq 0 ]
   [ "${#write_host[@]}" -eq 3 ]
@@ -293,11 +302,13 @@ function verify_initial_state() {
   [ "${write_weight[1]}" -eq 1000 ]
   [ "${write_weight[2]}" -eq 1000 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='loadbal $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "loadbal $LINENO"
 
   [ "${#read_host[@]}" -eq 0 ]
   [ "${#write_host[@]}" -eq 3 ]
@@ -327,11 +338,13 @@ function verify_initial_state() {
   run mysql_exec "$host" "$PORT_2" "SET global pxc_maint_mode='disabled'"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='loadbal $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "loadbal $LINENO"
 
   [ "${#read_host[@]}" -eq 0 ]
   [ "${#write_host[@]}" -eq 3 ]
@@ -397,11 +410,13 @@ function verify_initial_state() {
   run $PXC_BASEDIR/bin/mysqladmin $pxc_socket1 -u root shutdown
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='loadbal $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "loadbal $LINENO"
 
   [ "${#read_host[@]}" -eq 0 ]
   [ "${#write_host[@]}" -eq 3 ]
@@ -426,11 +441,13 @@ function verify_initial_state() {
   [ "${write_weight[1]}" -eq 1000 ]
   [ "${write_weight[2]}" -eq 1000 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='loadbal $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "loadbal $LINENO"
 
   [ "${#read_host[@]}" -eq 0 ]
   [ "${#write_host[@]}" -eq 3 ]
@@ -460,11 +477,13 @@ function verify_initial_state() {
   restart_server "$restart_cmd3" "$restart_user3" "bootstrap"
   wait_for_server_start $pxc_socket3 1
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='loadbal $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "loadbal $LINENO"
 
   [ "${#read_host[@]}" -eq 0 ]
   [ "${#write_host[@]}" -eq 3 ]
@@ -499,11 +518,13 @@ function verify_initial_state() {
   restart_server "$restart_cmd2" "$restart_user2"
   wait_for_server_start $pxc_socket2 3
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='loadbal $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "loadbal $LINENO"
 
   [ "${#read_host[@]}" -eq 0 ]
   [ "${#write_host[@]}" -eq 3 ]
@@ -554,11 +575,13 @@ function verify_initial_state() {
   run mysql_exec "$host" "$PORT_3" "SET global pxc_maint_mode='maintenance'"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='loadbal $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "loadbal $LINENO"
 
   [ "${#read_host[@]}" -eq 0 ]
   [ "${#write_host[@]}" -eq 3 ]
@@ -583,11 +606,13 @@ function verify_initial_state() {
   [ "${write_weight[1]}" -eq 1000 ]
   [ "${write_weight[2]}" -eq 1000 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='loadbal $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "loadbal $LINENO"
 
   [ "${#read_host[@]}" -eq 0 ]
   [ "${#write_host[@]}" -eq 3 ]
@@ -617,11 +642,13 @@ function verify_initial_state() {
   run mysql_exec "$host" "$PORT_2" "SET global pxc_maint_mode='disabled'"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='loadbal $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "loadbal $LINENO"
 
   [ "${#read_host[@]}" -eq 0 ]
   [ "${#write_host[@]}" -eq 3 ]
@@ -656,11 +683,13 @@ function verify_initial_state() {
   run mysql_exec "$host" "$PORT_3" "SET global pxc_maint_mode='disabled'"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='loadbal $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "loadbal $LINENO"
 
   [ "${#read_host[@]}" -eq 0 ]
   [ "${#write_host[@]}" -eq 3 ]

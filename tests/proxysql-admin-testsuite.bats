@@ -39,6 +39,7 @@ WSREP_CLUSTER_NAME=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
   #get values from PXC and ProxySQL side
   wsrep_cluster_count=$(cluster_exec "show status like 'wsrep_cluster_size'" | awk '{print $2}')
   proxysql_cluster_count=$(proxysql_exec "select count(*) from mysql_servers where hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID) " | awk '{print $0}')
+  echo "wsrep_cluster_count:$wsrep_cluster_count  proxysql_cluster_count:$proxysql_cluster_count" >&2
   [ "$wsrep_cluster_count" -eq "$proxysql_cluster_count" ]
 }
 
@@ -55,9 +56,9 @@ WSREP_CLUSTER_NAME=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 @test "run proxysql-admin --syncusers ($WSREP_CLUSTER_NAME)" {
-run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers
-echo "$output"
-    [ "$status" -eq  0 ]
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers
+  echo "$output"
+  [ "$status" -eq  0 ]
 }
 
 @test "run the check for --syncusers ($WSREP_CLUSTER_NAME)" {
@@ -104,9 +105,9 @@ echo "$output"
   [ "$(echo \"$mysql_servers\"|md5sum)" = "$(echo \"$runtime_mysql_servers\"|md5sum)" ]
 
   # shutdown writer
-  pxc_socket=$(ps aux|grep "mysqld"|grep "port=$first_writer_port "|sed 's:^.* /:/:'|grep -o "\-\-socket=[^ ]* ")
+  pxc_socket=$(ps aux|grep "mysqld"|grep "port=$first_writer_port "|sed 's:^.* /:/:'|grep -o "\-\-socket=[^ ]* " | cut -d'=' -f2)
   echo "Sending shutdown to $pxc_socket" >&2
-  run $PXC_BASEDIR/bin/mysqladmin $pxc_socket -u root shutdown
+  run $PXC_BASEDIR/bin/mysqladmin --socket=$pxc_socket --user=root shutdown
   [ "$status" -eq 0 ]
 
   # This value is highly dependent on the PXC shutdown period
@@ -114,10 +115,16 @@ echo "$output"
   wait_for_server_shutdown $pxc_socket 2
   [[ $? -eq 0 ]]
 
-  # Wait a little extra time to ensure that the proxysql_galera_checker
-  # was invoked
-  sleep 15
+  # Invoke the galera_checker
+  local sched_id
+  sched_id=$(proxysql_exec "SELECT id FROM scheduler WHERE arg1 like '% --write-hg=$WRITE_HOSTGROUP_ID %'")
+  GALERA_CHECKER=$(proxysql_exec "SELECT filename FROM scheduler WHERE id=$sched_id")
+  GALERA_CHECKER_ARGS=$(proxysql_exec "SELECT arg1 FROM scheduler WHERE id=$sched_id")
+  run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='proxysql-admin $LINENO'")
+  [ "$status" -eq 0 ]
+
   nr_nodes=$(proxysql_exec "select count(*) from mysql_servers where status='ONLINE' and hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID);")
+  echo "nr_nodes = $nr_nodes" >& 2
   [ "$nr_nodes" -eq 2 ]
 
   # check new writer info
@@ -132,7 +139,12 @@ echo "$output"
   # remove the "--wsrep-new-cluster" from the command-line (no bootstrap)
   first_writer_start_cmd=$(echo "$first_writer_start_cmd" | sed "s/\-\-wsrep-new-cluster//g")
   nohup $first_writer_start_cmd --user=$first_writer_start_user 3>&- &
-  sleep 15
+  wait_for_server_start "$pxc_socket" 3
+  [[ $? -eq 0 ]]
+
+  run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='proxysql-admin $LINENO'")
+  [ "$status" -eq 0 ]
+
   nr_nodes=$(proxysql_exec "select count(*) from mysql_servers where status='ONLINE' and hostgroup_id in ($WRITE_HOSTGROUP_ID,$READ_HOSTGROUP_ID);" 2>/dev/null)
   [ "$nr_nodes" = "3" ]
 

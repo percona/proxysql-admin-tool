@@ -619,6 +619,7 @@ function update_cluster() {
       #
       # If OFFLINE_SOFT, move to OFFLINE_HARD
       #
+
       log $LINENO "Cluster node ${ws_hg_id}:${i} does not exist in PXC! Changing status from OFFLINE_SOFT to OFFLINE_HARD"
       proxysql_exec $LINENO "UPDATE mysql_servers set status='OFFLINE_HARD' WHERE hostname='$ws_ip' and port=$ws_port"
       check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check ProxySQL login credentials"
@@ -668,7 +669,7 @@ function update_cluster() {
       if [ "$ws_status" == "OFFLINE_HARD" ]; then
         # The node was OFFLINE_HARD, but its now in the cluster list
         # so lets make it OFFLINE_SOFT
-        proxysql_exec $LINENO "UPDATE mysql_servers set status = 'OFFLINE_SOFT', weight=1000 WHERE hostname='$ws_ip' and port=$ws_port;"
+        proxysql_exec $LINENO "UPDATE mysql_servers set status = 'OFFLINE_SOFT' WHERE hostname='$ws_ip' and port=$ws_port;"
         check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster node $i in the ProxySQL database, Please check the ProxySQL login credentials"
         log_if_success $LINENO $? "${ws_hg_id}:${i} node set to OFFLINE_SOFT status to ProxySQL database."
         CHECK_STATUS=1
@@ -693,7 +694,7 @@ function move_writers_to_readers() {
   local offline_writers=$1
 
   debug $LINENO "$offline_writers"
-  printf "$offline_writers" | while read host port hostgroup || [ -n "$hostgroup" ]
+  printf "$offline_writers" | while read host port hostgroup status || [ -n "$hostgroup" ]
   do
     local read_count
 
@@ -702,17 +703,25 @@ function move_writers_to_readers() {
     read_count=$(proxysql_exec $LINENO "SELECT COUNT(*) FROM mysql_servers WHERE hostgroup_id=$READ_HOSTGROUP_ID AND hostname='$host' AND port=$port")
     if [[ $read_count -ne 0 ]]; then
       # If node is already a READER, update the READER
-      proxysql_exec $LINENO "UPDATE mysql_servers SET status='OFFLINE_SOFT',hostgroup_id=$READ_HOSTGROUP_ID, comment='READ', weight=1000 WHERE hostgroup_id=$READ_HOSTGROUP_ID AND hostname='$host' AND port=$port"
-      check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check ProxySQL login credentials"
-      log_if_success $LINENO $? "Changed OFFLINE_SOFT writer to a reader ($READ_HOSTGROUP_ID:$host:$port)"
-
-      # Delete the WRITER (so that we don't get here again)
-      proxysql_exec $LINENO "DELETE FROM mysql_servers WHERE hostgroup_id=$hostgroup AND hostname='$host' AND port=$port"
+      if [[ $status == 'ONLINE' ]]; then
+        proxysql_exec $LINENO "UPDATE mysql_servers SET status='OFFLINE_SOFT',hostgroup_id=$READ_HOSTGROUP_ID, comment='READ', weight=1000 WHERE hostgroup_id=$READ_HOSTGROUP_ID AND hostname='$host' AND port=$port"
+        check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check ProxySQL login credentials"
+        log_if_success $LINENO $? "Changed OFFLINE_SOFT writer to a reader ($READ_HOSTGROUP_ID:$host:$port)"
+      fi
     else
-      # If node is not a reader, change from WRITER to READER
-      proxysql_exec $LINENO "UPDATE mysql_servers SET status='OFFLINE_SOFT',hostgroup_id=$READ_HOSTGROUP_ID, comment='READ', weight=1000 WHERE hostgroup_id=$hostgroup AND hostname='$host' AND port=$port"
-      check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check ProxySQL login credentials"
-      log_if_success $LINENO $? "Changed OFFLINE_SOFT writer to a reader ($READ_HOSTGROUP_ID:$host:$port)"
+      if [[ $status == "ONLINE" ]]; then
+        local address
+        address=$(combine_ip_port_into_address "$host" "$port")
+
+        # If node is not a reader, add node as a reader
+        debug $LINENO "Node is not a reader, adding node as a reader"
+
+        proxysql_exec $LINENO \
+              "INSERT INTO mysql_servers (hostname,hostgroup_id,port,status,weight,comment,max_connections)
+                  VALUES ('$host',$READ_HOSTGROUP_ID,$port,'OFFLINE_SOFT',1000,'READ',$MAX_CONNECTIONS);"
+        check_cmd $LINENO $? "Cannot add Percona XtraDB Cluster reader node in ProxySQL database, Please check ProxySQL login credentials"
+        log $LINENO "Adding server $READ_HOSTGROUP_ID:$address with status OFFLINE_SOFT."
+      fi
     fi
   done
 }
@@ -734,7 +743,7 @@ function mode_change_check(){
 
   # Check if the current writer is in an OFFLINE_SOFT state
   local offline_writers
-  offline_writers=$(proxysql_exec $LINENO "SELECT hostname,port,hostgroup_id from mysql_servers where comment in ('WRITE', 'READWRITE') and status <> 'ONLINE' and hostgroup_id in ($WRITE_HOSTGROUP_ID)")
+  offline_writers=$(proxysql_exec $LINENO "SELECT hostname,port,hostgroup_id,status from mysql_servers where comment in ('WRITE', 'READWRITE') and status <> 'ONLINE' and hostgroup_id in ($WRITE_HOSTGROUP_ID)")
   if [[ -n $offline_writers ]]; then
     #
     # Found a writer node that was in 'OFFLINE_SOFT' state,

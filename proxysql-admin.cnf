@@ -13,7 +13,7 @@ export CLUSTER_PORT='3306'
 
 # proxysql monitoring user. proxysql admin script will create this user in pxc to monitor pxc-nodes.
 export MONITOR_USERNAME='monitor'
-export MONITOR_PASSWORD='monit0r'
+export MONITOR_PASSWORD='monitor'
 
 # Application user to connect to pxc-node through proxysql
 export CLUSTER_APP_USERNAME='proxysql_user'

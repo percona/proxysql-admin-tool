@@ -110,6 +110,20 @@ function verify_initial_state() {
   echo "$GALERA_CHECKER_ARGS" >&2
   [ "$status" -eq 0 ]
 
+  # Remove any non-ONLINE writer nodes (carryover from previous tests)
+  proxysql_exec "SAVE mysql servers FROM RUNTIME"
+  [ "$?" -eq 0 ]
+
+  proxysql_exec "DELETE FROM mysql_servers WHERE hostgroup_id = $WRITE_HOSTGROUP_ID AND status != 'ONLINE'"
+  [ "$?" -eq 0 ]
+
+  proxysql_exec "LOAD MYSQL SERVERS TO RUNTIME"
+  [ "$?" -eq 0 ]
+
+  run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
+  echo "$GALERA_CHECKER_ARGS" >&2
+  [ "$status" -eq 0 ]
+
   retrieve_reader_info
   retrieve_writer_info
 
@@ -185,92 +199,101 @@ function verify_initial_state() {
   $PXC_BASEDIR/bin/mysqladmin $PXC_SOCKET1 -u root shutdown
 
   # Run the checker, should move writer to OFFLINE_SOFT reader
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
-  [ "${read_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
+  [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$PORT_NOPRIO" ]
-  [ "${read_port[0]}" -eq "$PORT_2" ]
-  [ "${read_port[1]}" -eq "$PORT_1" ]
+  [ "${write_port[1]}" -eq "$PORT_NOPRIO" ]
   [ "${read_port[2]}" -eq "$PORT_NOPRIO" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Rerun the checker, should move OFFLINE_SOFT to OFFLINE_HARD
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$PORT_NOPRIO" ]
-  [ "${read_port[0]}" -eq "$PORT_2" ]
-  [ "${read_port[1]}" -eq "$PORT_1" ]
+  [ "${write_port[1]}" -eq "$PORT_NOPRIO" ]
   [ "${read_port[2]}" -eq "$PORT_NOPRIO" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Rerun the checker, should not change
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$PORT_NOPRIO" ]
-  [ "${read_port[0]}" -eq "$PORT_2" ]
-  [ "${read_port[1]}" -eq "$PORT_1" ]
+  [ "${write_port[1]}" -eq "$PORT_NOPRIO" ]
   [ "${read_port[2]}" -eq "$PORT_NOPRIO" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -282,11 +305,13 @@ function verify_initial_state() {
 
   # Run the checker, should make PORT_1 the writer
   # and taking the previous writer OFFLINE_SOFT
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#write_host[@]}" -eq 2 ]
   [ "${#read_host[@]}" -eq 3 ]
@@ -304,11 +329,13 @@ function verify_initial_state() {
   [ "${read_port[2]}" -eq $PORT_NOPRIO ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -319,31 +346,37 @@ function verify_initial_state() {
   wait_for_server_start $PXC_SOCKET2 3
 
   # Run the checker, should keep PORT_1 the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#read_host[@]}" -eq 3 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "ONLINE" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $PORT_1 ]
+  [ "${write_port[0]}" -eq $PORT_NOPRIO ]
+  [ "${write_port[1]}" -eq $PORT_1 ]
   [ "${read_port[0]}" -eq $PORT_1 ]
   [ "${read_port[1]}" -eq $PORT_NOPRIO ]
   [ "${read_port[2]}" -eq $PORT_2 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -374,47 +407,56 @@ function verify_initial_state() {
   $PXC_BASEDIR/bin/mysqladmin $PXC_SOCKET2 -u root shutdown
 
   # Run the checker, should move writer to OFFLINE_SOFT reader
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
-  [ "${read_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
+  [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$PORT_NOPRIO" ]
-  [ "${read_port[0]}" -eq "$PORT_2" ]
-  [ "${read_port[1]}" -eq "$PORT_1" ]
+  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${write_port[1]}" -eq "$PORT_NOPRIO" ]
+  [ "${read_port[0]}" -eq "$PORT_1" ]
+  [ "${read_port[1]}" -eq "$PORT_2" ]
   [ "${read_port[2]}" -eq "$PORT_NOPRIO" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Rerun the checker, should move OFFLINE_SOFT to OFFLINE_HARD
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[2]}" = "ONLINE" ]
@@ -422,14 +464,17 @@ function verify_initial_state() {
   [[ "${read_port[0]}" -eq $PORT_1 || "${read_port[0]}" -eq $PORT_2 ]]
   [[ "${read_port[1]}" -eq $PORT_1 || "${read_port[1]}" -eq $PORT_2 ]]
   [ "${read_port[2]}" -eq "$PORT_NOPRIO" ]
-  [ "${write_port[0]}" -eq "$PORT_NOPRIO" ]
+  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${write_port[1]}" -eq "$PORT_NOPRIO" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -440,65 +485,81 @@ function verify_initial_state() {
   wait_for_server_start $PXC_SOCKET2 2
 
   # Run the checker, should keep PORT_2 the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
-  [ "${#write_host[@]}" -eq 2 ]
+  [ "${#write_host[@]}" -eq 3 ]
   [ "${#read_host[@]}" -eq 3 ]
 
-  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
-  [ "${write_status[1]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[2]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $PORT_NOPRIO ]
-  [ "${write_port[1]}" -eq $PORT_2 ]
+  [ "${write_port[0]}" -eq $PORT_1 ]
+  [ "${write_port[1]}" -eq $PORT_NOPRIO ]
+  [ "${write_port[2]}" -eq $PORT_2 ]
   [ "${read_port[0]}" -eq $PORT_1 ]
   [ "${read_port[1]}" -eq $PORT_2 ]
   [ "${read_port[2]}" -eq $PORT_NOPRIO ]
 
   [ "${write_comment[0]}" = "WRITE" ]
   [ "${write_comment[1]}" = "WRITE" ]
+  [ "${write_comment[2]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
   [ "${write_weight[1]}" -eq 1000000 ]
+  [ "${write_weight[2]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Run the checker, removes offline writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 3 ]
   [ "${#read_host[@]}" -eq 3 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[2]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $PORT_2 ]
+  [ "${write_port[0]}" -eq $PORT_1 ]
+  [ "${write_port[1]}" -eq $PORT_NOPRIO ]
+  [ "${write_port[2]}" -eq $PORT_2 ]
   [ "${read_port[0]}" -eq $PORT_1 ]
   [ "${read_port[1]}" -eq $PORT_2 ]
   [ "${read_port[2]}" -eq $PORT_NOPRIO ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
+  [ "${write_comment[2]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
+  [ "${write_weight[2]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -509,65 +570,81 @@ function verify_initial_state() {
   wait_for_server_start $PXC_SOCKET1 3
 
   # Run the checker, should make PORT_1 the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
-  [ "${#write_host[@]}" -eq 2 ]
+  [ "${#write_host[@]}" -eq 3 ]
   [ "${#read_host[@]}" -eq 3 ]
 
   [ "${write_status[0]}" = "OFFLINE_SOFT" ]
-  [ "${write_status[1]}" = "ONLINE" ]
+  [ "${write_status[1]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[2]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "ONLINE" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $PORT_2 ]
-  [ "${write_port[1]}" -eq $PORT_1 ]
+  [ "${write_port[0]}" -eq $PORT_NOPRIO ]
+  [ "${write_port[1]}" -eq $PORT_2 ]
+  [ "${write_port[2]}" -eq $PORT_1 ]
   [ "${read_port[0]}" -eq $PORT_1 ]
   [ "${read_port[1]}" -eq $PORT_NOPRIO ]
   [ "${read_port[2]}" -eq $PORT_2 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
   [ "${write_comment[1]}" = "WRITE" ]
+  [ "${write_comment[2]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
   [ "${write_weight[1]}" -eq 1000000 ]
+  [ "${write_weight[2]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Run the checker, should make PORT_1 the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 3 ]
   [ "${#read_host[@]}" -eq 3 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[2]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "ONLINE" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq $PORT_1 ]
+  [ "${write_port[0]}" -eq $PORT_NOPRIO ]
+  [ "${write_port[1]}" -eq $PORT_2 ]
+  [ "${write_port[2]}" -eq $PORT_1 ]
   [ "${read_port[0]}" -eq $PORT_1 ]
   [ "${read_port[1]}" -eq $PORT_NOPRIO ]
   [ "${read_port[2]}" -eq $PORT_2 ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
+  [ "${write_comment[2]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
+  [ "${write_weight[2]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -598,11 +675,13 @@ function verify_initial_state() {
   $PXC_BASEDIR/bin/mysqladmin $PXC_SOCKET0 -u root shutdown
 
   # Run the checker, should move writer to OFFLINE_SOFT reader
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
@@ -629,11 +708,13 @@ function verify_initial_state() {
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Run the checker, should move writer to OFFLINE_SOFT reader
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
@@ -665,11 +746,13 @@ function verify_initial_state() {
   wait_for_server_start $PXC_SOCKET0 2
 
   # Run the checker, PORT_1 should stay the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#write_host[@]}" -eq 1 ]
   [ "${#read_host[@]}" -eq 3 ]
@@ -700,11 +783,13 @@ function verify_initial_state() {
   wait_for_server_start $PXC_SOCKET2 3
 
   # Run the checker, PORT_1 should stay the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#write_host[@]}" -eq 1 ]
   [ "${#read_host[@]}" -eq 3 ]
@@ -730,11 +815,13 @@ function verify_initial_state() {
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Run the checker, (no change)
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#write_host[@]}" -eq 1 ]
   [ "${#read_host[@]}" -eq 3 ]
@@ -785,11 +872,13 @@ function verify_initial_state() {
   $PXC_BASEDIR/bin/mysqladmin $PXC_SOCKET2 -u root shutdown
 
   # Run the checker, should move writer to OFFLINE_SOFT reader
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
@@ -816,11 +905,13 @@ function verify_initial_state() {
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Run the checker again, should move nodes to OFFLINE_HARD reader
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
@@ -857,6 +948,7 @@ function verify_initial_state() {
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#write_host[@]}" -eq 1 ]
   [ "${#read_host[@]}" -eq 3 ]
@@ -887,11 +979,13 @@ function verify_initial_state() {
   wait_for_server_start $PXC_SOCKET0 3
 
   # Run the checker, PORT_1 should stay the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#write_host[@]}" -eq 1 ]
   [ "${#read_host[@]}" -eq 3 ]
@@ -942,63 +1036,75 @@ function verify_initial_state() {
   $PXC_BASEDIR/bin/mysqladmin $PXC_SOCKET0 -u root shutdown
 
   # Run the checker, should move writer to OFFLINE_SOFT reader
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
-  [ "${read_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
+  [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$PORT_2" ]
-  [ "${read_port[0]}" -eq "$PORT_NOPRIO" ]
-  [ "${read_port[1]}" -eq "$PORT_1" ]
+  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${write_port[1]}" -eq "$PORT_2" ]
+  [ "${read_port[0]}" -eq "$PORT_1" ]
+  [ "${read_port[1]}" -eq "$PORT_NOPRIO" ]
   [ "${read_port[2]}" -eq "$PORT_2" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Run the checker again, should move nodes to OFFLINE_HARD reader
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$PORT_2" ]
+  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${write_port[1]}" -eq "$PORT_2" ]
   [ "${read_port[0]}" -eq "$PORT_NOPRIO" ]
   [ "${read_port[1]}" -eq "$PORT_1" ]
   [ "${read_port[2]}" -eq "$PORT_2" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1009,31 +1115,37 @@ function verify_initial_state() {
   wait_for_server_start $PXC_SOCKET0 2
 
   # Run the checker, PORT_2 should stay the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#read_host[@]}" -eq 3 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$PORT_2" ]
+  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${write_port[1]}" -eq "$PORT_2" ]
   [ "${read_port[0]}" -eq "$PORT_1" ]
   [ "${read_port[1]}" -eq "$PORT_2" ]
   [ "${read_port[2]}" -eq "$PORT_NOPRIO" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1044,11 +1156,13 @@ function verify_initial_state() {
   wait_for_server_start $PXC_SOCKET1 3
 
   # Run the checker, PORT_1 should become the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#write_host[@]}" -eq 2 ]
   [ "${#read_host[@]}" -eq 3 ]
@@ -1078,31 +1192,37 @@ function verify_initial_state() {
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Run the checker again
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#read_host[@]}" -eq 3 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "ONLINE" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${write_port[0]}" -eq "$PORT_2" ]
+  [ "${write_port[1]}" -eq "$PORT_1" ]
   [ "${read_port[0]}" -eq "$PORT_1" ]
   [ "${read_port[1]}" -eq "$PORT_NOPRIO" ]
   [ "${read_port[2]}" -eq "$PORT_2" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1133,63 +1253,75 @@ function verify_initial_state() {
   $PXC_BASEDIR/bin/mysqladmin $PXC_SOCKET1 -u root shutdown
 
   # Run the checker, should move writer to OFFLINE_SOFT reader
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
-  [ "${read_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
+  [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$PORT_2" ]
-  [ "${read_port[0]}" -eq "$PORT_NOPRIO" ]
-  [ "${read_port[1]}" -eq "$PORT_1" ]
+  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${write_port[1]}" -eq "$PORT_2" ]
+  [ "${read_port[0]}" -eq "$PORT_1" ]
+  [ "${read_port[1]}" -eq "$PORT_NOPRIO" ]
   [ "${read_port[2]}" -eq "$PORT_2" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Run the checker again, should move nodes to OFFLINE_HARD reader
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_HARD" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$PORT_2" ]
+  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${write_port[1]}" -eq "$PORT_2" ]
   [ "${read_port[0]}" -eq "$PORT_NOPRIO" ]
   [ "${read_port[1]}" -eq "$PORT_1" ]
   [ "${read_port[2]}" -eq "$PORT_2" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1200,11 +1332,13 @@ function verify_initial_state() {
   wait_for_server_start $PXC_SOCKET1 2
 
   # Run the checker, PORT_1 should become the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#write_host[@]}" -eq 2 ]
   [ "${#read_host[@]}" -eq 3 ]
@@ -1239,31 +1373,37 @@ function verify_initial_state() {
   wait_for_server_start $PXC_SOCKET0 3
 
   # Run the checker, PORT_1 should stay the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
   [ "${#read_host[@]}" -eq 3 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "ONLINE" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${write_port[0]}" -eq "$PORT_2" ]
+  [ "${write_port[1]}" -eq "$PORT_1" ]
   [ "${read_port[0]}" -eq "$PORT_1" ]
   [ "${read_port[1]}" -eq "$PORT_NOPRIO" ]
   [ "${read_port[2]}" -eq "$PORT_2" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1298,11 +1438,13 @@ function verify_initial_state() {
   run mysql_exec "$host" "$PORT_1" "SET global pxc_maint_mode='maintenance'"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
@@ -1333,32 +1475,38 @@ function verify_initial_state() {
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Run the checker again, no changes
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline (no change)
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$PORT_NOPRIO" ]
+  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${write_port[1]}" -eq "$PORT_NOPRIO" ]
   [ "${read_port[0]}" -eq "$PORT_2" ]
   [ "${read_port[1]}" -eq "$PORT_1" ]
   [ "${read_port[2]}" -eq "$PORT_NOPRIO" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1369,11 +1517,13 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # Run the checker, node 1 should become the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
@@ -1410,31 +1560,37 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # Run the checker, node 1 should still be the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "ONLINE" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${write_port[0]}" -eq "$PORT_NOPRIO" ]
+  [ "${write_port[1]}" -eq "$PORT_1" ]
   [ "${read_port[0]}" -eq "$PORT_1" ]
   [ "${read_port[1]}" -eq "$PORT_NOPRIO" ]
   [ "${read_port[2]}" -eq "$PORT_2" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1465,11 +1621,13 @@ function verify_initial_state() {
   run mysql_exec "$host" "$PORT_2" "SET global pxc_maint_mode='maintenance'"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
@@ -1500,32 +1658,38 @@ function verify_initial_state() {
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Run the checker again, no changes
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline (no change)
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$PORT_NOPRIO" ]
+  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${write_port[1]}" -eq "$PORT_NOPRIO" ]
   [ "${read_port[0]}" -eq "$PORT_2" ]
   [ "${read_port[1]}" -eq "$PORT_1" ]
   [ "${read_port[2]}" -eq "$PORT_NOPRIO" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1536,11 +1700,13 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # Run the checker, node 1 should become the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
@@ -1571,31 +1737,37 @@ function verify_initial_state() {
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Run the checker again
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${write_port[0]}" -eq "$PORT_NOPRIO" ]
+  [ "${write_port[1]}" -eq "$PORT_1" ]
   [ "${read_port[0]}" -eq "$PORT_2" ]
   [ "${read_port[1]}" -eq "$PORT_1" ]
   [ "${read_port[2]}" -eq "$PORT_NOPRIO" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1607,31 +1779,37 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # Run the checker, node 1 should still be the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "ONLINE" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${write_port[0]}" -eq "$PORT_NOPRIO" ]
+  [ "${write_port[1]}" -eq "$PORT_1" ]
   [ "${read_port[0]}" -eq "$PORT_1" ]
   [ "${read_port[1]}" -eq "$PORT_NOPRIO" ]
   [ "${read_port[2]}" -eq "$PORT_2" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -1662,11 +1840,13 @@ function verify_initial_state() {
   run mysql_exec "$host" "$PORT_NOPRIO" "SET global pxc_maint_mode='maintenance'"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
@@ -1693,11 +1873,13 @@ function verify_initial_state() {
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Run the checker again, no changes
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline (no change)
   [ "${#read_host[@]}" -eq 3 ]
@@ -1729,11 +1911,13 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # Run the checker, node 1 should stay the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -1759,11 +1943,13 @@ function verify_initial_state() {
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Run the checker again
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -1795,11 +1981,13 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # Run the checker, node 1 should still be the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -1853,11 +2041,13 @@ function verify_initial_state() {
   run mysql_exec "$host" "$PORT_2" "SET global pxc_maint_mode='maintenance'"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline (no change)
   [ "${#read_host[@]}" -eq 3 ]
@@ -1889,11 +2079,13 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # Run the checker, node 1 should stay the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
@@ -1920,11 +2112,13 @@ function verify_initial_state() {
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Run the checker
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
@@ -1956,11 +2150,13 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # Run the checker, node 1 should stay the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
@@ -2015,11 +2211,13 @@ function verify_initial_state() {
   run mysql_exec "$host" "$PORT_NOPRIO" "SET global pxc_maint_mode='maintenance'"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline (no change)
   [ "${#read_host[@]}" -eq 3 ]
@@ -2055,11 +2253,13 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # Run the checker, node 1 should become the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
@@ -2090,32 +2290,38 @@ function verify_initial_state() {
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Run the checker
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${write_port[0]}" -eq "$PORT_2" ]
+  [ "${write_port[1]}" -eq "$PORT_1" ]
   [ "${read_port[0]}" -eq "$PORT_NOPRIO" ]
   [ "${read_port[1]}" -eq "$PORT_1" ]
   [ "${read_port[2]}" -eq "$PORT_2" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -2126,32 +2332,38 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # Run the checker, node 1 should stay the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "ONLINE" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${write_port[0]}" -eq "$PORT_2" ]
+  [ "${write_port[1]}" -eq "$PORT_1" ]
   [ "${read_port[0]}" -eq "$PORT_1" ]
   [ "${read_port[1]}" -eq "$PORT_NOPRIO" ]
   [ "${read_port[2]}" -eq "$PORT_2" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -2186,11 +2398,13 @@ function verify_initial_state() {
   run mysql_exec "$host" "$PORT_1" "SET global pxc_maint_mode='maintenance'"
   [ "$status" -eq 0 ]
 
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline (no change)
   [ "${#read_host[@]}" -eq 3 ]
@@ -2226,11 +2440,13 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # Run the checker, node 1 should become the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
@@ -2261,32 +2477,38 @@ function verify_initial_state() {
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Run the checker
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${write_port[0]}" -eq "$PORT_2" ]
+  [ "${write_port[1]}" -eq "$PORT_1" ]
   [ "${read_port[0]}" -eq "$PORT_NOPRIO" ]
   [ "${read_port[1]}" -eq "$PORT_1" ]
   [ "${read_port[2]}" -eq "$PORT_2" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -2297,32 +2519,38 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # Run the checker, node 1 should stay the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   # One write node (and read) active, two readers offline
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "ONLINE" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${write_port[0]}" -eq "$PORT_2" ]
+  [ "${write_port[1]}" -eq "$PORT_1" ]
   [ "${read_port[0]}" -eq "$PORT_1" ]
   [ "${read_port[1]}" -eq "$PORT_NOPRIO" ]
   [ "${read_port[2]}" -eq "$PORT_2" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -2361,6 +2589,7 @@ function verify_initial_state() {
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -2393,30 +2622,35 @@ function verify_initial_state() {
   $PXC_BASEDIR/bin/mysqladmin $PXC_SOCKET1 -u root shutdown
 
   # Run the checker, no change
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
-  [ "${read_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[0]}" = "OFFLINE_HARD" ]
+  [ "${write_status[1]}" = "ONLINE" ]
+  [ "${read_status[0]}" = "OFFLINE_HARD" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  writer_port=${write_port[0]}
+  writer_port=${write_port[1]}
   [[ $writer_port -eq  "${read_port[0]}" || $writer_port -eq ${read_port[1]} ]]
   [[ $PORT_1 -eq  ${read_port[0]} || $PORT_1 -eq ${read_port[1]} ]]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -2427,29 +2661,35 @@ function verify_initial_state() {
   wait_for_server_start $PXC_SOCKET1 3
 
   # Run the checker, writer should not change
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "ONLINE" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$writer_port" ]
+  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${write_port[1]}" -eq "$writer_port" ]
   [ "${read_port[0]}" -eq "$writer_port" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -2479,11 +2719,13 @@ function verify_initial_state() {
   echo $GALERA_CHECKER_ARGS >&2
 
   # Run the checker, no change
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -2524,11 +2766,13 @@ function verify_initial_state() {
   $PXC_BASEDIR/bin/mysqladmin $pxc_socket -u root shutdown
 
   # Run the checker, writer should not change
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -2553,11 +2797,13 @@ function verify_initial_state() {
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Run the checker again
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -2588,11 +2834,13 @@ function verify_initial_state() {
   wait_for_server_start $pxc_socket 3
 
   # Run the checker, writer should not change
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -2643,11 +2891,13 @@ function verify_initial_state() {
   echo $GALERA_CHECKER_ARGS >&2
 
   # Run the checker, no change
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -2680,11 +2930,13 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # Run the checker
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   new_writer_port=${write_port[1]}
 
@@ -2715,30 +2967,36 @@ function verify_initial_state() {
   [ "${read_weight[2]}" -eq 1000 ]
 
   # rerun the checker, should not change the writer
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "OFFLINE_SOFT" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${new_writer_port}" -eq "${write_port[0]}" ]
+  [ "${write_port[0]}" -eq $PORT_1 ]
+  [ "${new_writer_port}" -eq "${write_port[1]}" ]
   [[ $old_writer_port -eq ${read_port[0]} || $old_writer_port -eq ${read_port[1]} ]]
   [[ $new_writer_port -eq ${read_port[0]} || $new_writer_port -eq ${read_port[1]} ]]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -2749,29 +3007,35 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # Run the checker, writer should not change
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${#write_host[@]}" -eq 2 ]
 
-  [ "${write_status[0]}" = "ONLINE" ]
+  [ "${write_status[0]}" = "OFFLINE_SOFT" ]
+  [ "${write_status[1]}" = "ONLINE" ]
   [ "${read_status[0]}" = "OFFLINE_SOFT" ]
   [ "${read_status[1]}" = "ONLINE" ]
   [ "${read_status[2]}" = "ONLINE" ]
 
-  [ "${write_port[0]}" -eq "$new_writer_port" ]
+  [ "${write_port[0]}" -eq "$PORT_1" ]
+  [ "${write_port[1]}" -eq "$new_writer_port" ]
   [ "${read_port[0]}" -eq "$new_writer_port" ]
 
   [ "${write_comment[0]}" = "WRITE" ]
+  [ "${write_comment[1]}" = "WRITE" ]
   [ "${read_comment[0]}" = "READ" ]
   [ "${read_comment[1]}" = "READ" ]
   [ "${read_comment[2]}" = "READ" ]
 
   [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[1]}" -eq 1000000 ]
   [ "${read_weight[0]}" -eq 1000 ]
   [ "${read_weight[1]}" -eq 1000 ]
   [ "${read_weight[2]}" -eq 1000 ]
@@ -2803,11 +3067,13 @@ function verify_initial_state() {
   echo $GALERA_CHECKER_ARGS >&2
 
   # Run the checker, no change
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -2842,6 +3108,7 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # Run the checker
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
@@ -2849,11 +3116,13 @@ function verify_initial_state() {
   retrieve_writer_info
 
   # Run the checker, writer should not change
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -2878,11 +3147,13 @@ function verify_initial_state() {
   [ "${read_weight[2]}" -eq 1000 ]
 
   # Run the checker again
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -2912,11 +3183,13 @@ function verify_initial_state() {
   [ "$status" -eq 0 ]
 
   # Run the checker, writer should not change
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -2965,11 +3238,13 @@ function verify_initial_state() {
   echo $GALERA_CHECKER_ARGS >&2
 
   # Run the checker, node 1 should be the writer (original priority list)
+  echo "$LINENO Running the galera checker" >&2
   run $(${GALERA_CHECKER} "${GALERA_CHECKER_ARGS} --log-text='host-priority $LINENO'")
   [ "$status" -eq 0 ]
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 1 ]
@@ -3002,6 +3277,7 @@ function verify_initial_state() {
 
   retrieve_reader_info
   retrieve_writer_info
+  dump_nodes "host-priority $LINENO"
 
   [ "${#read_host[@]}" -eq 3 ]
   [ "${#write_host[@]}" -eq 2 ]
