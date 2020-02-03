@@ -2512,15 +2512,17 @@ function main() {
     restore_reload_check "${reload_check_file}" $save_reload_state
   fi
 
+  if [[ $DEBUG -eq 1 ]]; then
+    debug "$LINENO" "#### Dumping mysql_servers table"
+    # ignore the output, since the debug logs will show the query results
+    x=$(proxysql_exec $LINENO "-t" "SELECT hostgroup_id,hostname,port,status,comment FROM mysql_servers ORDER BY hostgroup_id,hostname,port,status;")
+    debug '' "####"
+  fi
+
   if [[ $(cat ${reload_check_file}) -ne 0 ]] ; then
       log "" "###### Loading mysql_servers config into runtime ######"
       proxysql_exec $LINENO -Ns "LOAD MYSQL SERVERS TO RUNTIME;" 2>>${ERR_FILE}
       check_cmd_and_exit $LINENO $? "Could not update the mysql_servers table in ProxySQL. Exiting."
-      if [[ $DEBUG -eq 1 ]]; then
-        debug "$LINENO" "#### Dumping mysql_servers table"
-        proxysql_exec $LINENO "" "SELECT * FROM mysql_servers;" >>${ERR_FILE} 2>&1
-        debug '' "####"
-      fi
   else
       log "" "###### Not loading mysql_servers, no change needed ######"
   fi

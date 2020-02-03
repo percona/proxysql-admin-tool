@@ -685,6 +685,7 @@ function update_cluster() {
 # Globals:
 #   READ_HOSTGROUP_ID
 #   WRITE_HOSTGROUP_ID
+#   CHECK_STATUS
 #
 # Arguments:
 #   1: A list of nodes to move to readers (entries are 'server port hostgroup')
@@ -707,6 +708,7 @@ function move_writers_to_readers() {
         proxysql_exec $LINENO "UPDATE mysql_servers SET status='OFFLINE_SOFT',hostgroup_id=$READ_HOSTGROUP_ID, comment='READ', weight=1000 WHERE hostgroup_id=$READ_HOSTGROUP_ID AND hostname='$host' AND port=$port"
         check_cmd $LINENO $? "Cannot update Percona XtraDB Cluster writer node in ProxySQL database, Please check ProxySQL login credentials"
         log_if_success $LINENO $? "Changed OFFLINE_SOFT writer to a reader ($READ_HOSTGROUP_ID:$host:$port)"
+        CHECK_STATUS=1
       fi
     else
       if [[ $status == "ONLINE" ]]; then
@@ -721,6 +723,7 @@ function move_writers_to_readers() {
                   VALUES ('$host',$READ_HOSTGROUP_ID,$port,'OFFLINE_SOFT',1000,'READ',$MAX_CONNECTIONS);"
         check_cmd $LINENO $? "Cannot add Percona XtraDB Cluster reader node in ProxySQL database, Please check ProxySQL login credentials"
         log $LINENO "Adding server $READ_HOSTGROUP_ID:$address with status OFFLINE_SOFT."
+        CHECK_STATUS=1
       fi
     fi
   done
@@ -733,7 +736,6 @@ function move_writers_to_readers() {
 #   CLUSTER_NAME
 #   WRITE_HOSTGROUP_ID  READ_HOSTGROUP_ID
 #   MODE
-#   CHECK_STATUS
 #
 # Arguments:
 #   None
@@ -751,7 +753,6 @@ function mode_change_check(){
     #
     if [ "$MODE" != "loadbal" ]; then
       move_writers_to_readers "$offline_writers"
-      CHECK_STATUS=1
     fi
   fi
 
