@@ -44,9 +44,13 @@ function mysql_exec() {
   local query=$2
   local retvalue
   local retoutput
-  retoutput=$(printf "[client]\nuser=${USER}\npassword=\"${PASSWORD}\"\nhost=${HOST}\nport=${PORT}"  \
-      | mysql --defaults-file=/dev/stdin --protocol=tcp \
-            ${args} -e "${query}")
+  if [ "$CREDENTIALS_FROM_CLIENT_CONFIG" == 0 ]; then
+      retoutput=$(printf "[client]\nuser=${USER}\npassword=\"${PASSWORD}\"\nhost=${HOST}\nport=${PORT}"  \
+          | mysql --defaults-file=/dev/stdin --protocol=tcp \
+                ${args} -e "${query}")
+  else
+      retoutput=$(mysql ${args} -e "${query}")
+  fi
   retvalue=$?
   if [[ -n $retoutput ]]; then
     retoutput+="\n"
@@ -56,6 +60,7 @@ function mysql_exec() {
 }
 
 
+declare CREDENTIALS_FROM_CLIENT_CONFIG
 declare USER
 declare PASSWORD
 declare HOST
@@ -132,16 +137,25 @@ function parse_args() {
     done
 
     if [[ $# -eq 0 ]]; then
-        if [[ ! -r /etc/proxysql-admin.cnf ]]; then
+        mysql_works_from_config=`mysql -e "SELECT 1" >/dev/null 2>/dev/null`
+        mysql_works_from_config_exit_code=$?
+
+        if [[ $mysql_works_from_config_exit_code == 0 ]]; then
+            CREDENTIALS_FROM_CLIENT_CONFIG=1
+            echo "ProxySQL admin configuration loaded from a configuration file (most likely /.my.cnf)"
+        elif [[ ! -r /etc/proxysql-admin.cnf ]]; then
             echo "Cannot find /etc/proxysql-admin.cnf."
             exit 1
+        else
+            CREDENTIALS_FROM_CLIENT_CONFIG=0
+            source /etc/proxysql-admin.cnf
+            USER=$PROXYSQL_USERNAME
+            PASSWORD=$PROXYSQL_PASSWORD
+            HOST=$PROXYSQL_HOSTNAME
+            PORT=$PROXYSQL_PORT
         fi
-        source /etc/proxysql-admin.cnf
-        USER=$PROXYSQL_USERNAME
-        PASSWORD=$PROXYSQL_PASSWORD
-        HOST=$PROXYSQL_HOSTNAME
-        PORT=$PROXYSQL_PORT
     elif [[ $# -eq 4 ]]; then
+        CREDENTIALS_FROM_CLIENT_CONFIG=0
         USER=$1
         PASSWORD=$2
         HOST=$3
