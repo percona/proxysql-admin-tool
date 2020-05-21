@@ -412,6 +412,7 @@ if [[ -z $WORKDIR ]]; then
   echo "No valid parameters were passed. Need relative workdir setting. Retry."
   exit 1
 fi
+
 trap cleanup_handler EXIT
 
 if [[ $USE_IPVERSION == "v4" ]]; then
@@ -493,6 +494,7 @@ else
 fi
 export PATH="$WORKDIR/$PXCBASE/bin:$PATH"
 export PXC_BASEDIR="${WORKDIR}/$PXCBASE"
+
 
 echo "Looking for mysql client..."
 if [[ ! -e $PXC_BASEDIR/bin/mysql ]] ;then
@@ -602,10 +604,17 @@ sudo sed -i "0,/^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*expo
 sudo sed -i "0,/^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$|export OFFLINE_HOSTGROUP_ID=\"13\"|" /etc/proxysql-admin.cnf
 
 if [[ $RUN_TEST -eq 1 ]]; then
+
+  if [ -e "/dummypathnonexisting/.mylogin.cnf" ]; then
+    error "" "/dummypathnonexisting/.mylogin.cnf found. This should not happen.";
+    exit 1
+  fi
+  export MYSQL_TEST_LOGIN_FILE="/dummypathnonexisting/.mylogin.cnf"
+
   echo ""
   echo "================================================================"
   echo "proxysql-admin generic bats test log"
-  sudo WORKDIR=$WORKDIR TERM=xterm USE_IPVERSION=$USE_IPVERSION \
+  sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION \
         bats $SCRIPT_DIR/generic-test.bats
   echo "================================================================"
   echo ""
@@ -614,7 +623,7 @@ if [[ $RUN_TEST -eq 1 ]]; then
     echo "cluster_one : $test_file"
     SECONDS=0
 
-    sudo WORKDIR=$WORKDIR TERM=xterm USE_IPVERSION=$USE_IPVERSION \
+    sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION \
           bats $SCRIPT_DIR/$test_file
     rc=$?
     if (( $SECONDS > 60 )) ; then
@@ -685,11 +694,12 @@ echo "================================================================"
 echo ""
 
 if [[ $RUN_TEST -eq 1 ]]; then
+
   for test_file in ${TEST_SUITES[@]}; do
     echo "cluster_two : $test_file"
     SECONDS=0
 
-    sudo WORKDIR=$WORKDIR TERM=xterm USE_IPVERSION=$USE_IPVERSION \
+    sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION \
           bats $SCRIPT_DIR/$test_file
     rc=$?
 

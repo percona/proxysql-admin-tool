@@ -1,5 +1,12 @@
 # Common helper file for bats test script
 
+# The minimum required openssl version
+readonly    REQUIRED_OPENSSL_VERSION="1.1.1"
+
+# The name of the openssl binary packaged with proxysql-admin
+readonly    PROXYSQL_ADMIN_OPENSSL_NAME="proxysql-admin-openssl"
+
+
 
 function exec_sql() {
   local user=$1
@@ -109,7 +116,7 @@ function get_node_data() {
 
   data=$(proxysql_exec "SELECT hostname,port,status,comment,hostgroup_id,weight,max_connections
                         FROM runtime_mysql_servers
-                        WHERE $query
+                        WHERE $query and STATUS != 'SHUNNED'
                         ORDER BY status,hostname,port,hostgroup_id")
   local rc=$?
 
@@ -324,4 +331,162 @@ function require_pxc_maint_mode() {
   if [[ $MYSQL_VERSION =~ ^5.5 || $MYSQL_VERSION =~ ^5.6 ]]; then
     skip "requires pxc_maint_mode"
   fi
+}
+
+
+
+# Returns the version string in a standardized format
+# Input "1.2.3" => echoes "010203"
+# Wrongly formatted values => echoes "000000"
+#
+# Globals:
+#   None
+#
+# Arguments:
+#   Parameter 1: a version string
+#                like "5.1.12"
+#                anything after the major.minor.revision is ignored
+# Outputs:
+#   A string that can be used directly with string comparisons.
+#   So, the string "5.1.12" is transformed into "050112"
+#   Note that individual version numbers can only go up to 99.
+#
+function normalize_version()
+{
+    local major=0
+    local minor=0
+    local patch=0
+
+    # Only parses purely numeric version numbers, 1.2.3
+    # Everything after the first three values are ignored
+    if [[ $1 =~ ^([0-9]+)\.([0-9]+)\.?([0-9]*)([^ ])* ]]; then
+        major=${BASH_REMATCH[1]}
+        minor=${BASH_REMATCH[2]}
+        patch=${BASH_REMATCH[3]}
+    fi
+
+    printf %02d%02d%02d $major $minor $patch
+}
+
+
+# Compares two version strings
+#   The version strings passed in will be normalized to a
+#   string-comparable version.
+#
+# Globals:
+#   None
+#
+# Arguments:
+#   Parameter 1: The left-side of the comparison (for example: "5.7.25")
+#   Parameter 2: the comparison operation
+#                   '>', '>=', '=', '==', '<', '<=', "!="
+#   Parameter 3: The right-side of the comparison (for example: "5.7.24")
+#
+# Returns:
+#   Returns 0 (success) if param1 op param2
+#   Returns 1 (failure) otherwise
+#
+function compare_versions()
+{
+    local version_1="$1"
+    local op=$2
+    local version_2="$3"
+
+    if [[ -z $version_1 || -z $version_2 ]]; then
+        echo "$LINENO : Missing version string in comparison" >&2
+        echo -e "-- left-side:$version_1  operation:$op  right-side:$version_2" >&2
+        return 1
+    fi
+
+    version_1="$( normalize_version "$version_1" )"
+    version_2="$( normalize_version "$version_2" )"
+
+    if [[ ! " = == > >= < <= != " =~ " $op " ]]; then
+        echo "$LINENO : Unknown operation : $op" >&2
+        echo -e "-- Must be one of : = == > >= < <=" >&2
+        return 1
+    fi
+
+    [[ $op == "<"  &&   $version_1 <  $version_2 ]] && return 0
+    [[ $op == "<=" && ! $version_1 >  $version_2 ]] && return 0
+    [[ $op == "="  &&   $version_1 == $version_2 ]] && return 0
+    [[ $op == "==" &&   $version_1 == $version_2 ]] && return 0
+    [[ $op == ">"  &&   $version_1 >  $version_2 ]] && return 0
+    [[ $op == ">=" && ! $version_1 <  $version_2 ]] && return 0
+    [[ $op == "!=" &&   $version_1 != $version_2 ]] && return 0
+
+    return 1
+}
+
+
+
+# Looks for a version of OpenSSL 1.1.1
+#   This could be openssl, openssl11, or the proxysql-admin-openssl binary.
+#
+# Globals:
+#   REQUIRED_OPENSSL_VERSION
+#   PROXYSQL_ADMIN_OPENSSL_NAME
+#
+# Arguments:
+#   Parameter 1: the lineno where this function was called
+#
+# Returns 0 if a binary was found (with version 1.1.1+)
+#   and writes the path to the binary to stdout
+# Returns 1 otherwise (and prints out its own error message)
+#
+function find_openssl_binary()
+{
+  local lineno=$1
+  local path_to_openssl
+  local openssl_executable=""
+  local value
+  local openssl_version
+
+  # Check for the proper version of the executable
+  path_to_openssl=$(which openssl 2> /dev/null)
+  if [[ $? -eq 0 && -n ${path_to_openssl} && -e ${path_to_openssl} ]]; then
+
+    # We found a possible binary, check the version
+    value=$(${path_to_openssl} version)
+    openssl_version=$(expr match "$value" '.*[ \t]\+\([0-9]\+\.[0-9]\+\.[0-9]\+\)[^0-9].*')
+
+    # Extract the version from version string
+    if compare_versions "${openssl_version}" ">=" "$REQUIRED_OPENSSL_VERSION"; then
+      openssl_executable=${path_to_openssl}
+    fi
+  fi
+
+  # If we haven't found an acceptable openssl, look for openssl11
+  if [[ -z $openssl_executable ]]; then
+    # Check for openssl 1.1 executable (if installed alongside 1.0)
+    openssl_executable=$(which openssl11 2> /dev/null)
+  fi
+
+  # If we haven't found openssl/openssl11 look for our own binary
+  if [[ -z $openssl_executable ]]; then
+    openssl_executable=$(which "${WORKDIR}/${PROXYSQL_ADMIN_OPENSSL_NAME}" 2> /dev/null)
+  fi
+
+  if [[ -z $openssl_executable ]]; then
+    echo -e "$LINENO : Could not find a v${REQUIRED_OPENSSL_VERSION}+ OpenSSL executable in the path." \
+                  "\n-- Please check that OpenSSL v${REQUIRED_OPENSSL_VERSION} or greater is installed and in the path." >&2
+    return 1
+  fi
+
+  # Verify the openssl versions
+  value=$(${openssl_executable} version)
+
+  # Extract the version from version string
+  openssl_version=$(expr match "$value" '.*[ \t]\+\([0-9]\+\.[0-9]\+\.[0-9]\+\)[^0-9].*')
+
+  if compare_versions "$openssl_version" "<" "$REQUIRED_OPENSSL_VERSION"; then
+    echo -e "$LINENO : Could not find OpenSSL with the required version. required:${REQUIRED_OPENSSL_VERSION} found:${openssl_version}" \
+                  "\n-- Please check that OpenSSL v${REQUIRED_OPENSSL_VERSION} or greater is installed and in the path." >& 2
+    return 1
+  fi
+
+  echo "$LINENO : Found openssl executable:${openssl_executable} ${openssl_version}" >&2
+
+  printf "%s" "${openssl_executable}"
+  return 0
 }
