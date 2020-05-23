@@ -454,8 +454,6 @@ function exec_sql() {
 
   retoutput=$(mysql --defaults-file=<(echo "${defaults}") --protocol=tcp --unbuffered --batch --silent ${args} -e "$query")
   retvalue=$?
-  
-  rm /tmp/my.cnf
 
   if [[ $DEBUG -eq 1 ]]; then
     local number_of_newlines=0
