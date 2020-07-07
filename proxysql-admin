@@ -443,17 +443,16 @@ function exec_sql() {
     default_auth="default-auth=mysql_native_password"
   fi
 
-  retoutput=$(mysql --defaults-file=/dev/stdin --protocol=tcp \
-           --unbuffered --batch --silent ${args} -e "$query" <<EOF
-[client]
-user=${user//%/%%}
-password="${password//%/%%}"
-host=${hostname//%/%%}
-port=${port//%/%%}
-connect-timeout=${TIMEOUT}
-${default_auth}
-EOF
-)
+  defaults=$(printf '[client]\nuser=%s\npassword="%s"\nhost=%s\nport=%s\nconnect-timeout=%s\n%s' \
+    "${user//%/%%}" \
+    "${password//%/%%}" \
+    "${hostname//%/%%}" \
+    "${port//%/%%}" \
+    "${TIMEOUT}" \
+    "${default_auth}"
+  )
+
+  retoutput=$(mysql --defaults-file=<(echo "${defaults}") --protocol=tcp --unbuffered --batch --silent ${args} -e "$query")
   retvalue=$?
 
   if [[ $DEBUG -eq 1 ]]; then
