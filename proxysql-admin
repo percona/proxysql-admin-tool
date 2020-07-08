@@ -1556,7 +1556,7 @@ function enable_proxysql() {
     echo -e "\nWrite node info"
     proxysql_exec "$LINENO" \
       "SELECT hostname,hostgroup_id,port,weight
-       FROM mysql_servers
+       FROM runtime_mysql_servers
        WHERE hostgroup_id=$WRITER_HOSTGROUP_ID" "-t"
     echo ""
 
