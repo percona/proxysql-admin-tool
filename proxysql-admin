@@ -1553,13 +1553,6 @@ function enable_proxysql() {
     check_cmd $? "$LINENO" "Failed to move the nodes to the backup-writer hostgroup" \
                          "\n-- Please check the ProxySQL connection parameters and status."
 
-    echo -e "\nWrite node info"
-    proxysql_exec "$LINENO" \
-      "SELECT hostname,hostgroup_id,port,weight
-       FROM runtime_mysql_servers
-       WHERE hostgroup_id=$WRITER_HOSTGROUP_ID" "-t"
-    echo ""
-
     if [[ $WITH_CLUSTER_APP_USER -eq 1 ]]; then
       local reader_query_rule_check
       local writer_query_rule_check
@@ -1673,6 +1666,15 @@ function enable_proxysql() {
   proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
   proxysql_load_to_runtime_save_to_disk "MYSQL SERVERS" $LINENO
   proxysql_load_to_runtime_save_to_disk "MYSQL QUERY RULES" $LINENO
+
+  if [[ $MODE == "singlewrite" ]]; then  
+    echo -e "\nWrite node info"
+    proxysql_exec "$LINENO" \
+      "SELECT hostname,hostgroup_id,port,weight
+       FROM runtime_mysql_servers
+       WHERE hostgroup_id=$WRITER_HOSTGROUP_ID" "-t"
+    echo ""
+  fi
 }
 
 # Removing Percona XtraDB Cluster configuration from proxysql
