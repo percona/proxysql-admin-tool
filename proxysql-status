@@ -1,5 +1,18 @@
 #!/bin/bash -u
 
+declare USER
+declare PASSWORD
+declare HOST
+declare PORT
+declare RUNTIME_OPTION=""
+declare DUMP_ALL=1
+declare DUMP_MAIN=0
+declare DUMP_STATS=0
+declare DUMP_MONITOR=0
+declare DUMP_FILES=0
+declare TABLE_FILTER=""
+declare DUMP_STATS_RESET_TABLE=0
+
 
 function usage() {
     local path=$0
@@ -44,30 +57,26 @@ function mysql_exec() {
   local query=$2
   local retvalue
   local retoutput
-  retoutput=$(printf "[client]\nuser=${USER}\npassword=\"${PASSWORD}\"\nhost=${HOST}\nport=${PORT}"  \
-      | mysql --defaults-file=/dev/stdin --protocol=tcp \
-            ${args} -e "${query}")
+  local defaults=""
+  local default_auth=""
+
+  defaults=$(printf '[client]\nuser=%s\npassword="%s"\nhost=%s\nport=%s\n%s' \
+    "${USER}" \
+    "${PASSWORD}" \
+    "${HOST}" \
+    "${PORT}" \
+    "${default_auth}"
+  )
+
+  retoutput=$(mysql --defaults-file=<(echo "${defaults}") --protocol=tcp --unbuffered --batch --silent ${args} -e "$query")
   retvalue=$?
+
   if [[ -n $retoutput ]]; then
     retoutput+="\n"
   fi
   printf "${retoutput//%/%%}"
   return $retvalue
 }
-
-
-declare USER
-declare PASSWORD
-declare HOST
-declare PORT
-declare RUNTIME_OPTION=""
-declare DUMP_ALL=1
-declare DUMP_MAIN=0
-declare DUMP_STATS=0
-declare DUMP_MONITOR=0
-declare DUMP_FILES=0
-declare TABLE_FILTER=""
-declare DUMP_STATS_RESET_TABLE=0
 
 
 function parse_args() {
