@@ -49,7 +49,7 @@ fi
 #
 # Script parameters/constants
 #
-readonly    PROXYSQL_ADMIN_VERSION="2.0.13"
+readonly    PROXYSQL_ADMIN_VERSION="2.0.14"
 declare  -i DEBUG=0
 
 # default timeout is 10 seconds
@@ -428,6 +428,7 @@ function exec_sql() {
   local retvalue
   local retoutput
   local default_auth=""
+  local defaults=""
 
   if [[ $# -ge 7 ]]; then
     args=$7
@@ -444,10 +445,10 @@ function exec_sql() {
   fi
 
   defaults=$(printf '[client]\nuser=%s\npassword="%s"\nhost=%s\nport=%s\nconnect-timeout=%s\n%s' \
-    "${user//%/%%}" \
-    "${password//%/%%}" \
-    "${hostname//%/%%}" \
-    "${port//%/%%}" \
+    "${user}" \
+    "${password}" \
+    "${hostname}" \
+    "${port}" \
     "${TIMEOUT}" \
     "${default_auth}"
   )
