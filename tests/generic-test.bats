@@ -156,7 +156,7 @@ PROXYSQL_BASEDIR=$WORKDIR/proxysql-bin
 
 @test "run proxysql-admin --version check" {
     admin_version=$(sudo $WORKDIR/proxysql-admin -v | grep --extended-regexp -oe '[1-9]\.[0-9]\.[0-9]+')
-    proxysql_version=$(sudo $PROXYSQL_BASE/usr/bin/proxysql --help | grep --extended-regexp -oe '[1-9]\.[0-9]\.[0-9]+')
+    proxysql_version=$(sudo $PROXYSQL_BASEDIR/usr/bin/proxysql --help | grep --extended-regexp -oe '[1-9]\.[0-9]\.[0-9]+')
     echo "proxysql_version:$proxysql_version  admin_version:$admin_version" >&2
     [ "${proxysql_version}" = "${admin_version}" ]
 }

@@ -421,7 +421,7 @@ elif [[ $USE_IPVERSION == "v6" ]]; then
 fi
 
 # Find the localhost alias in /etc/hosts
-LOCALHOST_NAME=$(cat /etc/hosts | grep "^${LOCALHOST_IP}" | awk '{ print $2 }')
+LOCALHOST_NAME=$(cat /etc/hosts | grep "^${LOCALHOST_IP}" | awk '{ print $2 }' | head -1)
 
 declare ROOT_FS=$WORKDIR
 mkdir -p $WORKDIR/logs
@@ -583,9 +583,6 @@ fi
 sudo cp $PROXYSQL_BASE/etc/proxysql-admin.cnf /etc/proxysql-admin.cnf
 sudo chown $OS_USER:$OS_USER /etc/proxysql-admin.cnf
 sudo sed -i "s|\/var\/lib\/proxysql|$PROXYSQL_BASE|" /etc/proxysql-admin.cnf
-
-echo "Copying over proxysql to /usr/bin"
-sudo cp $PROXYSQL_BASE/usr/bin/* /usr/bin/
 
 if [[ ! -e $(sudo which bats 2> /dev/null) ]] ;then
   pushd $ROOT_FS
