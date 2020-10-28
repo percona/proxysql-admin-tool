@@ -1,9 +1,10 @@
 #!/bin/bash
-# This script will assist with configuring ProxySQL (currently only Percona XtraDB cluster in combination with ProxySQL is supported)
-# Version 1.0
+# This script will assist with configuring ProxySQL
+# (currently only Percona XtraDB cluster in combination with ProxySQL is supported)
+# Version 2.0
 ###############################################################################################
 
-# This program is copyright 2016-2018 Percona LLC and/or its affiliates.
+# This program is copyright 2016-2020 Percona LLC and/or its affiliates.
 #
 # THIS PROGRAM IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR IMPLIED
 # WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
@@ -25,21 +26,9 @@
 set -o nounset    # no undefined variables
 set -o pipefail   # internal pipe failures cause an exit
 
-#bash prompt internal configuration
-declare BD=""
-declare NBD=""
-declare RED=""
-declare NRED=""
+# Include the common functions
+. $(dirname $0)/proxysql-admin-common
 
-# Test if stdout and stderr are open to a terminal
-if [[ -t 1 ]]; then
-  BD=$(tput bold)
-  NBD=$(tput sgr0)
-fi
-if [[ -t 2 ]]; then
-  RED=$(tput setaf 1)
-  NRED=$(tput sgr0)
-fi
 
 #-------------------------------------------------------------------------------
 #
@@ -49,8 +38,6 @@ fi
 #
 # Script parameters/constants
 #
-readonly    PROXYSQL_ADMIN_VERSION="2.0.14"
-declare  -i DEBUG=0
 
 # default timeout is 10 seconds
 declare  -i TIMEOUT=10
@@ -61,22 +48,31 @@ declare  -i TIMEOUT=10
 declare    CONFIG_FILE="/etc/proxysql-admin.cnf"
 declare    PROXYSQL_DATADIR=""
 
-declare    PROXYSQL_USERNAME=""
-declare    PROXYSQL_PASSWORD=""
-declare    PROXYSQL_PORT=""
-declare    PROXYSQL_HOSTNAME=""
+# The login-file is the path to an encrypted file that
+# contains the credentials for proxysql, PXC cluster,
+# monitor, and cluster-app logins.
+declare    LOGIN_FILE=""
+declare    LOGIN_PASSWORD=""
+declare    LOGIN_PASSWORD_FILE=""
 
-declare    CLUSTER_USERNAME=""
-declare    CLUSTER_PASSWORD=""
-declare    CLUSTER_HOSTNAME=""
-declare    CLUSTER_PORT=""
-
-declare    CLUSTER_APP_USERNAME=""
-declare    CLUSTER_APP_PASSWORD=""
-
-declare    MONITOR_USERNAME=""
-declare    MONITOR_PASSWORD=""
-
+# Variables declared in proxysql-admin-common
+# ----------------------------------------
+# readonly    PROXYSQL_ADMIN_VERSION="2.0.12"
+# readonly    REQUIRED_OPENSSL_VERSION="1.1.1"
+# readonly    PROXYSQL_ADMIN_OPENSSL_NAME="proxysql-admin-openssl"
+# declare  -i DEBUG=0
+# declare     PROXYSQL_USERNAME=""
+# declare     PROXYSQL_PASSWORD=""
+# declare     PROXYSQL_PORT=""
+# declare     PROXYSQL_HOSTNAME=""
+# declare     CLUSTER_USERNAME=""
+# declare     CLUSTER_PASSWORD=""
+# declare     CLUSTER_HOSTNAME=""
+# declare     CLUSTER_PORT=""
+# declare     CLUSTER_APP_USERNAME=""
+# declare     CLUSTER_APP_PASSWORD=""
+# declare     MONITOR_USERNAME=""
+# declare     MONITOR_PASSWORD=""
 
 # The SAFE_XXX versions are the version that have
 # been escaped.  The single quotes will have been
@@ -84,7 +80,6 @@ declare    MONITOR_PASSWORD=""
 # So these are the versions that should be used in any SQL query.
 declare    SAFE_MONITOR_USERNAME=""
 declare    SAFE_MONITOR_PASSWORD=""
-
 
 declare    WRITE_NODE=""
 
@@ -158,46 +153,6 @@ declare   NEEDS_OFFLINE_HOSTGROUP=0
 # Step 3 : Helper functions
 #
 
-function error() {
-  local lineno=$1
-  shift
-  if [[ -n "$lineno" ]]; then
-    printf "${BD}ERROR${NBD} (line:$lineno) : ${*//%/%%}\n" 1>&2
-  else
-    printf "${BD}ERROR${NBD} : ${*//%/%%}\n" 1>&2
-  fi
-}
-
-function warning() {
-  local lineno=$1
-  shift
-  if [[ -n "$lineno" ]]; then
-    printf "${BD}WARNING${NBD} (line:$lineno) : ${*//%/%%}\n" 1>&2
-  else
-    printf "${BD}WARNING${NBD}: ${*//%/%%}\n" 1>&2
-  fi
-}
-
-function debug() {
-  if [[ $DEBUG -eq 1 ]]; then
-    local lineno=$1
-    shift
-    if [[ -n "$lineno" ]]; then
-      printf "${RED}${BD}debug (line:$lineno) : ${*//%/%%}${NBD}${NRED}\n" 1>&2
-    else
-      printf "${RED}debug: ${*//%/%%}${NRED}\n" 1>&2
-    fi
-  fi
-}
-
-function dump_arguments() {
-  local arg_list=""
-  for arg do
-    arg_list+=" '$arg'"
-  done
-  echo $arg_list
-}
-
 
 #
 # Dispay script usage details
@@ -209,6 +164,17 @@ Usage: ${path##*/} [ options ]
 Options:
   --config-file=<config-file>        Read login credentials from a configuration file
                                      (command line options override any configuration file values)
+
+  --login-file=<login-file-path>     Read login credentials from an encrypted file.
+                                     If the --login-password or --login-password-file options
+                                     are not specified, then the user will be prompted
+                                     for the password.
+                                     (command line options override any login file values)
+  --login-password=<password>        The key used to decrypt the encrypted login-file.
+                                     This cannot be used with --login-password-file.
+  --login-password-file=<path>       Read the key from a file using the <path>.
+                                     This cannot be used with --login-password
+
 
   --writer-hg=<number>               The hostgroup that all traffic will be sent to
                                      by default. Nodes that have 'read-only=0' in MySQL
@@ -316,82 +282,19 @@ EOF
 }
 
 
-# Checks the return value of the most recent command
+#
+# Prints out the script version
 #
 # Globals:
+#   PROXYSQL_ADMIN_VERSION
+#
+# Parameters:
 #   None
 #
-# Arguments:
-#   1: the error code of the most recent command
-#   2: the lineno where the error occurred
-#   3: the error message if the error code is non-zero
-#
-# Exits the script if the retcode is non-zero.
-#
-function check_cmd() {
-  local retcode=$1
-  local lineno=$2
-  shift 2
-
-  if [[ ${retcode} -ne 0 ]]; then
-    error "$lineno" $*
-    exit 1 
-  fi
-}
-
-
-# Check the permissions for a file or directory
-#
-# Globals:
-#   None
-#
-# Arguments:
-#   1: the bash test to be applied to the file
-#   2: the lineno where this call is invoked (used for errors)
-#   3: the path to the file
-#   4: (optional) description of the path (mostly used for existence checks)
-#
-# Exits the script if the permissions test fails.
-#
-function check_permission() {
-  local permission=$1
-  local lineno=$2
-  local path_to_check=$3
-  local description=""
-  if [[ $# -gt 3 ]]; then
-    description="$4"
-  fi
-
-  if [ ! $permission "$path_to_check" ] ; then
-    if [[ $permission == "-r" ]]; then
-      error "$lineno" "You do not have READ permission for: $path_to_check"
-    elif [[ $permission == "-w" ]]; then
-      error "$lineno" "You do not have WRITE permission for: $path_to_check"
-    elif [[ $permission == "-x" ]]; then
-      error "$lineno" "You do not have EXECUTE permission for: $path_to_check"
-    elif [[ $permission == "-e" ]]; then
-      if [[ -n $description ]]; then
-        error "$lineno" "Could not find the $description: $path_to_check"
-      else
-        error "$lineno" "Could not find: $path_to_check"
-      fi
-    elif [[ $permission == "-d" ]]; then
-      if [[ -n $description ]]; then
-        error "$lineno" "Could not find the $description: $path_to_check"
-      else
-        error "$lineno" "Could not find the directory: $path_to_check"
-      fi
-    elif [[ $permission == "-f" ]]; then
-      if [[ -n $description ]]; then
-        error "$lineno" "Could not find the $description: $path_to_check"
-      else
-        error "$lineno" "Could not find the file: $path_to_check"
-      fi
-    else
-      error "$lineno" "You do not have the correct permissions for: $path_to_check"
-    fi
-    exit 1
-  fi
+function version()
+{
+    local path=$0
+    printf "%s version %s\n" "${path##*/}" "${PROXYSQL_ADMIN_VERSION}"
 }
 
 
@@ -526,6 +429,7 @@ function proxysql_exec() {
   return $?
 }
 
+
 # Executes a SQL query on a specific node in the cluster
 #
 # Globals:
@@ -633,70 +537,6 @@ function monitor_exec() {
   return $?
 }
 
-# Separates the IP address from the port in a network address
-# Works for IPv4 and IPv6
-#
-# Globals:
-#   None
-#
-# Params:
-#   1. The network address to be parsed
-#
-# Outputs:
-#   A string with a space separating the IP address from the port
-#
-function separate_ip_port_from_address()
-{
-  #
-  # Break address string into host:port/path parts
-  #
-  local address=$1
-
-  # Has to have at least one ':' to separate the port from the ip address
-  if [[ $address =~ : ]]; then
-    ip_addr=${address%:*}
-    port=${address##*:}
-  else
-    ip_addr=$address
-    port=""
-  fi
-
-  # Remove any braces that surround the ip address portion
-  ip_addr=${ip_addr#\[}
-  ip_addr=${ip_addr%\]}
-
-  echo "${ip_addr} ${port}"
-}
-
-# Combines the IP address and port into a network address
-# Works for IPv4 and IPv6
-# (If the IP address is IPv6, the IP portion will have brackets)
-#
-# Globals:
-#   None
-#
-# Params:
-#   1: The IP address portion
-#   2: The port
-#
-# Outputs:
-#   A string containing the full network address
-#
-function combine_ip_port_into_address()
-{
-  local ip_addr=$1
-  local port=$2
-  local addr
-
-  if [[ ! $ip_addr =~ \[.*\] && $ip_addr =~ .*:.* ]] ; then
-    # If there are no brackets and it does have a ':', then add the brackets
-    # because this is an unbracketed IPv6 address
-    addr="[${ip_addr}]:${port}"
-  else
-    addr="${ip_addr}:${port}"
-  fi
-  echo "$addr"
-}
 
 # Check proxysql running status
 #
@@ -767,6 +607,7 @@ function cluster_in_proxysql_check() {
   fi
 }
 
+
 # Queries the user for the proxysql connection parameters
 #
 # Globals:
@@ -805,6 +646,7 @@ function quickdemo_get_proxysql_params() {
     ;;
   esac
 }
+
 
 # Queries the user for the PXC cluster connection parameters
 #
@@ -1060,6 +902,7 @@ function get_all_hostgroups_from_writer_hostgroup()
   echo "$hg_list"
 }
 
+
 # Update mysql server version details in proxysql db 
 # Globals:
 #   WRITER_HOSTGROUP_ID
@@ -1102,6 +945,7 @@ function update_mysql_version()
   fi
 }
 
+
 # Adds the list of servers to ProxySQL
 # This will add all of the servers in the list to the WRITER hostgroup
 # ProxySQL is responsible for moving them to the correct hostgroup
@@ -1132,6 +976,7 @@ function add_servers_to_proxysql()
                          "\n-- Please check the ProxySQL connection parameters and status."
   done
 }
+
 
 # Auto configure Percona XtraDB Cluster nodes into ProxySQL
 #
@@ -1678,6 +1523,7 @@ function enable_proxysql() {
   fi
 }
 
+
 # Removing Percona XtraDB Cluster configuration from proxysql
 #
 # Globals:
@@ -1739,6 +1585,7 @@ function disable_proxysql(){
   proxysql_load_to_runtime_save_to_disk "MYSQL SERVERS" $LINENO
   proxysql_load_to_runtime_save_to_disk "MYSQL QUERY RULES" $LINENO
 }
+
 
 # Adds an application user to ProxySQL
 #
@@ -1898,6 +1745,7 @@ function proxysql_admin_user_check(){
   printf "%s" "$is_proxysql_admin_user"
 }
 
+
 # Tries to find a cluster node in the cluster that contains
 # the given writer hostgroup/  The node must be a Primary node.
 #
@@ -1961,6 +1809,7 @@ function find_cluster_node()
   return 1
 }
 
+
 # Create query rules for given user. This is applicable only for singlewrite mode  
 # Globals:
 #   WRITER_HOSTGROUP_ID
@@ -1986,6 +1835,7 @@ function add_query_rule()
     echo -e "  Added query rule for user: $username"
   fi
 }
+
 
 # Synchronizes the users between ProxySQL and PXC
 #
@@ -2222,6 +2072,7 @@ function is_mode_singlewrite()
     return 1
   fi
 }
+
 
 # Update the cluster membership
 # New members will be added to the configuration.
@@ -2519,6 +2370,7 @@ function update_cluster()
   echo ""
 }
 
+
 # Checks if the current configuration has been enabled and is active
 #
 # Globals:
@@ -2553,6 +2405,7 @@ function check_if_enabled()
   # Entry exists and is active
   return 0
 }
+
 
 # Dumps a status report on the current configuration
 #
@@ -2664,31 +2517,8 @@ function report_status()
   echo ""
 }
 
-# Tests if a string is an integer
-# (checks if made up of digits with an optional minus sign)
-#
-# Globals
-#   None
-#
-# Arguments
-#   Parameter 1: the string to be tested
-#
-# Returns
-#   0 : if the string is an integer
-#   1 : if the string is not like an integer
-#
-function is_integer()
-{
-  if [ "$1" -eq "$1" ] 2>/dev/null; then
-    return 0
-  else
-    return 1
-  fi
-}
 
 # Parses the script arguments and sets the global variables
-#
-# Globals:
 #
 # Arguments:
 #   The arguments to the script.
@@ -2699,7 +2529,7 @@ function parse_args() {
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=edv --longoptions=config-file:,proxysql-datadir:,writer-hg:,backup-writer-hg:,reader-hg:,offline-hg:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,is-enabled,adduser,syncusers,sync-multi-cluster-users,update-mysql-version,add-query-rule,status,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,remove-all-servers,disable-updates,force,version,debug,help \
+    go_out="$(getopt --options=edv --longoptions=config-file:,login-file:,login-password:,login-password-file:,proxysql-datadir:,writer-hg:,backup-writer-hg:,reader-hg:,offline-hg:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,is-enabled,adduser,syncusers,sync-multi-cluster-users,update-mysql-version,add-query-rule,status,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,remove-all-servers,disable-updates,force,version,debug,help \
     --name="$(basename "$0")" -- "$@")"
     check_cmd $? "$LINENO" "Script error: getopt() failed with arguments: $*"
     eval set -- "$go_out"
@@ -2715,14 +2545,39 @@ function parse_args() {
   # (2) to handle options that need to be done before other
   #     options, such as loading the config file
   #
-  for arg
+
+  while [[ $# -gt 0 ]];
   do
+    arg="$1"
     case "$arg" in
-      -- ) shift; break;;
-      --config-file )
+      --) shift; break;;
+      --config-file)
         CONFIG_FILE="$2"
         check_permission -e "$LINENO" "$CONFIG_FILE" "proxysql-admin configuration file"
         debug "$LINENO"  "--config-file specified, using : $CONFIG_FILE"
+        shift 2
+        ;;
+      --login-file)
+        LOGIN_FILE="$2"
+        check_permission -e "$LINENO" "$LOGIN_FILE" "login-file"
+        check_permission -r "$LINENO" "$LOGIN_FILE" "login-file"
+        debug "$LINENO"  "--login-file specified, using : $LOGIN_FILE"
+        shift 2
+        ;;
+      --login-password)
+        if [[ -n $LOGIN_PASSWORD_FILE ]]; then
+          error "$LINENO" "--login-password cannot be used with --login-password-file"
+          exit 1
+        fi
+        LOGIN_PASSWORD="$2"
+        shift 2
+        ;;
+      --login-password-file)
+        if [[ -n $LOGIN_PASSWORD ]]; then
+          error "$LINENO" "--login-password-file cannot be used with --login-password"
+          exit 1
+        fi
+        LOGIN_PASSWORD_FILE="$2"
         shift 2
         ;;
       --help)
@@ -2730,7 +2585,7 @@ function parse_args() {
         exit 0
         ;;
       -v | --version)
-        echo "proxysql-admin version ${PROXYSQL_ADMIN_VERSION}"
+        version
         exit 0
         ;;
       --debug)
@@ -2758,9 +2613,6 @@ function parse_args() {
     esac
   done
 
-  # Reset the command line for the next invocation
-  eval set -- "$go_out"
-
   #
   # Load the config file before reading in the command-line options
   #
@@ -2775,15 +2627,69 @@ function parse_args() {
     fi
   fi
 
+  # Load the data if the login-file has been set
+  # Run this before the command-line parsing, so that the command-line
+  # options can override the login path settings
+  if [[ -n $LOGIN_FILE ]]; then
+
+    if [[ $QUICK_DEMO -ne 0 ]]; then
+      error "$LINENO" "option '--quick-demo' cannot be used with '--login-file'"
+      exit 1
+    fi
+
+    # Check for key
+    if [[ -n $LOGIN_PASSWORD_FILE ]]; then
+      if [[ ! -r $LOGIN_PASSWORD_FILE ]]; then
+        error "$LINENO" "Cannot read from the login-password file: $LOGIN_PASSWORD_FILE"
+        exit 1
+      fi
+      LOGIN_PASSWORD=$(cat "$LOGIN_PASSWORD_FILE")
+      if [[ -z $LOGIN_PASSWORD ]]; then
+        error "$LINENO" "Did not find any data in the login-password file: $LOGIN_PASSWORD_FILE"
+        exit 1
+      fi
+    fi
+    if [[ -z $LOGIN_PASSWORD ]]; then
+      read -r -s -p  "Enter the login-file key:" LOGIN_PASSWORD
+      echo
+    fi
+
+    # Extract the information
+    load_login_file "$LINENO" "$LOGIN_FILE" "$LOGIN_PASSWORD"
+    if [[ $? -ne 0 ]]; then
+      error "$LINENO" "Cannot read the credentials from the login-file"
+      exit 1
+    fi
+  fi
+
+  # Reset the command line for the next invocation
+  eval set -- "$go_out"
+
   #
   # Iterate through the comamnd-line options
   #
-  for arg
+  while [[ $# -gt 0 ]];
   do
+    arg="$1"
     case "$arg" in
       -- ) shift; break;;
       --config-file )
         # Do no processing of config-file here, it is processed
+        # before this loop (see above)
+        shift 2
+        ;;
+      --login-file )
+        # Do no processing of login-file here, it is processed
+        # before this loop (see above)
+        shift 2
+        ;;
+      --login-password )
+        # Do no processing of login-password here, it is processed
+        # before this loop (see above)
+        shift 2
+        ;;
+      --login-password-file )
+        # Do no processing of login-password-file here, it is processed
         # before this loop (see above)
         shift 2
         ;;
@@ -3180,7 +3086,7 @@ function parse_args() {
    # Check the options gathered from the command line
   if [[ $QUICK_DEMO -eq 0 ]]; then
     if [[ -z "$PROXYSQL_USERNAME" ]];then
-      error "" "The ProxySQL username (--proxysql-username) is required!"
+      error "$LINENO" "The ProxySQL username (--proxysql-username) is required!"
       exit 1
     fi
 
@@ -3247,7 +3153,8 @@ function parse_args() {
 
   readonly MAX_CONNECTIONS
   readonly MAX_TRANSACTIONS_BEHIND
- }
+}
+
 
 # Main function
 #
@@ -3391,45 +3298,6 @@ function main() {
   fi
 }
 
-# Outputs the version string (major.minor) for the path passed in
-#
-# Globals
-#   None
-#
-# Arguments
-#   Parameter 1 : Path to the client
-#
-# Outputs
-#   The version number (major.minor).  The version numbers are not
-#   normalized, so they cannot be directly compared.
-#
-function get_mysql_version()
-{
-
-  local mysql_path=$1
-  local version_string
-  version_string=$(${mysql_path} --version)
-
-  if echo "$version_string" | grep -qe "[[:space:]]5\.5\."; then
-    echo "5.5"
-  elif echo "$version_string" | grep -qe "[[:space:]]5\.6\."; then
-    echo "5.6"
-  elif echo "$version_string" | grep -qe "[[:space:]]5\.7\."; then
-    echo "5.7"
-  elif echo "$version_string" | grep -qe "[[:space:]]8\.0\."; then
-    echo "8.0"
-  elif echo "$version_string" | grep -qe "[[:space:]]10\.2\."; then
-    echo "10.2"
-  elif echo "$version_string" | grep -qe "[[:space:]]10\.3\."; then
-    echo "10.3"
-  elif echo "$version_string" | grep -qe "[[:space:]]10\.4\."; then
-    echo "10.4"
-  else
-    echo "$version_string"
-    return 1
-  fi
-  return 0
-}
 
 # Disable ProxySQL Cluster updates
 #
@@ -3564,6 +3432,7 @@ function disable_updates()
 
 }
 
+
 # Restore the ProxySQL Cluster admin update values
 #
 # Globals
@@ -3655,18 +3524,11 @@ function restore_updates()
   fi
 }
 
+
 #-------------------------------------------------------------------------------
 #
 # Step 4 : Begin script execution
 #
-
-# Internal variables
-if [ -e "/dummypathnonexisting/.mylogin.cnf" ]; then
-  error "" "/dummypathnonexisting/.mylogin.cnf found. This should not happen.";
-  exit 1
-else
-  export HOME="/dummypathnonexisting"
-fi
 
 
 function on_exit()
@@ -3693,6 +3555,17 @@ if [[ $? -ne 0 ]]; then
 fi
 
 parse_args "$@"
+
+# Set the default login path to point to a non-existent file
+# This is to avoid having any login path settings interfere with the
+# mysql client connections.
+if [ -e "/dummypathnonexisting/.mylogin.cnf" ]; then
+  error "" "/dummypathnonexisting/.mylogin.cnf found. This should not happen.";
+  exit 1
+else
+  export MYSQL_TEST_LOGIN_FILE="/dummypathnonexisting/.mylogin.cnf"
+fi
+
 
 # We now use the tables for configuration and thus they should reflect
 # the current state before we do any modification.

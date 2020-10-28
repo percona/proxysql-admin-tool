@@ -1,43 +1,71 @@
-# proxysql admin interface credentials.
+
 export PROXYSQL_DATADIR='/var/lib/proxysql'
-export PROXYSQL_USERNAME='admin'
-export PROXYSQL_PASSWORD='admin'
+
+# --------------------------------
+# encrypted login credentials file options
+#
+#export LOGIN_FILE="/path/to/loginfile"
+#export LOGIN_PASSWORD_FILE="/path/to/loginfile/password"
+
+# --------------------------------
+# proxysql admin interface credentials.
+#
+export PROXYSQL_USERNAME="admin"
+export PROXYSQL_PASSWORD="admin"
 export PROXYSQL_HOSTNAME='localhost'
 export PROXYSQL_PORT='6032'
 
+# --------------------------------
 # PXC admin credentials for connecting to pxc-cluster-node.
+#
 export CLUSTER_USERNAME='admin'
 export CLUSTER_PASSWORD='admin'
 export CLUSTER_HOSTNAME='localhost'
 export CLUSTER_PORT='3306'
 
-# proxysql monitoring user. proxysql admin script will create this user in pxc to monitor pxc-nodes.
+# --------------------------------
+# proxysql monitoring user. proxysql admin script will create
+# this user in pxc to monitor pxc-nodes.
+#
 export MONITOR_USERNAME='monitor'
 export MONITOR_PASSWORD='monitor'
 
+# --------------------------------
 # Application user to connect to pxc-node through proxysql
+#
 export CLUSTER_APP_USERNAME='proxysql_user'
 export CLUSTER_APP_PASSWORD='passw0rd'
 
+# --------------------------------
 # ProxySQL hostgroup IDs
+#
 export WRITER_HOSTGROUP_ID='10'
 export READER_HOSTGROUP_ID='11'
 export BACKUP_WRITER_HOSTGROUP_ID='12'
 export OFFLINE_HOSTGROUP_ID='13'
 
+# --------------------------------
 # ProxySQL read/write configuration mode.
+#
 export MODE="singlewrite"
 
+# --------------------------------
 # max_connections default (used only when INSERTing a new mysql_servers entry)
+#
 export MAX_CONNECTIONS="1000"
 
+# --------------------------------
 # Determines the maximum number of writesets a node can have queued
 # before the node is SHUNNED to avoid stale reads.
+#
 export MAX_TRANSACTIONS_BEHIND=100
 
+# --------------------------------
 # Connections to the backend servers (from ProxySQL) will use SSL
+#
 export USE_SSL="no"
 
+# --------------------------------
 # Determines if a node should be added to the reader hostgroup if it has
 # been promoted to the writer hostgroup.
 # If set to 'yes', then all writers (including backup-writers) are added to
@@ -45,4 +73,5 @@ export USE_SSL="no"
 # If set to 'no', then none of the writers (including backup-writers) are added.
 # If set to 'backup', then only the backup-writers will be added to
 # the read hostgroup.
+#
 export WRITERS_ARE_READERS="backup"

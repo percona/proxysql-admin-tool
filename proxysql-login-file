@@ -1,0 +1,200 @@
+#!/bin/bash -u
+# This script will assist with creating (encrypting) the login file
+# Version 2.0
+###############################################################################################
+
+# This program is copyright 2016-2020 Percona LLC and/or its affiliates.
+#
+# THIS PROGRAM IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR IMPLIED
+# WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+#
+# This program is free software; you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, version 2 or later
+#
+# You should have received a copy of the GNU General Public License version 2
+# along with this program; if not, write to the Free Software Foundation, Inc.,
+# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
+
+# Include the common functions
+. $(dirname $0)/proxysql-admin-common
+
+# The file used as input (unencrypted)
+declare INFILE="/dev/stdin"
+
+# The destination file
+declare OUTFILE="/dev/stdout"
+
+# The password used to generate the key for the login-file
+declare LOGIN_PASSWORD=""
+
+# The file that contains the key for the login-file
+declare LOGIN_PASSWORD_FILE=""
+
+# What this script is trying to, either "encrypt" or "decrypt"
+declare OPERATION="encrypt"
+
+function usage()
+{
+    local path=$0
+    cat << EOF
+Usage example:
+  $ ${path##*/} [options]
+
+  This script is used to create the encrypted login-file.
+
+  Options:
+    -h,--help               : Prints out this help text.
+    -v,--version            : Prints out the script name and version
+
+    --in=<input-path>       : The source file that will be encrypted.
+                              (default: stdin)
+    --out=<output-path>     : The destination file that will contain the
+                              encrypted data and metadata information.
+                              (default: stdout)
+
+    --password=<password>   : The key used to decrypt the encrypted login-file.
+                              This cannot be used with --login-password-file.
+    --password-file=<path>  : Read the key from a file using the <path>.
+                              This cannot be used with --login-password
+
+    --decrypt               : Decrypts the login-file data. --in is now the
+                              path to the encrypted login-file and --out is
+                              used for the unencrypted data.
+EOF
+}
+
+
+#
+# Prints out the script version
+#
+# Globals:
+#   PROXYSQL_ADMIN_VERSION
+#
+# Parameters:
+#   None
+#
+function version()
+{
+    local path=$0
+    printf "%s version %s\n" "${path##*/}" "${PROXYSQL_ADMIN_VERSION}"
+}
+
+
+
+function parse_args()
+{
+    local go_out=""
+    local positional_args=""
+
+   # TODO: kennt, what happens if we don't have a functional getopt()?
+    # Check if we have a functional getopt(1)
+    if ! getopt --test; then
+        go_out="$(getopt --options=hv --longoptions=decrypt,debug,version,in:,out:,password:,password-file:,help \
+        --name="$(basename "$0")" -- "$@")"
+        if [[ $? -ne 0 ]]; then
+            # no place to send output
+            echo "Script error: getopt() failed" >&2
+            exit 1
+        fi
+        eval set -- "$go_out"
+    fi
+
+    while [[ $# -gt 0 ]];
+    do
+        arg="$1"
+        case "$arg" in
+            -- )
+                shift
+                positional_args="$@"
+                break;;
+            --in )
+                INFILE="$2"
+                check_permission -e "$LINENO" "$INFILE" "input login-file"
+                check_permission -r "$LINENO" "$INFILE" "input login-file"
+                debug "$LINENO"  "--in specified, using : $INFILE"
+                shift 2
+                ;;
+            --out )
+                OUTFILE="$2"
+                debug "$LINENO"  "--out specified, using : $OUTFILE"
+                shift 2
+                ;;
+            --password)
+                if [[ -n $LOGIN_PASSWORD_FILE ]]; then
+                    error "$LINENO" "--password cannot be used with --password-file"
+                    exit 1
+                fi
+                LOGIN_PASSWORD="$2"
+                shift 2
+                ;;
+            --password-file)
+                if [[ -n $LOGIN_PASSWORD ]]; then
+                    error "$LINENO" "--password-file cannot be used with --password"
+                    exit 1
+                fi
+                LOGIN_PASSWORD_FILE="$2"
+                shift 2
+                ;;
+            --decrypt )
+                OPERATION="decrypt"
+                shift
+                ;;
+            --debug )
+                DEBUG=1
+                shift 1
+                ;;
+            -v | --version)
+                version
+                exit 0
+                ;;
+            -h | --help )
+                usage
+                exit 0
+                ;;
+        esac
+    done
+
+    # Get the password
+    if [[ -n $LOGIN_PASSWORD_FILE ]]; then
+        if [[ ! -r $LOGIN_PASSWORD_FILE ]]; then
+            error "$LINENO" "Cannot read from the password file: $LOGIN_PASSWORD_FILE"
+            exit 1
+        fi
+        LOGIN_PASSWORD=$(cat "$LOGIN_PASSWORD_FILE")
+        if [[ -z $LOGIN_PASSWORD ]]; then
+            error "$LINENO" "Did not find any data in the password file: $LOGIN_PASSWORD_FILE"
+            exit 1
+        fi
+    fi
+    if [[ -z $LOGIN_PASSWORD ]]; then
+        read -r -s -p  "Enter the password:" LOGIN_PASSWORD
+        echo
+    fi
+}
+
+
+function main()
+{
+    local data=""
+    if [[ ${OPERATION} == "decrypt" ]]; then
+        data=$(get_login_file_data "${INFILE}" "${LOGIN_PASSWORD}")
+        if [[ $? -ne 0 ]]; then
+            exit 1
+        fi
+        echo -e "$data" > ${OUTFILE}
+    else
+        write_login_file "${INFILE}" "${LOGIN_PASSWORD}" "$OUTFILE"
+        if [[ $? -ne 0 ]]; then
+            exit 1
+        fi
+    fi
+}
+
+
+#
+# Execute the script
+#
+parse_args "$@"
+main
