@@ -154,9 +154,21 @@ PROXYSQL_BASEDIR=$WORKDIR/proxysql-bin
     [ "$status" -eq 1 ]
 }
 
+@test 'run proxysql-admin --login-file with nonexistent file' {
+    run sudo $WORKDIR/proxysql-admin --login-file=dummy.file.should.not.exist.cnf
+    echo "$output" >&2
+    [ "$status" -eq 1 ]
+}
+
+@test 'run proxysql-admin --login-file with nonexistent --login-password-file' {
+    run sudo $WORKDIR/proxysql-admin --login-file=login-file.cnf --login-password-file=dummy.file.should.not.exist.cnf
+    echo "$output" >&2
+    [ "$status" -eq 1 ]
+}
+
 @test "run proxysql-admin --version check" {
     admin_version=$(sudo $WORKDIR/proxysql-admin -v | grep --extended-regexp -oe '[1-9]\.[0-9]\.[0-9]+')
-    proxysql_version=$(sudo $PROXYSQL_BASE/usr/bin/proxysql --help | grep --extended-regexp -oe '[1-9]\.[0-9]\.[0-9]+')
+    proxysql_version=$(sudo $PROXYSQL_BASEDIR/usr/bin/proxysql --help | grep --extended-regexp -oe '[1-9]\.[0-9]\.[0-9]+')
     echo "proxysql_version:$proxysql_version  admin_version:$admin_version" >&2
     [ "${proxysql_version}" = "${admin_version}" ]
 }

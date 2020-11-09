@@ -1,5 +1,51 @@
 #!/bin/bash -u
+# This script will assist with configuring ProxySQL
+# by querying the ProxySQL tables
+# Version 2.0
+###############################################################################################
 
+# This program is copyright 2016-2020 Percona LLC and/or its affiliates.
+#
+# THIS PROGRAM IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR IMPLIED
+# WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+#
+# This program is free software; you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, version 2 or later
+#
+# You should have received a copy of the GNU General Public License version 2
+# along with this program; if not, write to the Free Software Foundation, Inc.,
+# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
+
+# Include the common functions
+. $(dirname $0)/proxysql-admin-common
+
+# Global variables
+declare USER
+declare PASSWORD
+declare HOST
+declare PORT
+declare RUNTIME_OPTION=""
+declare DUMP_ALL=1
+declare DUMP_MAIN=0
+declare DUMP_STATS=0
+declare DUMP_MONITOR=0
+declare DUMP_FILES=0
+declare TABLE_FILTER=""
+declare DUMP_STATS_RESET_TABLE=0
+
+# The login-file is the path to an encrypted file that
+# contains the credentials for proxysql, PXC cluster,
+# monitor, and cluster-app logins.
+declare    LOGIN_FILE=""
+declare    LOGIN_PASSWORD=""
+declare    LOGIN_PASSWORD_FILE=""
+
+# Set this to 1 if the default user credentials from my.cnf
+# are being used, set to 0 if the default my.cnf user credentials
+# are not being used, and set to -1 if unknown
+declare CREDENTIALS_FROM_CLIENT_CONFIG=-1
 
 function usage() {
     local path=$0
@@ -19,12 +65,42 @@ Usage example:
     --with-stats-reset      : display _reset tables, by default _reset tables
                               will not be queried.
 
+    --login-file=<login-file-path>
+                            : Read login credentials from an encrypted file.
+                              If the --login-password or --login-password-file
+                              options are not specified, then the user
+                              will be prompted for the password.
+                              (command line options override any login file values)
+    --login-password=<password>
+                            : The key used to decrypt the encrypted login-file.
+                              This cannot be used with --login-password-file.
+    --login-password-file=<path>
+                            : Read the key from a file using the <path>.
+                              This cannot be used with --login-password
+
   The default is to display all tables and files.
 
   If no credentials are specified the credentials in /etc/proxysql-admin.cnf
   are used.
 EOF
 }
+
+
+#
+# Prints out the script version
+#
+# Globals:
+#   PROXYSQL_ADMIN_VERSION
+#
+# Parameters:
+#   None
+#
+function version()
+{
+    local path=$0
+    printf "%s version %s\n" "${path##*/}" "${PROXYSQL_ADMIN_VERSION}"
+}
+
 
 #
 # Executes an SQL query
@@ -34,6 +110,7 @@ EOF
 #   PASSWORD
 #   HOST
 #   PORT
+#   LOGIN_PATH
 #
 # Arguments:
 #   1: arguments to be passed to mysql
@@ -44,44 +121,38 @@ function mysql_exec() {
   local query=$2
   local retvalue
   local retoutput
-  if [ "$CREDENTIALS_FROM_CLIENT_CONFIG" == 0 ]; then
-      retoutput=$(printf "[client]\nuser=${USER}\npassword=\"${PASSWORD}\"\nhost=${HOST}\nport=${PORT}"  \
-          | mysql --defaults-file=/dev/stdin --protocol=tcp \
-                ${args} -e "${query}")
+  local defaults=""
+  local default_auth=""
+
+  if [[ $CREDENTIALS_FROM_CLIENT_CONFIG -eq 0 ]]; then
+    defaults=$(printf '[client]\nuser=%s\npassword="%s"\nhost=%s\nport=%s\n%s' \
+      "${USER}" \
+      "${PASSWORD}" \
+      "${HOST}" \
+      "${PORT}" \
+      "${default_auth}"
+    )
+    retoutput=$(mysql --defaults-file=<(echo "${defaults}") --protocol=tcp --unbuffered --batch --silent ${args} -e "$query")
   else
-      retoutput=$(mysql ${args} -e "${query}")
+    retoutput=$(mysql ${args} -e "${query}")
   fi
   retvalue=$?
+
   if [[ -n $retoutput ]]; then
-    retoutput+="\n"
+    printf "%s\n" "${retoutput}"
   fi
-  printf "${retoutput//%/%%}"
   return $retvalue
 }
 
 
-declare CREDENTIALS_FROM_CLIENT_CONFIG
-declare USER
-declare PASSWORD
-declare HOST
-declare PORT
-declare RUNTIME_OPTION=""
-declare DUMP_ALL=1
-declare DUMP_MAIN=0
-declare DUMP_STATS=0
-declare DUMP_MONITOR=0
-declare DUMP_FILES=0
-declare TABLE_FILTER=""
-declare DUMP_STATS_RESET_TABLE=0
-
-
 function parse_args() {
     local go_out=""
+    local positional_args=""
 
    # TODO: kennt, what happens if we don't have a functional getopt()?
     # Check if we have a functional getopt(1)
     if ! getopt --test; then
-        go_out="$(getopt --options=h --longoptions=runtime,main,stats,monitor,files,table:,with-stats-reset,help \
+        go_out="$(getopt --options=hv --longoptions=runtime,main,stats,monitor,files,table:,with-stats-reset,login-file:,login-password:,login-password-file:,version,help \
         --name="$(basename "$0")" -- "$@")"
         if [[ $? -ne 0 ]]; then
             # no place to send output
@@ -91,10 +162,14 @@ function parse_args() {
         eval set -- "$go_out"
     fi
 
-    for arg
+    while [[ $# -gt 0 ]];
     do
+        arg="$1"
         case "$arg" in
-            -- ) shift; break;;
+            -- )
+                shift
+                positional_args="$@"
+                break;;
             --runtime )
                 shift
                 RUNTIME_OPTION=" LIKE 'runtime_%'"
@@ -129,12 +204,77 @@ function parse_args() {
                 shift
                 DUMP_STATS_RESET_TABLE=1
                 ;;
+            --login-file)
+                LOGIN_FILE="$2"
+                check_permission -e "$LINENO" "$LOGIN_FILE" "login-file"
+                check_permission -r "$LINENO" "$LOGIN_FILE" "login-file"
+                debug "$LINENO"  "--login-file specified, using : $LOGIN_FILE"
+                shift 2
+                ;;
+            --login-password)
+                if [[ -n $LOGIN_PASSWORD_FILE ]]; then
+                    error "$LINENO" "--login-password cannot be used with --login-password-file"
+                    exit 1
+                fi
+                LOGIN_PASSWORD="$2"
+                shift 2
+                ;;
+            --login-password-file)
+                if [[ -n $LOGIN_PASSWORD ]]; then
+                    error "$LINENO" "--login-password-file cannot be used with --login-password"
+                    exit 1
+                fi
+                LOGIN_PASSWORD_FILE="$2"
+                shift 2
+                ;;
+            -v | --version )
+                version
+                exit 0
+                ;;
             -h | --help )
                 usage
-                exit 1
-                break;;
+                exit 0
+                ;;
         esac
     done
+
+    # Load the data if the login-file has been set
+    # Run this before the command-line parsing, so that the command-line
+    # options can override the login path settings
+    if [[ -n $LOGIN_FILE ]]; then
+
+        # Check for key
+        if [[ -n $LOGIN_PASSWORD_FILE ]]; then
+            if [[ ! -r $LOGIN_PASSWORD_FILE ]]; then
+                error "$LINENO" "Cannot read from the login-password file: $LOGIN_PASSWORD_FILE"
+                exit 1
+            fi
+            LOGIN_PASSWORD=$(cat "$LOGIN_PASSWORD_FILE")
+            if [[ -z $LOGIN_PASSWORD ]]; then
+                error "$LINENO" "Did not find any data in the login-password file: $LOGIN_PASSWORD_FILE"
+                exit 1
+            fi
+        fi
+        if [[ -z $LOGIN_PASSWORD ]]; then
+            read -r -s -p  "Enter the login-file password:" LOGIN_PASSWORD
+            echo
+        fi
+
+        # Extract the information
+        load_login_file "$LINENO" "$LOGIN_FILE" "$LOGIN_PASSWORD"
+        if [[ $? -ne 0 ]]; then
+            error "$LINENO" "Cannot read the credentials from the login-file"
+            exit 1
+        fi
+
+        [[ -n $PROXYSQL_USERNAME ]] && USER=$PROXYSQL_USERNAME;
+        [[ -n $PROXYSQL_PASSWORD ]] && PASSWORD=$PROXYSQL_PASSWORD;
+        [[ -n $PROXYSQL_HOSTNAME ]] && HOST=$PROXYSQL_HOSTNAME;
+        [[ -n $PROXYSQL_PORT ]] && PORT=$PROXYSQL_PORT;
+    fi
+
+    # Reset the args
+    eval set -- "$positional_args"
 
     if [[ $# -eq 0 ]]; then
         mysql_works_from_config=`mysql -e "SELECT 1" >/dev/null 2>/dev/null`
@@ -156,19 +296,36 @@ function parse_args() {
         fi
     elif [[ $# -eq 4 ]]; then
         CREDENTIALS_FROM_CLIENT_CONFIG=0
-        USER=$1
-        PASSWORD=$2
-        HOST=$3
-        PORT=$4
+        [[ -n $1 ]] && USER=$1
+        [[ -n $2 ]] && PASSWORD=$2
+        [[ -n $3 ]] && HOST=$3
+        [[ -n $4 ]] && PORT=$4
+    elif [[ $# -ne 0 ]]; then
+        error "$LINENO" "Incomplete connection parameters"
+        echo -e "All four parameters (user,password,host,port) must be specified together."
+        exit 1
     else
         echo -e "ERROR: Incorrect usage\n"
         usage
+    fi
+
+    if [[ -z $USER || -z $PASSWORD || -z $HOST || -z $PORT ]]; then
+        error "$LINENO" "One of the user, password, host, or port parameter is missing."
         exit 1
     fi
+
 }
 
 
 parse_args "$@"
+
+# Run a test to see if we can connect
+TABLES=$(mysql_exec -BN "SELECT 1" >/dev/null)
+if [[ $? -ne 0 ]]; then
+    error "$LINENO" "Cannot connect to the server at $HOST:$PORT"
+    echo -e "Please check that the address is correct and the server is online"
+    exit 1
+fi
 
 if [[ $DUMP_ALL -eq 1 || $DUMP_MAIN -eq 1 ]]; then
     echo "............ DUMPING MAIN DATABASE ............"

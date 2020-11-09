@@ -1,7 +1,6 @@
 ## proxysql-admin setup tests
 #
 
-
 #
 # Variable initialization
 #
@@ -61,7 +60,7 @@ fi
   [ "$status" -eq  0 ]
 
   # Need some time for this to converge
-  sleep 5
+  sleep 10
 
   # Test for default values
   local report_interval
@@ -122,6 +121,7 @@ fi
 
 
 @test "run proxysql-admin --update-mysql-version ($WSREP_CLUSTER_NAME)" {
+  #skip
 
   local mysql_version=$(mysql_exec "$HOST_IP" "$PORT_3" "SELECT VERSION();" | tail -1 | cut -d'-' -f1)
   local proxysql_mysql_version=$(proxysql_exec "select variable_value from global_variables where variable_name like 'mysql-server_version'" | awk '{print $0}')
@@ -144,18 +144,24 @@ fi
 }
 
 @test "run the check for --adduser ($WSREP_CLUSTER_NAME)" {
+  #skip
+
   run_add_command=$(printf "proxysql_test_user1\ntest_user\ny" | sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --adduser)
   run_check_user_command=$(proxysql_exec "select 1 from mysql_users where username='proxysql_test_user1'" | awk '{print $0}')
   [ "$run_check_user_command" -eq 1 ]
 }
 
 @test "run proxysql-admin --syncusers ($WSREP_CLUSTER_NAME)" {
+  #skip
+
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers
   echo "$output" >&2
   [ "$status" -eq  0 ]
 }
 
 @test "run proxysql-admin --syncusers --add-query-rule ($WSREP_CLUSTER_NAME)" {
+  #skip
+
   # Check whether user and query rule exists in  ProxySQL DB
   run_check_user=$(proxysql_exec "select 1 from mysql_users where username='test_query_rule'" | awk '{print $0}')
   run_query_rule=$(proxysql_exec "select 1 from mysql_query_rules where username='test_query_rule'" | awk '{print $0}')
@@ -168,6 +174,7 @@ fi
   echo "$output" >&2
   [ "$status" -eq  0 ]
   [ "${lines[4]}" = "  Added query rule for user: test_query_rule" ]
+
   run_write_hg_query_rule_user=$(proxysql_exec "select 1 from mysql_query_rules where username='test_query_rule' and match_digest='^SELECT.*FOR UPDATE'" | awk '{print $0}')
   echo "$LINENO : Query rule count for user 'test_query_rule' with writer hostgroup:$run_write_hg_query_rule_user expected:1"  >&2
   [[ "$run_write_hg_query_rule_user" -eq 1 ]]
@@ -189,6 +196,7 @@ fi
 }
 
 @test "run the check for --syncusers ($WSREP_CLUSTER_NAME)" {
+  #skip
 
   local mysql_version=$(cluster_exec "select @@version")
   local pass_field
@@ -214,6 +222,7 @@ fi
 
 @test "run the check for --quick-demo ($WSREP_CLUSTER_NAME)" {
   #skip
+
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin  --enable \
       --writer-hg=10 --reader-hg=11 --backup-writer-hg=12 \
       --offline-hg=13 --quick-demo <<< n
@@ -223,16 +232,24 @@ fi
 }
 
 @test "run the check for --force ($WSREP_CLUSTER_NAME)" {
+  #skip
+
   # Cleaning existing configuration to test --force option as normal run
+  dump_runtime_nodes $LINENO "before disable"
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
+
+  dump_runtime_nodes $LINENO "before enable --force"
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin  --enable --force <<< n
   echo "$output" >&2
   [ "$status" -eq 0 ]
-  sleep 5
+  sleep 10
   
+  dump_runtime_nodes $LINENO "after enable"
+
   # Check the status of the system
+  dump_runtime_nodes $LINENO "before count"
   # writer count
-  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID and status != 'SHUNNED'" | awk '{print $0}')
   echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
   [ "$proxysql_cluster_count" -eq 1 ]
 
@@ -247,14 +264,17 @@ fi
   [ "$proxysql_cluster_count" -eq 2 ]
   
   # Run 'proxysql-admin --enable --force' without removing existing configuration
+  echo "$LINENO : running --enable --force (without removing existing config)"  >&2
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin  --enable --force <<< n
   echo "$output" >&2
   [ "$status" -eq 0 ]
-  sleep 5
-  
+  sleep 10
+  dump_runtime_nodes $LINENO "after enable"
+
   # Check the status of the system
+  dump_runtime_nodes $LINENO "before count"
   # writer count
-  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID and status != 'SHUNNED' " | awk '{print $0}')
   echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
   [ "$proxysql_cluster_count" -eq 1 ]
 
@@ -269,6 +289,7 @@ fi
   [ "$proxysql_cluster_count" -eq 2 ]
 
   # Check proxysql-admin run status without --force option
+  echo "$LINENO : running --disable"  >&2
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin  --disable
   [ "$status" -eq 0 ]
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin  --enable <<< n
@@ -279,11 +300,13 @@ fi
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin  --enable --update-cluster --force  <<< n
   echo "$output" >&2
   [ "$status" -eq 0 ]
-  sleep 5
+  sleep 10
+  dump_runtime_nodes $LINENO "after enable"
   
   # Check the status of the system
+  dump_runtime_nodes $LINENO "before count"
   # writer count
-  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID and status != 'SHUNNED'" | awk '{print $0}')
   echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
   [ "$proxysql_cluster_count" -eq 1 ]
 
@@ -300,6 +323,7 @@ fi
 
 
 @test "test for various parameter settings ($WSREP_CLUSTER_NAME)" {
+  #skip
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable \
     --max-connections=111 \
@@ -309,7 +333,7 @@ fi
   [ "$status" -eq 0 ]
 
   # Give ProxySQL some time to converge
-  sleep 5
+  sleep 10
 
   local data
   data=$(proxysql_exec \
@@ -346,6 +370,7 @@ fi
 
 
 @test "test for --writers-are-readers ($WSREP_CLUSTER_NAME)" {
+  #skip
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
 
   # -----------------------------------------------------------
@@ -353,10 +378,11 @@ fi
   echo "$LINENO : proxysql-admin --enable" >&2
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable <<< 'n'
   [ "$status" -eq 0 ]
-  sleep 5
+  sleep 10
+  dump_runtime_nodes $LINENO "after enable"
 
   # writer count
-  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID and status != 'SHUNNED'" | awk '{print $0}')
   echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
   [ "$proxysql_cluster_count" -eq 1 ]
 
@@ -379,10 +405,11 @@ fi
   echo "$LINENO : proxysql-admin --enable --writers-are-readers=yes" >&2
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --writers-are-readers=yes <<< 'n'
   [ "$status" -eq 0 ]
-  sleep 5
+  sleep 10
+  dump_runtime_nodes $LINENO "after enable"
 
   # writer count
-  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID and status != 'SHUNNED'" | awk '{print $0}')
   echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
   [ "$proxysql_cluster_count" -eq 1 ]
 
@@ -405,10 +432,10 @@ fi
   echo "$LINENO : proxysql-admin --enable --writers-are-readers=no" >&2
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --writers-are-readers=no <<< 'n'
   [ "$status" -eq 0 ]
-  sleep 5
+  sleep 10
 
   # writer count
-  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID and status != 'SHUNNED'  " | awk '{print $0}')
   echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
   [ "$proxysql_cluster_count" -eq 1 ]
 
@@ -431,10 +458,10 @@ fi
   echo "$LINENO : proxysql-admin --enable --writers-are-readers=backup" >&2
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --writers-are-readers=backup <<< 'n'
   [ "$status" -eq 0 ]
-  sleep 5
+  sleep 10
 
   # writer count
-  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID and status != 'SHUNNED'" | awk '{print $0}')
   echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
   [ "$proxysql_cluster_count" -eq 1 ]
 
@@ -452,6 +479,7 @@ fi
 
 
 @test "test for --writers-are-readers with a read-only node ($WSREP_CLUSTER_NAME)" {
+  #skip
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
 
   # -----------------------------------------------------------
@@ -467,7 +495,7 @@ fi
   echo "$LINENO : proxysql-admin --enable" >&2
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable <<< 'n'
   [ "$status" -eq 1 ]
-  sleep 5
+  sleep 10
 
   # -----------------------------------------------------------
   # Now run with --writers-are-readers=yes
@@ -476,11 +504,12 @@ fi
   [ "$status" -eq 0 ]
   echo "$LINENO : proxysql-admin --enable --writers-are-readers=yes" >&2
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --writers-are-readers=yes <<< 'n'
+  echo "$output" >&2
   [ "$status" -eq 0 ]
-  sleep 5
+  sleep 10
 
    # writer count
-  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID and status != 'SHUNNED'" | awk '{print $0}')
   echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
   [ "$proxysql_cluster_count" -eq 1 ]
 
@@ -503,10 +532,10 @@ fi
   echo "$LINENO : proxysql-admin --enable --writers-are-readers=no" >&2
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --writers-are-readers=no <<< 'n'
   [ "$status" -eq 0 ]
-  sleep 5
+  sleep 10
 
    # writer count
-  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID and status != 'SHUNNED'" | awk '{print $0}')
   echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
   [ "$proxysql_cluster_count" -eq 1 ]
 
@@ -531,7 +560,7 @@ fi
   echo "$LINENO : proxysql-admin --enable --writers-are-readers=backup" >&2
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --writers-are-readers=backup <<< 'n'
   [ "$status" -eq 1 ]
-  sleep 5
+  sleep 10
 
 
   # -----------------------------------------------------------
@@ -545,15 +574,16 @@ fi
 
 # Test loadbal
 @test "test for --mode=loadbal ($WSREP_CLUSTER_NAME)" {
+  #skip
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
 
   echo "$LINENO : proxysql-admin --enable --mode=loadbal" >&2
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --mode=loadbal <<< 'n'
   [ "$status" -eq 0 ]
-  sleep 5
+  sleep 10
 
    # writer count
-  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID and status != 'SHUNNED'" | awk '{print $0}')
   echo "$LINENO : writer count:$proxysql_cluster_count expected:3" >&2
   [ "$proxysql_cluster_count" -eq 3 ]
 
@@ -618,6 +648,7 @@ fi
 
 # Test loadbal with a read-only node
 @test "test for --mode=loadbal with a read-only node ($WSREP_CLUSTER_NAME)" {
+  #skip
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
 
   # -----------------------------------------------------------
@@ -629,10 +660,10 @@ fi
   echo "$LINENO : proxysql-admin --enable --mode=loadbal" >&2
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --mode=loadbal <<< 'n'
   [ "$status" -eq 0 ]
-  sleep 5
+  sleep 10
 
    # writer count
-  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID and status != 'SHUNNED'" | awk '{print $0}')
   echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
   [ "$proxysql_cluster_count" -eq 2 ]
 
@@ -658,16 +689,18 @@ fi
 
 # Test singlewrite with --write-node
 @test "test for --write-node ($WSREP_CLUSTER_NAME)" {
+  #skip
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
 
   # -----------------------------------------------------------
   echo "$LINENO : proxysql-admin --enable --write-node=${HOST_IP}:${PORT_2}" >&2
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --write-node=${HOST_IP}:${PORT_2} <<< 'n'
   [ "$status" -eq 0 ]
-  sleep 5
+  sleep 10
+  dump_runtime_nodes $LINENO "after write node"
 
   # writer count
-  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID and status != 'SHUNNED'" | awk '{print $0}')
   echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
   [ "$proxysql_cluster_count" -eq 1 ]
 
@@ -681,11 +714,11 @@ fi
   echo "$LINENO : backup writer count:$proxysql_cluster_count expected:1"  >&2
   [ "$proxysql_cluster_count" -eq 2 ]
 
-  #dump_runtime_nodes $LINENO "after write node"
+  dump_runtime_nodes $LINENO "after write node"
   # Verify the weights on the nodes
   retrieve_writer_info $WRITER_HOSTGROUP_ID
   echo "write_weight[0]:${write_weight[0]}" >&2
-  [ "${#write_host[@]}" -eq 1 ]
+  [ "${write_status[0]}" = 'ONLINE' ]
   [ "${write_weight[0]}" -eq 1000000 ]
   [ "${write_port[0]}" -eq $PORT_2 ]
 
@@ -699,6 +732,7 @@ fi
 
 # Test singlewrite with --write-node is a read-only node
 @test "test for --write-node on a read-only node ($WSREP_CLUSTER_NAME)" {
+  #skip
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
 
   # -----------------------------------------------------------
@@ -723,6 +757,7 @@ fi
 
 # Test --update-cluster
 @test "test --update-cluster ($WSREP_CLUSTER_NAME)" {
+  #skip
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
 
   # Stop node3
@@ -743,11 +778,11 @@ fi
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable  <<< 'n'
   echo "$output" >& 2
   [ "$status" -eq 0 ]
-  sleep 5
+  sleep 10
 
   # Check the status of the system
   # writer count
-  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID and status != 'SHUNNED'" | awk '{print $0}')
   echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
   [ "$proxysql_cluster_count" -eq 1 ]
 
@@ -766,14 +801,22 @@ fi
   restart_server "$restart_cmd3" "$restart_user3"
   wait_for_server_start $pxc_socket3 3
 
+  sleep 10
+
+  dump_runtime_nodes "$LINENO" "after cluster update (runtime)"
+
   # Run --update-cluster
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --update-cluster
   echo "$LINENO : proxysql-admin --update-cluster" >&2
   echo "$output" >& 2
   [ "$status" -eq 0 ]
 
+  sleep 10
+
+  dump_runtime_nodes "$LINENO" "after cluster update (runtime)"
+
   # writer count
-  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID and status != 'SHUNNED'" | awk '{print $0}')
   echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
   [ "$proxysql_cluster_count" -eq 1 ]
 
@@ -790,6 +833,7 @@ fi
 }
 
 @test "run --update-cluster with read-only --write-node server ($WSREP_CLUSTER_NAME)" {
+  #skip
   # Run --update-cluster with read-only --write-node server
   echo "$LINENO : changing node2 to read-only" >&2
   mysql_exec "$HOST_IP" "$PORT_2" "SET global read_only=1"
@@ -812,6 +856,7 @@ fi
 
 # Test --enable --update-cluster
 @test "test --enable --update-cluster ($WSREP_CLUSTER_NAME)" {
+  #skip
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
 
   # Stop node3
@@ -835,7 +880,7 @@ fi
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --update-cluster <<< 'n'
   echo "$output" >& 2
   [ "$status" -eq 0 ]
-  sleep 5
+  sleep 10
 
   # There should be an entry for this cluster
   cluster_in_use=$(proxysql_exec "select count(*) from runtime_mysql_galera_hostgroups where writer_hostgroup = $WRITER_HOSTGROUP_ID")
@@ -843,7 +888,7 @@ fi
 
   # Check the status of the system
   # writer count
-  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID and status != 'SHUNNED'" | awk '{print $0}')
   echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
   [ "$proxysql_cluster_count" -eq 1 ]
 
@@ -862,18 +907,22 @@ fi
   restart_server "$restart_cmd3" "$restart_user3"
   wait_for_server_start $pxc_socket3 3
 
+  sleep 10
+
   # Run --update-cluster
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --update-cluster
   echo "$LINENO : proxysql-admin --update-cluster" >&2
   echo "$output" >& 2
   [ "$status" -eq 0 ]
 
+  sleep 10
+
   # There should be an entry for this cluster
   cluster_in_use=$(proxysql_exec "select count(*) from runtime_mysql_galera_hostgroups where writer_hostgroup = $WRITER_HOSTGROUP_ID")
   [[ $cluster_in_use -eq 1 ]]
 
   # writer count
-  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID and status != 'SHUNNED'" | awk '{print $0}')
   echo "$LINENO : writer count:$proxysql_cluster_count expected:1" >&2
   [ "$proxysql_cluster_count" -eq 1 ]
 
@@ -887,4 +936,97 @@ fi
   echo "$LINENO : backup writer count:$proxysql_cluster_count expected:2"  >&2
   [ "$proxysql_cluster_count" -eq 2 ]
   
+}
+
+# Test --enable with login-file
+@test "test --enable with login-file ($WSREP_CLUSTER_NAME)" {
+  local openssl_binary
+  openssl_binary=$(find_openssl_binary "$LINENO" || true)
+  if [[ -z ${openssl_binary} ]]; then
+    skip "Cannot find an openssl ${REQUIRED_OPENSSL_VERSION}+ binary"
+  fi
+
+  if [[ $WSREP_CLUSTER_NAME == "cluster_one" ]]; then
+    login_file="${SCRIPTDIR}/login-file.cnf"
+    bad_login_file="${SCRIPTDIR}/bad-login-file.cnf"
+  else
+    login_file="${SCRIPTDIR}/login-file2.cnf"
+    bad_login_file="${SCRIPTDIR}/bad-login-file2.cnf"
+  fi
+
+  # Disable proxysql-admin
+  echo "$LINENO : proxysql-admin --disable" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
+  echo "$output" >& 2
+  [ "$status" -eq 0 ]
+
+
+  # --------------------------------
+  # Test that it works with a login file
+  echo "$LINENO : proxysql-admin --enable --login-file=${login_file}" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable \
+          --login-file="${login_file}" --debug --login-password=secret <<< 'n'
+  echo "$output" >& 2
+  [ "$status" -eq 0 ]
+
+  echo "$LINENO : proxysql-admin --disable --login-file=${login_file}" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable \
+          --login-file="${login_file}" --login-password=secret
+  echo "$output" >& 2
+  [ "$status" -eq 0 ]
+
+
+  # --------------------------------
+  # Test that it fails with a bad login file
+  echo "$LINENO : proxysql-admin --enable --login-file=${bad_login_file}" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable \
+          --login-file="${bad_login_file}" --login-password=secret <<< 'n'
+  echo "$output" >& 2
+  [ "$status" -eq 1 ]
+
+
+  # --------------------------------
+  # Test that the CLI args override the login-file
+  echo "$LINENO : proxysql-admin --enable --login-file=$bad_login_file with args" >&2
+  run sudo PATH=$WORKDIR:$PATH \
+      $WORKDIR/proxysql-admin --enable  \
+      --login-file="${bad_login_file}" --login-password=secret <<< 'n' \
+      --proxysql-username=admin --proxysql-password=admin --proxysql-hostname=localhost --proxysql-port=6032 \
+      --cluster-username=admin --cluster-password=admin --cluster-hostname=localhost --cluster-port=$PORT_1 \
+      --monitor-username=monitor --monitor-password=monitor \
+      --cluster-app-username=${WSREP_CLUSTER_NAME} --cluster-app-password=passw0rd \
+       <<< 'n'
+  echo "$output" >& 2
+  [ "$status" -eq 0 ]
+
+  echo "$LINENO : proxysql-admin --disable --login-file=$bad_login_file with args" >&2
+  run sudo PATH=$WORKDIR:$PATH \
+      $WORKDIR/proxysql-admin --disable \
+      --login-file="${bad_login_file}" --login-password=secret <<< 'n' \
+      --proxysql-username=admin --proxysql-password=admin --proxysql-hostname=localhost --proxysql-port=6032 \
+      --cluster-username=admin --cluster-password=admin --cluster-hostname=localhost --cluster-port=$PORT_1 \
+      --monitor-username=monitor --monitor-password=monitor \
+      --cluster-app-username=${WSREP_CLUSTER_NAME} --cluster-app-password=passw0rd \
+  echo "$output" >& 2
+  [ "$status" -eq 0 ]
+}
+
+# Test proxysql-login-file
+@test "test proxysql-login-file ($WSREP_CLUSTER_NAME)" {
+  local openssl_binary
+  openssl_binary=$(find_openssl_binary "$LINENO" || true)
+  if [[ -z ${openssl_binary} ]]; then
+    skip "Cannot find an openssl ${REQUIRED_OPENSSL_VERSION}+ binary"
+  fi
+
+  # Create some test data
+  data=$(echo -e "hello world\nI am here")
+
+  enc_data=$($WORKDIR/proxysql-login-file --in <(echo -e "$data") --password=secret)
+  unenc_data=$($WORKDIR/proxysql-login-file --in <(echo -e "$enc_data") --password=secret --decrypt)
+  [[ "$data" == "$unenc_data" ]]
+
+  enc_data=$($WORKDIR/proxysql-login-file --in <(echo -e "$data") --password-file=<(echo secret))
+  unenc_data=$($WORKDIR/proxysql-login-file --in <(echo -e "$enc_data") --password-file=<(echo secret) --decrypt)
+  [[ "$data" == "$unenc_data" ]]
 }

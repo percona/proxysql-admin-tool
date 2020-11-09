@@ -1,0 +1,27 @@
+
+# --------------------------------
+# proxysql admin interface credentials.
+proxysql.user=admin
+proxysql.password=admin
+proxysql.host=localhost
+proxysql.port=6032
+
+# --------------------------------
+# PXC admin credentials for connecting to pxc-cluster-node.
+cluster.user=admin
+cluster.password=admin
+cluster.host=localhost
+cluster.port=4210
+
+# --------------------------------
+# proxysql monitoring user. proxysql admin script will create
+# this user in pxc to monitor pxc-nodes.
+monitor.user=monitor
+monitor.password=monitor
+
+# --------------------------------
+# Application user to connect to pxc-node through proxysql
+cluster-app.user=cluster_two
+cluster-app.password=passw0rd
+
+
