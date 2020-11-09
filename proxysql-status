@@ -42,19 +42,10 @@ declare    LOGIN_FILE=""
 declare    LOGIN_PASSWORD=""
 declare    LOGIN_PASSWORD_FILE=""
 
-declare USER
-declare PASSWORD
-declare HOST
-declare PORT
-declare RUNTIME_OPTION=""
-declare DUMP_ALL=1
-declare DUMP_MAIN=0
-declare DUMP_STATS=0
-declare DUMP_MONITOR=0
-declare DUMP_FILES=0
-declare TABLE_FILTER=""
-declare DUMP_STATS_RESET_TABLE=0
-
+# Set this to 1 if the default user credentials from my.cnf
+# are being used, set to 0 if the default my.cnf user credentials
+# are not being used, and set to -1 if unknown
+declare CREDENTIALS_FROM_CLIENT_CONFIG=-1
 
 function usage() {
     local path=$0
@@ -133,15 +124,18 @@ function mysql_exec() {
   local defaults=""
   local default_auth=""
 
-  defaults=$(printf '[client]\nuser=%s\npassword="%s"\nhost=%s\nport=%s\n%s' \
-    "${USER}" \
-    "${PASSWORD}" \
-    "${HOST}" \
-    "${PORT}" \
-    "${default_auth}"
-  )
-
-  retoutput=$(mysql --defaults-file=<(echo "${defaults}") --protocol=tcp --unbuffered --batch --silent ${args} -e "$query")
+  if [[ $CREDENTIALS_FROM_CLIENT_CONFIG -eq 0 ]]; then
+    defaults=$(printf '[client]\nuser=%s\npassword="%s"\nhost=%s\nport=%s\n%s' \
+      "${USER}" \
+      "${PASSWORD}" \
+      "${HOST}" \
+      "${PORT}" \
+      "${default_auth}"
+    )
+    retoutput=$(mysql --defaults-file=<(echo "${defaults}") --protocol=tcp --unbuffered --batch --silent ${args} -e "$query")
+  else
+    retoutput=$(mysql ${args} -e "${query}")
+  fi
   retvalue=$?
 
   if [[ -n $retoutput ]]; then
@@ -244,18 +238,6 @@ function parse_args() {
         esac
     done
 
-    if [[ $# -eq 0 && -z $LOGIN_FILE ]]; then
-        if [[ ! -r /etc/proxysql-admin.cnf ]]; then
-            error "$LINENO" "Cannot find /etc/proxysql-admin.cnf."
-            exit 1
-        fi
-        source /etc/proxysql-admin.cnf
-        [[ -n $PROXYSQL_USERNAME ]] && USER=$PROXYSQL_USERNAME;
-        [[ -n $PROXYSQL_PASSWORD ]] && PASSWORD=$PROXYSQL_PASSWORD;
-        [[ -n $PROXYSQL_HOSTNAME ]] && HOST=$PROXYSQL_HOSTNAME;
-        [[ -n $PROXYSQL_PORT ]] && PORT=$PROXYSQL_PORT;
-    fi
-
     # Load the data if the login-file has been set
     # Run this before the command-line parsing, so that the command-line
     # options can override the login path settings
@@ -294,7 +276,26 @@ function parse_args() {
     # Reset the args
     eval set -- "$positional_args"
 
-    if [[ $# -eq 4 ]]; then
+    if [[ $# -eq 0 ]]; then
+        mysql_works_from_config=`mysql -e "SELECT 1" >/dev/null 2>/dev/null`
+        mysql_works_from_config_exit_code=$?
+
+        if [[ $mysql_works_from_config_exit_code == 0 ]]; then
+            CREDENTIALS_FROM_CLIENT_CONFIG=1
+            echo "ProxySQL admin configuration loaded from a configuration file (most likely /.my.cnf)"
+        elif [[ ! -r /etc/proxysql-admin.cnf ]]; then
+            echo "Cannot find /etc/proxysql-admin.cnf."
+            exit 1
+        else
+            CREDENTIALS_FROM_CLIENT_CONFIG=0
+            source /etc/proxysql-admin.cnf
+            USER=$PROXYSQL_USERNAME
+            PASSWORD=$PROXYSQL_PASSWORD
+            HOST=$PROXYSQL_HOSTNAME
+            PORT=$PROXYSQL_PORT
+        fi
+    elif [[ $# -eq 4 ]]; then
+        CREDENTIALS_FROM_CLIENT_CONFIG=0
         [[ -n $1 ]] && USER=$1
         [[ -n $2 ]] && PASSWORD=$2
         [[ -n $3 ]] && HOST=$3
@@ -303,6 +304,9 @@ function parse_args() {
         error "$LINENO" "Incomplete connection parameters"
         echo -e "All four parameters (user,password,host,port) must be specified together."
         exit 1
+    else
+        echo -e "ERROR: Incorrect usage\n"
+        usage
     fi
 
     if [[ -z $USER || -z $PASSWORD || -z $HOST || -z $PORT ]]; then
