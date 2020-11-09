@@ -1513,12 +1513,13 @@ function enable_proxysql() {
   proxysql_load_to_runtime_save_to_disk "MYSQL SERVERS" $LINENO
   proxysql_load_to_runtime_save_to_disk "MYSQL QUERY RULES" $LINENO
 
-  if [[ $MODE == "singlewrite" ]]; then  
+  if [[ $MODE == "singlewrite" ]]; then
     echo -e "\nWrite node info"
     proxysql_exec "$LINENO" \
       "SELECT hostname,hostgroup_id,port,weight
        FROM runtime_mysql_servers
-       WHERE hostgroup_id=$WRITER_HOSTGROUP_ID" "-t"
+       WHERE hostgroup_id=$WRITER_HOSTGROUP_ID AND
+             status != 'SHUNNED'" "-t"
     echo ""
   fi
 }
