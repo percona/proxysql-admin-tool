@@ -145,9 +145,8 @@ function mysql_exec() {
   retvalue=$?
 
   if [[ -n $retoutput ]]; then
-    retoutput+="\n"
+    printf "%s\n" "${retoutput}"
   fi
-  printf "%s" "${retoutput}"
   return $retvalue
 }
 
