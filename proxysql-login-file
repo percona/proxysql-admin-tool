@@ -18,7 +18,7 @@
 # 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
 # Include the common functions
-. $(dirname $0)/proxysql-admin-common
+. $(dirname ${BASH_SOURCE[0]})/proxysql-admin-common
 
 # The file used as input (unencrypted)
 declare INFILE="/dev/stdin"
