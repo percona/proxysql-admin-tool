@@ -27,7 +27,7 @@ set -o nounset    # no undefined variables
 set -o pipefail   # internal pipe failures cause an exit
 
 # Include the common functions
-. $(dirname $0)/proxysql-admin-common
+. $(dirname ${BASH_SOURCE[0]})/proxysql-admin-common
 
 
 #-------------------------------------------------------------------------------

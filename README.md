@@ -270,12 +270,18 @@ ___ProxySQL Admin Login File Usage___
  # Method (1) : Encrypt this data with --password
  $ proxysql-login-file --in data.cnf --out login-file.cnf --password=${passwd}
 
- # Method (2) : Encrypt the data with --password-file
- #              Sending the password via the command-line is insecure,
- #              it's better to use --password-file so that the
- #              password doesn't show up in the command-line
+ # Method (2a) : Encrypt the data with --password-file
+ #               Sending the password via the command-line is insecure,
+ #               it's better to use --password-file so that the
+ #               password doesn't show up in the command-line
  $ proxysql-login-file --in data.cnf --out login-file.cnf \
       --password-file=<(echo "${passwd}")
+
+ # Method (2b) : Running the command using sudo will not work with
+ #               bash's process substition.  In this case, sending the
+ #               password via stdin is another option.
+ $ sudo echo "${passwd}" | proxysql-login-file --in data.cnf --out login-file.cnf \
+                            --password-file=/dev/stdin
 
  # Method (3) : The script will prompt for the password
  #              if no password is provided via the command-line options.
