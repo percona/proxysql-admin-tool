@@ -47,6 +47,14 @@ declare    LOGIN_PASSWORD_FILE=""
 # are not being used (default)
 declare CREDENTIALS_FROM_CLIENT_CONFIG=0
 
+#
+# If set to 1, then calls to MySQL/ProxySQL via the MySQL client
+# will have credentials passed via stdin rather than using bash
+# process substitution.
+#
+declare   USE_STDIN_FOR_CREDENTIALS=0
+
+
 function usage() {
     local path=$0
     cat << EOF
@@ -77,6 +85,11 @@ Usage example:
     --login-password-file=<path>
                             : Read the key from a file using the <path>.
                               This cannot be used with --login-password
+    --use-stdin-for-credentials
+                            : If set, then the MySQL client will use stdin to send
+                              credentials to the client (instead of process
+                              substition).
+                              (default: process subsitution is used)
 
   The default is to display all tables and files.
 
@@ -137,11 +150,18 @@ function mysql_exec() {
       "${PORT}" \
       "${default_auth}"
     )
-    retoutput=$(mysql --defaults-file=<(echo "${defaults}") --protocol=tcp --unbuffered --batch --silent ${args} -e "$query")
+
+    if [[ $USE_STDIN_FOR_CREDENTIALS -eq 1 ]]; then
+      retoutput=$(printf "%s" "${defaults}" | mysql --defaults-file=/dev/stdin --protocol=tcp --unbuffered --batch --silent ${args} -e "$query")
+      retvalue=$?
+    else
+      retoutput=$(mysql --defaults-file=<(echo "${defaults}") --protocol=tcp --unbuffered --batch --silent ${args} -e "$query")
+      retvalue=$?
+    fi
   else
     retoutput=$(mysql ${args} -e "${query}")
+    retvalue=$?
   fi
-  retvalue=$?
 
   if [[ -n $retoutput ]]; then
     printf "%s\n" "${retoutput}"
@@ -157,7 +177,7 @@ function parse_args() {
    # TODO: kennt, what happens if we don't have a functional getopt()?
     # Check if we have a functional getopt(1)
     if ! getopt --test; then
-        go_out="$(getopt --options=hv --longoptions=runtime,main,stats,monitor,files,table:,with-stats-reset,login-file:,login-password:,login-password-file:,version,help \
+        go_out="$(getopt --options=hv --longoptions=runtime,main,stats,monitor,files,table:,with-stats-reset,login-file:,login-password:,login-password-file:,use-stdin-for-credentials,version,help \
         --name="$(basename "$0")" -- "$@")"
         if [[ $? -ne 0 ]]; then
             # no place to send output
@@ -231,6 +251,10 @@ function parse_args() {
                 fi
                 LOGIN_PASSWORD_FILE="$2"
                 shift 2
+                ;;
+            --use-stdin-for-credentials )
+                USE_STDIN_FOR_CREDENTIALS=1
+                shift
                 ;;
             -v | --version )
                 version

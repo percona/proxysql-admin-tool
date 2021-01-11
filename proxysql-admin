@@ -148,6 +148,13 @@ declare   NEEDS_READER_HOSTGROUP=0
 declare   NEEDS_BACKUP_WRITER_HOSTGROUP=0
 declare   NEEDS_OFFLINE_HOSTGROUP=0
 
+#
+# If set to 1, then calls to MySQL/ProxySQL via the MySQL client
+# will have credentials passed via stdin rather than using bash
+# process substitution.
+#
+declare   USE_STDIN_FOR_CREDENTIALS=0
+
 #-------------------------------------------------------------------------------
 #
 # Step 3 : Helper functions
@@ -251,6 +258,9 @@ Options:
                                      admin variable settings.  If this option is specifed,
                                      these options will be set to false.
                                      (default: updates are not disabled)
+  --use-stdin-for-credentials        If set, then the MySQL client will use stdin to send credentials
+                                     to the client (instead of process substition).
+                                     (default: process subsitution is used)
   --debug                            Enables additional debug logging.
   --help                             Dispalys this help text.
 
@@ -356,8 +366,13 @@ function exec_sql() {
     "${default_auth}"
   )
 
-  retoutput=$(mysql --defaults-file=<(echo "${defaults}") --protocol=tcp --unbuffered --batch --silent ${args} -e "$query")
-  retvalue=$?
+  if [[ $USE_STDIN_FOR_CREDENTIALS -eq 1 ]]; then
+    retoutput=$(printf "%s" "${defaults}" | mysql --defaults-file=/dev/stdin --protocol=tcp --unbuffered --batch --silent ${args} -e "$query")
+    retvalue=$?
+  else
+    retoutput=$(mysql --defaults-file=<(echo "${defaults}") --protocol=tcp --unbuffered --batch --silent ${args} -e "$query")
+    retvalue=$?
+  fi
 
   if [[ $DEBUG -eq 1 ]]; then
     local number_of_newlines=0
@@ -2530,7 +2545,7 @@ function parse_args() {
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=edv --longoptions=config-file:,login-file:,login-password:,login-password-file:,proxysql-datadir:,writer-hg:,backup-writer-hg:,reader-hg:,offline-hg:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,is-enabled,adduser,syncusers,sync-multi-cluster-users,update-mysql-version,add-query-rule,status,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,remove-all-servers,disable-updates,force,version,debug,help \
+    go_out="$(getopt --options=edv --longoptions=config-file:,login-file:,login-password:,login-password-file:,proxysql-datadir:,writer-hg:,backup-writer-hg:,reader-hg:,offline-hg:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,is-enabled,adduser,syncusers,sync-multi-cluster-users,update-mysql-version,add-query-rule,status,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,remove-all-servers,disable-updates,force,use-stdin-for-credentials,version,debug,help \
     --name="$(basename "$0")" -- "$@")"
     check_cmd $? "$LINENO" "Script error: getopt() failed with arguments: $*"
     eval set -- "$go_out"
@@ -2923,6 +2938,10 @@ function parse_args() {
         ;;
       --disable-updates )
         DISABLE_UPDATES=1
+        shift
+        ;;
+      --use-stdin-for-credentials )
+        USE_STDIN_FOR_CREDENTIALS=1
         shift
         ;;
       -v | --version )
