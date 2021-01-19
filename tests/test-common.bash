@@ -6,6 +6,7 @@ readonly    REQUIRED_OPENSSL_VERSION="1.1.1"
 # The name of the openssl binary packaged with proxysql-admin
 readonly    PROXYSQL_ADMIN_OPENSSL_NAME="proxysql-admin-openssl"
 
+declare     DEBUG_SQL_QUERY=0
 
 
 function exec_sql() {
@@ -22,10 +23,37 @@ function exec_sql() {
     args=$6
   fi
 
+  if [[ $DEBUG_SQL_QUERY -eq 1 ]]; then
+    echo "exec_sql : $user@$hostname:$port $password ==> $query" >&2
+  fi
+
   retoutput=$(printf "[client]\nuser=${user}\npassword=\"${password}\"\nhost=${hostname}\nport=${port}"  \
       | $PXC_BASEDIR/bin/mysql --defaults-file=/dev/stdin --protocol=tcp \
             --unbuffered --batch --silent ${args} -e "${query}")
   retvalue=$?
+
+  if [[ $DEBUG_SQL_QUERY -eq 1 ]]; then
+    local number_of_newlines=0
+    local dbgoutput=$retoutput
+
+    if [[ -n $retoutput ]]; then
+      number_of_newlines=$(printf "%s" "${dbgoutput}" | wc -l)
+    fi
+
+    if [[ $retvalue -ne 0 ]]; then
+      echo "--> query failed $retvalue" >&2
+    elif [[ -z $dbgoutput ]]; then
+      echo "--> query returned $retvalue : <query returned no data>" >&2
+    elif [[ ${number_of_newlines} -eq 0 ]]; then
+      echo "--> query returned $retvalue : ${dbgoutput}" >&2
+    else
+      echo "--> query returned $retvalue : <data follows>" >&2
+      printf "%s\n" "${dbgoutput}" | while IFS= read -r line; do
+        echo "----> $line" >&2
+      done
+    fi
+  fi
+
 
   printf "%s" "${retoutput}"
   return $retvalue

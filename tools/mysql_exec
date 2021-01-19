@@ -49,7 +49,7 @@ function exec_sql() {
   local retvalue
   local retoutput
 
-  if [[ -n $HOST && -n $PORt ]]; then
+  if [[ -n $HOST && -n $PORT ]]; then
     retoutput=$(printf "[client]\nuser=${USER}\npassword=\"${PASSWORD}\"\nhost=${HOST}\nport=${PORT}"  \
         | mysql --defaults-file=/dev/stdin --protocol=tcp \
               ${args} -e "${query}")
