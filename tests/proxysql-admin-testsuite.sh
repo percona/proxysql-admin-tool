@@ -206,11 +206,14 @@ function start_pxc_node(){
   echo "innodb_autoinc_lock_mode=2" >> my.cnf
   if version_is_less_than "$MYSQL_VERSION" "8.0"; then
     echo "innodb_locks_unsafe_for_binlog=1" >> my.cnf
+    echo "wsrep_sst_method=rsync" >> my.cnf
+    echo "wsrep_sst_auth=$SUSER:$SPASS" >> my.cnf
+  else
+    echo "wsrep_sst_method=xtrabackup-v2" >> my.cnf
+    echo "pxc_encrypt_cluster_traffic=OFF" >> my.cnf
   fi
   echo "wsrep-provider=${PXC_BASEDIR}/lib/libgalera_smm.so" >> my.cnf
   echo "wsrep_node_incoming_address=$addr" >> my.cnf
-  echo "wsrep_sst_method=rsync" >> my.cnf
-  echo "wsrep_sst_auth=$SUSER:$SPASS" >> my.cnf
   echo "core-file" >> my.cnf
   echo "log-output=none" >> my.cnf
   echo "server-id=1" >> my.cnf
