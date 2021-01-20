@@ -168,25 +168,84 @@ function get_mysql_version() {
   fi
 }
 
-function version_is_less_than()
+# Returns the version string in a standardized format
+# Input "1.2.3" => echoes "010203"
+# Wrongly formatted values => echoes "000000"
+#
+# Globals:
+#   None
+#
+# Arguments:
+#   Parameter 1: a version string
+#                like "5.1.12"
+#                anything after the major.minor.revision is ignored
+# Outputs:
+#   A string that can be used directly with string comparisons.
+#   So, the string "5.1.12" is transformed into "050112"
+#   Note that individual version numbers can only go up to 99.
+#
+function normalize_version()
 {
-  local v1=$1
-  local v2=$2
+    local major=0
+    local minor=0
+    local patch=0
 
-  local v1_major=$(echo "$v1" | cut -d'.' -f1)
-  local v1_minor=$(echo "$v1" | cut -d'.' -f2)
-  local v2_major=$(echo "$v2" | cut -d'.' -f1)
-  local v2_minor=$(echo "$v2" | cut -d'.' -f2)
+    # Only parses purely numeric version numbers, 1.2.3
+    # Everything after the first three values are ignored
+    if [[ $1 =~ ^([0-9]+)\.([0-9]+)\.?([0-9]*)([^ ])* ]]; then
+        major=${BASH_REMATCH[1]}
+        minor=${BASH_REMATCH[2]}
+        patch=${BASH_REMATCH[3]}
+    fi
 
-  # normalize the strings for easy string comparison
-  local v1_normalized=$(printf "%02d%02d" "$v1_major" "$v1_minor")
-  local v2_normalized=$(printf "%02d%02d" "$v2_major" "$v2_minor")
+    printf %02d%02d%02d $major $minor $patch
+}
 
-  if [[ "$v1_normalized" < "$v2_normalized" ]]; then
-    return 0
-  else
+# Compares two version strings
+#   The version strings passed in will be normalized to a
+#   string-comparable version.
+#
+# Globals:
+#   None
+#
+# Arguments:
+#   Parameter 1: The left-side of the comparison (for example: "5.7.25")
+#   Parameter 2: the comparison operation
+#                   '>', '>=', '=', '==', '<', '<=', "!="
+#   Parameter 3: The right-side of the comparison (for example: "5.7.24")
+#
+# Returns:
+#   Returns 0 (success) if param1 op param2
+#   Returns 1 (failure) otherwise
+#
+function compare_versions()
+{
+    local version_1="$1"
+    local op=$2
+    local version_2="$3"
+
+    if [[ -z $version_1 || -z $version_2 ]]; then
+        echo "ERROR ($LINENO): Missing version string in comparison"
+        return 1
+    fi
+
+    version_1="$( normalize_version "$version_1" )"
+    version_2="$( normalize_version "$version_2" )"
+
+    if [[ ! " = == > >= < <= != " =~ " $op " ]]; then
+        echo "ERROR ($LINENO) Unknown operation : $op"
+        return 1
+    fi
+
+    [[ $op == "<"  &&   $version_1 <  $version_2 ]] && return 0
+    [[ $op == "<=" && ! $version_1 >  $version_2 ]] && return 0
+    [[ $op == "="  &&   $version_1 == $version_2 ]] && return 0
+    [[ $op == "==" &&   $version_1 == $version_2 ]] && return 0
+    [[ $op == ">"  &&   $version_1 >  $version_2 ]] && return 0
+    [[ $op == ">=" && ! $version_1 <  $version_2 ]] && return 0
+    [[ $op == "!=" &&   $version_1 != $version_2 ]] && return 0
+
     return 1
-  fi
 }
 
 function start_pxc_node(){
@@ -195,7 +254,7 @@ function start_pxc_node(){
   local NODES=3
   local addr="$LOCALHOST_IP"
   local WSREP_CLUSTER_NAME="--wsrep_cluster_name=$cluster_name"
-
+  local bootstrap_node
 
   pushd "$PXC_BASEDIR" > /dev/null
 
@@ -204,13 +263,8 @@ function start_pxc_node(){
   echo "basedir=${PXC_BASEDIR}" >> my.cnf
   echo "innodb_file_per_table" >> my.cnf
   echo "innodb_autoinc_lock_mode=2" >> my.cnf
-  if version_is_less_than "$MYSQL_VERSION" "8.0"; then
-    echo "innodb_locks_unsafe_for_binlog=1" >> my.cnf
-  fi
   echo "wsrep-provider=${PXC_BASEDIR}/lib/libgalera_smm.so" >> my.cnf
   echo "wsrep_node_incoming_address=$addr" >> my.cnf
-  echo "wsrep_sst_method=rsync" >> my.cnf
-  echo "wsrep_sst_auth=$SUSER:$SPASS" >> my.cnf
   echo "core-file" >> my.cnf
   echo "log-output=none" >> my.cnf
   echo "server-id=1" >> my.cnf
@@ -222,7 +276,7 @@ function start_pxc_node(){
   echo "log-slave-updates" >> my.cnf
   echo "log-bin" >> my.cnf
   echo "user=$OS_USER" >> my.cnf
-  if version_is_less_than "5.6" "$MYSQL_VERSION"; then
+  if compare_versions "5.6" "<" "$MYSQL_VERSION"; then
     echo "wsrep_slave_threads=2" >> my.cnf
     echo "pxc_maint_transition_period=1" >> my.cnf
   fi
@@ -230,10 +284,20 @@ function start_pxc_node(){
     echo "bind-address = ::" >> my.cnf
   fi
 
-  # test that $MYSQL_VERSION >= 8.0
-  if ! version_is_less_than "8.0" "$MYSQL_VERSION"; then
+  if compare_versions "$MYSQL_VERSION" "<" "8.0"; then
+    echo "innodb_locks_unsafe_for_binlog=1" >> my.cnf
+    echo "wsrep_sst_method=rsync" >> my.cnf
+    echo "wsrep_sst_auth=$SUSER:$SPASS" >> my.cnf
+  else
     echo "log-error-verbosity=3" >> my.cnf
+    echo "wsrep_sst_method=xtrabackup-v2" >> my.cnf
   fi
+
+  echo "[sst]" >> my.cnf
+  echo "wsrep_debug=1" >> my.cnf
+
+  # Assume that node1 is the bootstrapped node
+  bootstrap_node="${PXC_BASEDIR}/${cluster_name}1"
 
   WSREP_CLUSTER=""
   for i in `seq 1 $NODES`; do
@@ -283,6 +347,12 @@ function start_pxc_node(){
     mkdir -p "$node"
     ${MID} --datadir=$node  > $WORKDIR/logs/startup_${cluster_name}${i}.err 2>&1 || exit 1;
 
+    # Copy the certs from the bootstrapped node
+    # Since the certs must all be from the same node
+    if [[ $bootstrap_node != $node ]]; then
+      cp ${bootstrap_node}/*.pem ${node}
+    fi
+
     if [ $i -eq 1 ]; then
       WSREP_NEW_CLUSTER=" --wsrep-new-cluster "
     else
@@ -331,7 +401,7 @@ function start_async_slave() {
   echo "basedir=${PXC_BASEDIR}" >> my-slave.cnf
   echo "innodb_file_per_table" >> my-slave.cnf
   echo "innodb_autoinc_lock_mode=2" >> my-slave.cnf
-  if version_is_less_than "$MYSQL_VERSION" "8.0"; then
+  if compare_versions "$MYSQL_VERSION" "<" "8.0"; then
     echo "innodb_locks_unsafe_for_binlog=1" >> my.cnf
   fi
   echo "core-file" >> my-slave.cnf
@@ -348,7 +418,9 @@ function start_async_slave() {
   if [[ $USE_IPVERSION == "v6" ]]; then
     echo "bind-address = ::" >> my-slave.cnf
   fi
-  if ! version_is_less_than "8.0" "$MYSQL_VERSION"; then
+
+  # Add 8.0+ options here
+  if compare_versions "$MYSQL_VERSION" ">=" "8.0"; then
     echo "log-error-verbosity=3" >> my-slave.cnf
   fi
 
@@ -417,12 +489,35 @@ trap cleanup_handler EXIT
 
 if [[ $USE_IPVERSION == "v4" ]]; then
   LOCALHOST_IP="127.0.0.1"
+  LOCALHOST_DOMAIN="127.%"
 elif [[ $USE_IPVERSION == "v6" ]]; then
   LOCALHOST_IP="::1"
+  LOCALHOST_DOMAIN="%"
 fi
 
 # Find the localhost alias in /etc/hosts
-LOCALHOST_NAME=$(cat /etc/hosts | grep "^${LOCALHOST_IP}" | awk '{ print $2 }' | head -1)
+LOCALHOST_NAME=$(grep "^${LOCALHOST_IP}" /etc/hosts | awk '{ print $2 }' | head -1)
+echo "Localhost name:${LOCALHOST_NAME}  ip:${LOCALHOST_IP}  domain:${LOCALHOST_DOMAIN}"
+
+# Check to if there are multiple matching entries for the localhost name
+# If so, try to use the version-specific name if possible
+if [[ $LOCALHOST_NAME == "localhost" ]]; then
+  count=$(grep "[ \t]localhost[ \t]" /etc/hosts | wc -l)
+  if [[ $count -gt 1 ]]; then
+    if [[ $USE_IPVERSION == "v4" ]]; then
+      LOCALHOST_NAME="localhost4"
+    else
+      LOCALHOST_NAME="localhost6"
+    fi
+
+    count=$(grep -w "${LOCALHOST_NAME}" /etc/hosts | wc -l)
+    if [[ $count -ne 1 ]]; then
+      echo "ERROR: Could not find a unique localhost entry in /etc/hosts, exiting"
+      exit 1
+    fi
+  echo "Using ${LOCALHOST_NAME} for Localhost"
+  fi
+fi
 
 declare ROOT_FS=$WORKDIR
 mkdir -p $WORKDIR/logs
@@ -480,15 +575,30 @@ if [[ -z $PXC_TAR ]];then
 fi
 echo "....Found PXC tarball at ./$PXC_TAR"
 
-if [[ -d ${PXC_TAR%.tar.gz} ]]; then
-  PXCBASE=${PXC_TAR%.tar.gz}
+# Try to find the basedir from the tarball name
+PXCBASE_DIR=${PXC_TAR%.gz}
+PXCBASE_DIR=${PXC_TAR%.tar}
+
+if [[ -d ${PXCBASE_DIR} ]]; then
+  PXCBASE=${PXCBASE_DIR}
   echo "Using existing PXC directory : $PXCBASE"
 else
   echo "Removing existing basedir (if found)"
   find . -maxdepth 1 -type d -name 'Percona-XtraDB-Cluster-5.*' -exec rm -rf {} \+
 
   echo "Extracting PXC tarball..."
-  tar -xzf $PXC_TAR
+
+  # Separate the gunzip from the tar (doesn't work on Centos7)
+  if [[ $PXC_TAR =~ .*\.gz$ ]]; then
+    gunzip "${PXC_TAR}"
+    PXC_TAR=${PXC_TAR%.gz}
+  fi
+
+  if [[ -x ${PXC_TAR} ]]; then
+    echo "ERROR! Cannot find the tar file : ${PXC_TAR}"
+    exit 1
+  fi
+  tar -xf $PXC_TAR
   PXCBASE=$(ls -1td ?ercona-?tra??-?luster* | grep -v ".tar" | head -n1)
   echo "....PXC tarball extracted"
 fi
@@ -559,8 +669,8 @@ echo "....cluster one started"
 echo "Creating accounts on the cluster"
 if [[ $MYSQL_VERSION == "5.6" ]]; then
   ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock <<EOF
-GRANT ALL ON *.* TO admin@'${LOCALHOST_NAME}' identified by 'admin' WITH GRANT OPTION;
-GRANT SELECT ON SYS.* TO monitor@'${LOCALHOST_NAME}' identified by 'monit0r';
+GRANT ALL ON *.* TO admin@'${LOCALHOST_DOMAIN}' identified by 'admin' WITH GRANT OPTION;
+GRANT SELECT ON SYS.* TO monitor@'${LOCALHOST_DOMAIN}' identified by 'monitor';
 FLUSH PRIVILEGES;
 EOF
 elif [[ $MYSQL_VERSION == "5.7" ]]; then
@@ -665,7 +775,7 @@ echo "Creating accounts on the cluster"
 if [[ $MYSQL_VERSION == "5.6" ]]; then
   ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock <<EOF
 GRANT ALL ON *.* TO admin@'${LOCALHOST_NAME}' identified by 'admin' WITH GRANT OPTION;
-GRANT SELECT ON SYS.* TO monitor@'${LOCALHOST_NAME}' identified by 'monit0r';
+GRANT SELECT ON SYS.* TO monitor@'${LOCALHOST_NAME}' identified by 'monitor';
 FLUSH PRIVILEGES;
 EOF
 elif [[ $MYSQL_VERSION == "5.7" ]]; then

@@ -123,9 +123,13 @@ fi
 @test "run proxysql-admin --update-mysql-version ($WSREP_CLUSTER_NAME)" {
   #skip
 
+  DEBUG_SQL_QUERY=1
   local mysql_version=$(mysql_exec "$HOST_IP" "$PORT_3" "SELECT VERSION();" | tail -1 | cut -d'-' -f1)
   local proxysql_mysql_version=$(proxysql_exec "select variable_value from global_variables where variable_name like 'mysql-server_version'" | awk '{print $0}')
   echo "$LINENO: mysql_version:$mysql_version  proxysql_mysql_version:$proxysql_mysql_version" >&2
+  [[ -n $mysql_version ]]
+  [[ -n $proxysql_mysql_version ]]
+
   if [[ $mysql_version != $proxysql_mysql_version ]]; then
   
     run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --update-mysql-version
@@ -163,24 +167,34 @@ fi
   #skip
 
   # Check whether user and query rule exists in  ProxySQL DB
+  DEBUG_SQL_QUERY=1
   run_check_user=$(proxysql_exec "select 1 from mysql_users where username='test_query_rule'" | awk '{print $0}')
   run_query_rule=$(proxysql_exec "select 1 from mysql_query_rules where username='test_query_rule'" | awk '{print $0}')
-  echo "$LINENO : Check query rule user count(test_query_rule) :$run_check_user expected:0"  >&2
+  echo "$LINENO : Check query rule user count(test_query_rule) found:$run_check_user expect:0"  >&2
   [[ "$run_check_user" -eq 0 ]]
-  echo "$LINENO : Check query rule count for user(test_query_rule):$run_query_rule expected:0"  >&2
+  echo "$LINENO : Check query rule count for user(test_query_rule) found:$run_query_rule expect:0"  >&2
   [[ "$run_query_rule" -eq 0 ]]
+
   mysql_exec "$HOST_IP" "$PORT_3" "create user test_query_rule@'%' identified by 'test';"
+  # Give the cluster some time for this to replicate
+  sleep 3
+
+  # Check to see if the user has replicated to a different node
+  mysql_user_count=$(mysql_exec "$HOST_IP" "$PORT_1" "select count(*) from mysql.user where user='test_query_rule'")
+  echo "$LINENO" "cluster count for user test_query_rule found:${mysql_user_count}  expect:1" >&2
+  [[ $mysql_user_count -eq 1 ]]
+
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers --add-query-rule
   echo "$output" >&2
   [ "$status" -eq  0 ]
-  [ "${lines[4]}" = "  Added query rule for user: test_query_rule" ]
+  [[ "${lines[4]}" =~ "Added query rule for user: test_query_rule" ]]
 
   run_write_hg_query_rule_user=$(proxysql_exec "select 1 from mysql_query_rules where username='test_query_rule' and match_digest='^SELECT.*FOR UPDATE'" | awk '{print $0}')
-  echo "$LINENO : Query rule count for user 'test_query_rule' with writer hostgroup:$run_write_hg_query_rule_user expected:1"  >&2
-  [[ "$run_write_hg_query_rule_user" -eq 1 ]]
+  echo "$LINENO : Query rule count for user 'test_query_rule' with writer hostgroup found:$run_write_hg_query_rule_user expect:1"  >&2
+  [[ $run_write_hg_query_rule_user -eq 1 ]]
   run_read_hg_query_rule_user=$(proxysql_exec "select 1 from mysql_query_rules where username='test_query_rule' and match_digest='^SELECT '" | awk '{print $0}')
-  echo "$LINENO : Query rule count for user 'test_query_rule' with reader hostgroup:$run_read_hg_query_rule_user expected:1"  >&2
-  [[ "$run_read_hg_query_rule_user" -eq 1 ]]
+  echo "$LINENO : Query rule count for user 'test_query_rule' with reader hostgroup found:$run_read_hg_query_rule_user expect:1"  >&2
+  [[ $run_read_hg_query_rule_user -eq 1 ]]
   
   # Dropping user 'test_query_rule' from MySQL server to test the query rule delete operation 
   mysql_exec "$HOST_IP" "$PORT_3" "drop user test_query_rule@'%';"
@@ -189,9 +203,9 @@ fi
   [ "$status" -eq  0 ]
   run_check_user=$(proxysql_exec "select 1 from mysql_users where username='test_query_rule'" | awk '{print $0}')
   run_query_rule=$(proxysql_exec "select 1 from mysql_query_rules where username='test_query_rule'" | awk '{print $0}')
-  echo "$LINENO : Check query rule user count(test_query_rule) :$run_check_user expected:0"  >&2
+  echo "$LINENO : Check query rule user count(test_query_rule) found:$run_check_user expect:0"  >&2
   [[ "$run_check_user" -eq 0 ]]
-  echo "$LINENO : Check query rule count for user(test_query_rule):$run_query_rule expected:0"  >&2
+  echo "$LINENO : Check query rule count for user(test_query_rule) found:$run_query_rule expect:0"  >&2
   [[ "$run_query_rule" -eq 0 ]]
 }
 
@@ -205,7 +219,7 @@ fi
   else
     pass_field="authentication_string"
   fi
-  cluster_user_count=$(cluster_exec "select count(distinct user) from mysql.user where ${pass_field} != '' and user not in ('admin','mysql.sys','mysql.session')" -Ns)
+  cluster_user_count=$(cluster_exec "select count(distinct user) from mysql.user where ${pass_field} != '' and user not in ('admin') and user not like 'mysql.%'" -Ns)
 
   # HACK: this mismatch occurs because we're running the tests for cluster_two
   # right after the test for cluster_one (multi-cluster scenario), so the
@@ -965,7 +979,7 @@ fi
   # Test that it works with a login file
   echo "$LINENO : proxysql-admin --enable --login-file=${login_file}" >&2
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable \
-          --login-file="${login_file}" --debug --login-password=secret <<< 'n'
+          --login-file="${login_file}" --login-password=secret <<< 'n'
   echo "$output" >& 2
   [ "$status" -eq 0 ]
 
