@@ -99,6 +99,9 @@ Options:
                                      admin variable settings.  If this option is specifed,
                                      these options will be set to false.
                                      (default: updates are not disabled)
+  --use-stdin-for-credentials        If set, then the MySQL client will use stdin to send credentials
+                                     to the client (instead of process substition).
+                                     (default: process subsitution is used)
   --debug                            Enables additional debug logging.
   --help                             Dispalys this help text.
 
