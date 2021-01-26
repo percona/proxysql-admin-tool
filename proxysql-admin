@@ -262,7 +262,7 @@ Options:
                                      to the client (instead of process substition).
                                      (default: process subsitution is used)
   --debug                            Enables additional debug logging.
-  --help                             Dispalys this help text.
+  --help                             Displays this help text.
 
 These options are the possible operations for proxysql-admin.
 One of the options below must be provided.
