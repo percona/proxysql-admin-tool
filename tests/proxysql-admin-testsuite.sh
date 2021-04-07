@@ -52,15 +52,22 @@ Usage example:
 
 This test script expects a certain directory layout for the workdir.
 
+It is assumed that ProxySQL has been installed.
+
   <workdir>/
-      proxysql-admin
+      bats/ (BATS installation)
+      logs/
+      proxysql-admin (symbolic link to SRCDIR/proxysql-admin)
+      proxysql-admin-common (symbolic link to SRCDIR/proxysql-admin-common)
+      proxysql-admin-openssl (symbolic link to SRCDIR/proxysql-admin-openssl)
       Percona-XtraDB-Cluster-XXX.tar.gz
       proxysql-2.0/
         etc/
-          proxysql-admin.cnf
+          proxysql-admin.cnf (symbolic link to SRCDIR/proxysql-admin.cnf)
         usr/
           bin/
-            proxysql
+            proxysql (symbolic link to /usr/bin/proxysql)
+      proxysql_db/
 
 
 The log files and datadirs may also be found in the <workdir>
