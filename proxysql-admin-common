@@ -396,12 +396,18 @@ function get_mysql_version()
     echo "5.7"
   elif echo "$version_string" | grep -qe "[[:space:]]8\.0\."; then
     echo "8.0"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.0\."; then
+    echo "10.0"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.1\."; then
+    echo "10.1"
   elif echo "$version_string" | grep -qe "[[:space:]]10\.2\."; then
     echo "10.2"
   elif echo "$version_string" | grep -qe "[[:space:]]10\.3\."; then
     echo "10.3"
   elif echo "$version_string" | grep -qe "[[:space:]]10\.4\."; then
     echo "10.4"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.5\."; then
+    echo "10.5"
   else
     echo "$version_string"
     return 1
@@ -659,7 +665,6 @@ function load_login_file()
   value=$(extract_value "$data" "proxysql.port")
   [[ $? -eq 0 ]] && PROXYSQL_PORT="$value" && debug "$LINENO" "Using login-file:proxysql.port";
 
-
   value=$(extract_value "$data" "cluster.user")
   [[ $? -eq 0 ]] && CLUSTER_USERNAME="$value" && debug "$LINENO" "Using login-file:cluster.user";
 
@@ -750,4 +755,3 @@ function write_login_file()
 
   return 0
 }
-

@@ -1909,6 +1909,12 @@ function syncusers() {
     5.7 | 8.0)
       password_field="authentication_string"
       ;;
+    10.0)
+      password_field="Password"
+      ;;
+    10.1)
+      password_field="Password"
+      ;;
     10.2)
       password_field="Password"
       ;;
@@ -1918,7 +1924,10 @@ function syncusers() {
     10.4)
       password_field="Password"
       ;;
-    *)
+    10.5)
+      password_field="Password"
+      ;;
+     *)
       error "$LINENO" "Unexpected database server version: ${mysql_version}"\
                     "\n-- This version of proxysql-admin needs to be updated."
       exit 1
