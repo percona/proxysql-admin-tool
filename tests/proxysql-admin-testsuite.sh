@@ -303,6 +303,10 @@ function start_pxc_node(){
   echo "[sst]" >> my.cnf
   echo "wsrep_debug=1" >> my.cnf
 
+  if [[ $USE_IPVERSION == "v6" ]]; then
+    echo "sockopt=\"pf=ip6\"" >> my.cnf
+  fi
+
   # Assume that node1 is the bootstrapped node
   bootstrap_node="${PXC_BASEDIR}/${cluster_name}1"
 
