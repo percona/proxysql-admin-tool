@@ -1119,7 +1119,7 @@ function enable_proxysql() {
   # If we have only digits in $cluster_network, then we can assume
   # that we have an IPv4 address
   if [[ "$cluster_network" =~ ^[0-9]+$ ]]; then
-    USER_HOST_RANGE="$cluster_network.%"
+    USER_HOST_RANGE=$(ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1')
   else
     USER_HOST_RANGE="%"
   fi
