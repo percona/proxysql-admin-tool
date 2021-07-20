@@ -360,7 +360,7 @@ Write node info
 +-----------+--------------+--------+-----------+
 | hostname  | hostgroup_id | port   | weight    |
 +-----------+--------------+--------+-----------+
-| 127.0.0.1 | 10           | 25000  | 1000000   |
+| 127.0.0.1 | 10           | 25000  | 1001   |
 +-----------+--------------+--------+-----------+
 
 ProxySQL configuration completed!
@@ -655,7 +655,7 @@ mysql_servers rows for this configuration
 +---------------+-------+-----------+-------+--------+-----------+----------+---------+-----------+
 | hostgroup     | hg_id | hostname  | port  | status | weight    | max_conn | use_ssl | gtid_port |
 +---------------+-------+-----------+-------+--------+-----------+----------+---------+-----------+
-| writer        | 10    | 127.0.0.1 | 25000 | ONLINE | 1000000   | 1000     | 0       | 0         |
+| writer        | 10    | 127.0.0.1 | 25000 | ONLINE | 1001   | 1000     | 0       | 0         |
 | reader        | 11    | 127.0.0.1 | 25100 | ONLINE | 1000      | 1000     | 0       | 0         |
 | reader        | 11    | 127.0.0.1 | 25200 | ONLINE | 1000      | 1000     | 0       | 0         |
 | backup-writer | 12    | 127.0.0.1 | 25100 | ONLINE | 1000      | 1000     | 0       | 0         |
@@ -693,7 +693,7 @@ All other remaining nodes will be read-only and will only receive read statement
 
 With the --write-node option we can control which node ProxySQL will use as the
 writer node. The writer node is specified as an address:port - 10.0.0.51:3306
-If --write-node is used, the writer node is given a weight of 1000000 (the default
+If --write-node is used, the writer node is given a weight of 1001 (the default
 weight is 1000).
 
 The mode _loadbal_ on the other hand is a load balanced set of evenly weighted

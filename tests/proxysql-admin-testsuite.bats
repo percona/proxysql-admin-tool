@@ -649,11 +649,11 @@ fi
   max_transactions_behind=$(echo "$data" | cut -f8)
 
   echo "active:$active expected:1" >&2
-  echo "max_writers:$active expected:1000000" >&2
+  echo "max_writers:$active expected:1001" >&2
   echo "writer_is_also_reader:$active expected:0" >&2
   echo "max_transactions_behind:$active expected:100" >&2
   [[ $active -eq 1 ]]
-  [[ $max_writers -eq 1000000 ]]
+  [[ $max_writers -eq 1001 ]]
   [[ $writer_is_also_reader -eq 0 ]]
   [[ $max_transactions_behind -eq 100 ]]
 
@@ -733,7 +733,7 @@ fi
   retrieve_writer_info $WRITER_HOSTGROUP_ID
   echo "write_weight[0]:${write_weight[0]}" >&2
   [ "${write_status[0]}" = 'ONLINE' ]
-  [ "${write_weight[0]}" -eq 1000000 ]
+  [ "${write_weight[0]}" -eq 1001 ]
   [ "${write_port[0]}" -eq $PORT_2 ]
 
   retrieve_writer_info $BACKUP_WRITER_HOSTGROUP_ID
