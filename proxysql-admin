@@ -1377,7 +1377,7 @@ function enable_proxysql() {
     # writer-is-also-reader=0, since we only have writers
 
     # Setup parameters for loadbal
-    MAX_WRITERS=1000000
+    MAX_WRITERS=1001
 
     # Force this for loadbal, since in loadbal, everyone is a writer
     WRITERS_ARE_READERS_OPTION=0
@@ -1394,7 +1394,7 @@ function enable_proxysql() {
       # Update the write_node to have a higher priority
       proxysql_exec "$LINENO" \
         "UPDATE mysql_servers
-          SET weight = 1000000
+          SET weight = 1001
           WHERE
             hostname = '$writer_ws_ip' AND
             port = $writer_ws_port AND
@@ -2323,14 +2323,14 @@ function update_cluster()
             SET weight = 1000
             WHERE
               hostgroup_id IN ($all_hostgroups) AND
-              weight = 1000000"
+              weight = 1001"
         check_cmd $? "$LINENO" "Failed to update the write-node" \
                              "\n-- Please check the ProxySQL connection parameters and status."
 
         # Update the write_node to have a higher priority
         proxysql_exec "$LINENO" \
           "UPDATE mysql_servers
-            SET weight = 1000000
+            SET weight = 1001
             WHERE
               hostname = '$writer_ws_ip' AND
               port = $writer_ws_port AND
