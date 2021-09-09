@@ -149,9 +149,12 @@ fi
 
 @test "run the check for --adduser ($WSREP_CLUSTER_NAME)" {
   #skip
+  DEBUG_SQL_QUERY=1
 
-  run_add_command=$(printf "proxysql_test_user1\ntest_user\ny" | sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --adduser)
-  run_check_user_command=$(proxysql_exec "select 1 from mysql_users where username='proxysql_test_user1'" | awk '{print $0}')
+  printf "proxysql_test_user1\ntest_user\ny" | sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --adduser --debug >&2
+  [[ $? -eq 0 ]]
+
+  run_check_user_command=$(proxysql_exec "select 1 from mysql_users where username='proxysql_test_user1'" | head -1 | awk '{print $0}')
   [ "$run_check_user_command" -eq 1 ]
 }
 
@@ -225,10 +228,19 @@ fi
   # right after the test for cluster_one (multi-cluster scenario), so the
   # user counts will be off (because user cluster_one will still be in proxysql users).
   if [[ $WSREP_CLUSTER_NAME == "cluster_two" ]]; then
-    proxysql_user_count=$(proxysql_exec "select count(*) from mysql_users where username not in ('cluster_one')" | awk '{print $0}')
+    proxysql_user_count=$(proxysql_exec "select count(distinct username) from mysql_users where username not in ('cluster_one')" | awk '{print $0}')
   else
-    proxysql_user_count=$(proxysql_exec "select count(*) from mysql_users" | awk '{print $0}')
+    proxysql_user_count=$(proxysql_exec "select count(distinct username) from mysql_users" | awk '{print $0}')
   fi
+
+  # Dump the user lists for debugging
+  echo "cluster users" >&2
+  cluster_exec "select user,host from mysql.user where ${pass_field} != '' and user not in ('admin') and user not like 'mysql.%'" >&2
+  echo "" >&2
+  echo "proxysql users" >&2
+  proxysql_exec "select * from mysql_users" "-t" >&2
+  echo "" >&2
+
   echo "cluster_user_count:$cluster_user_count  proxysql_user_count:$proxysql_user_count" >&2
   [ "$cluster_user_count" -eq "$proxysql_user_count" ]
 }

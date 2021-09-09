@@ -193,7 +193,7 @@ Options:
                                      Nodes with 'read-only=0' in MySQL will be assigned
                                      to this hostgroup.
   --offline-hg=<number>              Nodes that are determined to be OFFLINE will
-                                     assigned to this hostgroup.
+                                     be assigned to this hostgroup.
 
   --proxysql-datadir=<datadir>       Specify the proxysql data directory location
   --proxysql-username=<user_name>    ProxySQL service username
@@ -207,8 +207,8 @@ Options:
   --cluster-hostname=<host_name>     Percona XtraDB Cluster node hostname
 
   --cluster-app-username=<user_name> Percona XtraDB Cluster node application username
-  --cluster-app-password[=<password>] Percona XtraDB Cluster node application passwrod
-  --without-cluster-app-user         Configure Percona XtraDB Cluster without application user
+  --cluster-app-password[=<password>] Percona XtraDB Cluster node application password
+  --without-cluster-app-user         Configure Percona XtraDB Cluster without an application user
 
   --monitor-username=<user_name>     Username for monitoring Percona XtraDB Cluster nodes through ProxySQL
   --monitor-password[=<password>]    Password for monitoring Percona XtraDB Cluster nodes through ProxySQL
@@ -262,7 +262,7 @@ Options:
                                      to the client (instead of process substition).
                                      (default: process subsitution is used)
   --debug                            Enables additional debug logging.
-  --help                             Dispalys this help text.
+  --help                             Displays this help text.
 
 These options are the possible operations for proxysql-admin.
 One of the options below must be provided.
@@ -282,7 +282,7 @@ One of the options below must be provided.
                                      (doesn't delete ProxySQL users not in MySQL)
   --is-enabled                       Checks if the current configuration is enabled in ProxySQL.
   --status                           Returns a status report on the current configuration.
-                                     If "--writer-hg=<NUM>" is specified, than the
+                                     If "--writer-hg=<NUM>" is specified, then the
                                      data corresponding to the galera cluster with that
                                      writer hostgroup is displayed. Otherwise, information
                                      for all clusters will be displayed.
