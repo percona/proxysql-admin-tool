@@ -125,7 +125,7 @@ fi
 
   DEBUG_SQL_QUERY=1
   local mysql_version=$(mysql_exec "$HOST_IP" "$PORT_3" "SELECT VERSION();" | tail -1 | cut -d'-' -f1)
-  local proxysql_mysql_version=$(proxysql_exec "select variable_value from global_variables where variable_name like 'mysql-server_version'" | awk '{print $0}')
+  local proxysql_mysql_version=$(proxysql_exec "select variable_value from runtime_global_variables where variable_name like 'mysql-server_version'" | awk '{print $0}')
   echo "$LINENO: mysql_version:$mysql_version  proxysql_mysql_version:$proxysql_mysql_version" >&2
   [[ -n $mysql_version ]]
   [[ -n $proxysql_mysql_version ]]
@@ -137,7 +137,7 @@ fi
     [ "$status" -eq  0 ]
 
     mysql_version=$(mysql_exec "$HOST_IP" "$PORT_3" "SELECT VERSION();" | tail -1 | cut -d'-' -f1)
-    proxysql_mysql_version=$(proxysql_exec "select variable_value from global_variables where variable_name like 'mysql-server_version'" | awk '{print $0}')
+    proxysql_mysql_version=$(proxysql_exec "select variable_value from runtime_global_variables where variable_name like 'mysql-server_version'" | awk '{print $0}')
     echo "$LINENO: mysql_version:$mysql_version  proxysql_mysql_version:$proxysql_mysql_version" >&2
     [ "$mysql_version" = "$proxysql_mysql_version" ]
   else
@@ -154,7 +154,7 @@ fi
   printf "proxysql_test_user1\ntest_user\ny" | sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --adduser --debug >&2
   [[ $? -eq 0 ]]
 
-  run_check_user_command=$(proxysql_exec "select 1 from mysql_users where username='proxysql_test_user1'" | head -1 | awk '{print $0}')
+  run_check_user_command=$(proxysql_exec "select 1 from runtime_mysql_users where username='proxysql_test_user1'" | head -1 | awk '{print $0}')
   [ "$run_check_user_command" -eq 1 ]
 }
 
@@ -171,8 +171,8 @@ fi
 
   # Check whether user and query rule exists in  ProxySQL DB
   DEBUG_SQL_QUERY=1
-  run_check_user=$(proxysql_exec "select 1 from mysql_users where username='test_query_rule'" | awk '{print $0}')
-  run_query_rule=$(proxysql_exec "select 1 from mysql_query_rules where username='test_query_rule'" | awk '{print $0}')
+  run_check_user=$(proxysql_exec "select 1 from runtime_mysql_users where username='test_query_rule'" | awk '{print $0}')
+  run_query_rule=$(proxysql_exec "select 1 from runtime_mysql_query_rules where username='test_query_rule'" | awk '{print $0}')
   echo "$LINENO : Check query rule user count(test_query_rule) found:$run_check_user expect:0"  >&2
   [[ "$run_check_user" -eq 0 ]]
   echo "$LINENO : Check query rule count for user(test_query_rule) found:$run_query_rule expect:0"  >&2
@@ -192,10 +192,10 @@ fi
   [ "$status" -eq  0 ]
   [[ "${lines[4]}" =~ "Added query rule for user: test_query_rule" ]]
 
-  run_write_hg_query_rule_user=$(proxysql_exec "select 1 from mysql_query_rules where username='test_query_rule' and match_digest='^SELECT.*FOR UPDATE'" | awk '{print $0}')
+  run_write_hg_query_rule_user=$(proxysql_exec "select 1 from runtime_mysql_query_rules where username='test_query_rule' and match_digest='^SELECT.*FOR UPDATE'" | awk '{print $0}')
   echo "$LINENO : Query rule count for user 'test_query_rule' with writer hostgroup found:$run_write_hg_query_rule_user expect:1"  >&2
   [[ $run_write_hg_query_rule_user -eq 1 ]]
-  run_read_hg_query_rule_user=$(proxysql_exec "select 1 from mysql_query_rules where username='test_query_rule' and match_digest='^SELECT '" | awk '{print $0}')
+  run_read_hg_query_rule_user=$(proxysql_exec "select 1 from runtime_mysql_query_rules where username='test_query_rule' and match_digest='^SELECT '" | awk '{print $0}')
   echo "$LINENO : Query rule count for user 'test_query_rule' with reader hostgroup found:$run_read_hg_query_rule_user expect:1"  >&2
   [[ $run_read_hg_query_rule_user -eq 1 ]]
   
@@ -204,8 +204,8 @@ fi
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers --add-query-rule
   echo "$output" >&2
   [ "$status" -eq  0 ]
-  run_check_user=$(proxysql_exec "select 1 from mysql_users where username='test_query_rule'" | awk '{print $0}')
-  run_query_rule=$(proxysql_exec "select 1 from mysql_query_rules where username='test_query_rule'" | awk '{print $0}')
+  run_check_user=$(proxysql_exec "select 1 from runtime_mysql_users where username='test_query_rule'" | awk '{print $0}')
+  run_query_rule=$(proxysql_exec "select 1 from runtime_mysql_query_rules where username='test_query_rule'" | awk '{print $0}')
   echo "$LINENO : Check query rule user count(test_query_rule) found:$run_check_user expect:0"  >&2
   [[ "$run_check_user" -eq 0 ]]
   echo "$LINENO : Check query rule count for user(test_query_rule) found:$run_query_rule expect:0"  >&2
@@ -228,9 +228,9 @@ fi
   # right after the test for cluster_one (multi-cluster scenario), so the
   # user counts will be off (because user cluster_one will still be in proxysql users).
   if [[ $WSREP_CLUSTER_NAME == "cluster_two" ]]; then
-    proxysql_user_count=$(proxysql_exec "select count(distinct username) from mysql_users where username not in ('cluster_one')" | awk '{print $0}')
+    proxysql_user_count=$(proxysql_exec "select count(distinct username) from runtime_mysql_users where username not in ('cluster_one')" | awk '{print $0}')
   else
-    proxysql_user_count=$(proxysql_exec "select count(distinct username) from mysql_users" | awk '{print $0}')
+    proxysql_user_count=$(proxysql_exec "select count(distinct username) from runtime_mysql_users" | awk '{print $0}')
   fi
 
   # Dump the user lists for debugging
@@ -238,7 +238,7 @@ fi
   cluster_exec "select user,host from mysql.user where ${pass_field} != '' and user not in ('admin') and user not like 'mysql.%'" >&2
   echo "" >&2
   echo "proxysql users" >&2
-  proxysql_exec "select * from mysql_users" "-t" >&2
+  proxysql_exec "select * from runtime_mysql_users" "-t" >&2
   echo "" >&2
 
   echo "cluster_user_count:$cluster_user_count  proxysql_user_count:$proxysql_user_count" >&2

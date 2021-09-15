@@ -1886,6 +1886,7 @@ function syncusers() {
   local mysql_version
   local password_field
   local cluster_node
+  local changes_made=0
 
   # Get current MySQL users, filter out header row and mysql.sys user
   # Find a cluster node that belongs to the cluster with $WRITER_HOSTGROUP_ID
@@ -1997,7 +1998,8 @@ function syncusers() {
                                "\n-- Please check the ProxySQL connection parameters and status."
           proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE username='${user}' and destination_hostgroup in($WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID)"
           check_cmd $? "$LINENO" "Failed to delete the query rule for user ($user) from ProxySQL database."\
-                               "\n-- Please check the ProxySQL connection parameters and status."          
+                               "\n-- Please check the ProxySQL connection parameters and status."
+          changes_made=1
           break
         fi
       done< <(printf "%s\n" "${proxysql_users}")
@@ -2021,6 +2023,7 @@ function syncusers() {
           if [[ $ADD_QUERY_RULE -eq 1 ]];then
             add_query_rule "${user}"
           fi
+          changes_made=1
         else
           echo "Cannot add the user (${user}). The user (${user}) already exists in ProxySQL database with different hostgroup."
           check_user=""
@@ -2066,12 +2069,16 @@ function syncusers() {
                              "\n-- Please check the ProxySQL connection parameters and status."
         proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE username='${user}' and destination_hostgroup in($WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID)"
         check_cmd $? "$LINENO" "Failed to delete the query rule for user ($user) from ProxySQL database."\
-                               "\n-- Please check the ProxySQL connection parameters and status."   
+                               "\n-- Please check the ProxySQL connection parameters and status."
+        changes_made=1
       fi
     done< <(printf "%s\n" "$proxysql_users")
   fi
-  proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO
-  proxysql_load_to_runtime_save_to_disk "MYSQL QUERY RULES" $LINENO
+
+  if [[ $changes_made -eq 1 ]]; then
+    proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO
+    proxysql_load_to_runtime_save_to_disk "MYSQL QUERY RULES" $LINENO
+  fi
 }
 
 
