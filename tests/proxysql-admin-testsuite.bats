@@ -224,7 +224,7 @@ fi
   fi
   cluster_user_count=$(cluster_exec "select count(distinct user) from mysql.user where ${pass_field} != '' and user not in ('admin') and user not like 'mysql.%'" -Ns)
 
-  # HACK: this mismatch occurs because we're running the tests for cluster_two
+  # HACK: this mismatch occurs because we are running the tests for cluster_two
   # right after the test for cluster_one (multi-cluster scenario), so the
   # user counts will be off (because user cluster_one will still be in proxysql users).
   if [[ $WSREP_CLUSTER_NAME == "cluster_two" ]]; then
@@ -869,6 +869,11 @@ fi
   echo "$LINENO : proxysql-admin --update-cluster --write-node=$HOST_IP:$PORT_2 " >&2
   echo "$output" >& 2
   [ "$status" -eq 1 ]
+
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --update-cluster --force --write-node=$HOST_IP:$PORT_2
+  echo "$LINENO : proxysql-admin --update-cluster --write-node=$HOST_IP:$PORT_2 " >&2
+  echo "$output" >& 2
+  [ "$status" -eq 0 ]
 
   # revert node2 to be a read/write node
   echo "$LINENO : changing node2 back to read-only=0" >&2

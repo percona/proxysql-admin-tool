@@ -251,8 +251,10 @@ Options:
                                      for singlewrite mode and works only with --syncusers
                                      and --sync-multi-cluster-users options.
   --force                            This option will skip existing configuration checks in mysql_servers,
-                                     mysql_users and mysql_galera_hostgroups tables. This option will only
-                                     work with 'proxysql-admin --enable'.
+                                     mysql_users and mysql_galera_hostgroups tables. This option will
+                                     work with '--enable' and '--update-cluster'.
+                                     This will also cause certain checks to issue warnings instead
+                                     of an error.
   --disable-updates                  Disable admin updates for ProxySQL cluster for the
                                      current operation. The default is to not change the
                                      admin variable settings.  If this option is specifed,
@@ -2127,6 +2129,7 @@ function update_cluster()
   local data
   local -i force_to_runtime=0
 
+  # If we have a write node specified, check for read-only
   if [[ -n $WRITE_NODE ]]; then
     local ws_address ws_ip ws_port
     ws_address=$(separate_ip_port_from_address "$WRITE_NODE")
@@ -2141,8 +2144,12 @@ function update_cluster()
       writer_ws_port=$ws_port
       writer_ws_address=$(combine_ip_port_into_address "$writer_ws_ip" "$writer_ws_port")
 
-      error "$LINENO" "--write-node is a read-only node($writer_ws_address). Terminating."
-      exit 1
+      if [[ $FORCE -eq 1 ]]; then
+        warning "$LINENO" "--write-node is a read-only node($writer_ws_address)."
+      else
+        error "$LINENO" "--write-node is a read-only node($writer_ws_address). Terminating."
+        exit 1
+      fi
     fi
   fi
   all_hostgroups=$(get_all_hostgroups_from_writer_hostgroup $WRITER_HOSTGROUP_ID)
