@@ -26,10 +26,12 @@ if [[ $WSREP_CLUSTER_NAME == "cluster_one" ]]; then
   PORT_1=4110
   PORT_2=4120
   PORT_3=4130
+  ASYNC_PORT=4190
 else
   PORT_1=4210
   PORT_2=4220
   PORT_3=4230
+  ASYNC_PORT=4290
 fi
 
 if [[ $USE_IPVERSION == "v6" ]]; then
@@ -121,7 +123,7 @@ fi
 
 
 @test "run proxysql-admin --update-mysql-version ($WSREP_CLUSTER_NAME)" {
-  #skip
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ update_mysql_version ]] && skip;
 
   DEBUG_SQL_QUERY=1
   local mysql_version=$(mysql_exec "$HOST_IP" "$PORT_3" "SELECT VERSION();" | tail -1 | cut -d'-' -f1)
@@ -148,7 +150,7 @@ fi
 }
 
 @test "run the check for --adduser ($WSREP_CLUSTER_NAME)" {
-  #skip
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ adduser ]] && skip;
   DEBUG_SQL_QUERY=1
 
   printf "proxysql_test_user1\ntest_user\ny" | sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --adduser --debug >&2
@@ -158,16 +160,8 @@ fi
   [ "$run_check_user_command" -eq 1 ]
 }
 
-@test "run proxysql-admin --syncusers ($WSREP_CLUSTER_NAME)" {
-  #skip
-
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers
-  echo "$output" >&2
-  [ "$status" -eq  0 ]
-}
-
 @test "run proxysql-admin --syncusers --add-query-rule ($WSREP_CLUSTER_NAME)" {
-  #skip
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ add_query_rule ]] && skip;
 
   # Check whether user and query rule exists in  ProxySQL DB
   DEBUG_SQL_QUERY=1
@@ -190,7 +184,7 @@ fi
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers --add-query-rule
   echo "$output" >&2
   [ "$status" -eq  0 ]
-  [[ "${lines[4]}" =~ "Added query rule for user: test_query_rule" ]]
+  [[ "${lines[6]}" =~ "Added query rule for user: test_query_rule" ]]
 
   run_write_hg_query_rule_user=$(proxysql_exec "select 1 from runtime_mysql_query_rules where username='test_query_rule' and match_digest='^SELECT.*FOR UPDATE'" | awk '{print $0}')
   echo "$LINENO : Query rule count for user 'test_query_rule' with writer hostgroup found:$run_write_hg_query_rule_user expect:1"  >&2
@@ -213,7 +207,7 @@ fi
 }
 
 @test "run the check for --syncusers ($WSREP_CLUSTER_NAME)" {
-  #skip
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ syncusers_basic ]] && skip;
 
   local mysql_version=$(cluster_exec "select @@version")
   local pass_field
@@ -246,8 +240,69 @@ fi
 }
 
 
+@test "run proxysql-admin --syncusers --server ($WSREP_CLUSTER_NAME)" {
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ syncusers_server ]] && skip;
+
+  local server_user
+  local proxysql_count
+  server_user="${WSREP_CLUSTER_NAME}_slave"
+
+  DEBUG_SQL_QUERY=1
+
+  # Verify that the user is not in ProxySQL
+  proxysql_count=$(proxysql_exec "select count(distinct username) from mysql_users where username='${server_user}'")
+  [[ $proxysql_count -eq 0 ]]
+
+  # Create a user on the async node
+  mysql_exec "$HOST_IP" "$ASYNC_PORT" "CREATE USER '${server_user}'@'%' IDENTIFIED WITH mysql_native_password BY 'passwd';"
+
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers --server=${HOST_IP}:${ASYNC_PORT}
+  echo "$output" >&2
+  [ "$status" -eq  0 ]
+
+  # Verify that the user has been added to ProxySQL
+  proxysql_count=$(proxysql_exec "select count(distinct username) from mysql_users where username='${server_user}'")
+  [[ $proxysql_count -eq 1 ]]
+
+  # Cleanup by removing the user on the async node
+  mysql_exec "$HOST_IP" "$ASYNC_PORT" "DROP USER '${WSREP_CLUSTER_NAME}_slave'@'%';"
+
+  # Remove the user from proxysql
+  proxysql_exec "delete from mysql_users where username='${server_user}'; load mysql users to runtime"
+}
+
+@test "run proxysql-admin --sync-multi-cluster-users --server ($WSREP_CLUSTER_NAME)" {
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ syncusers_multicluster_server ]] && skip;
+
+  local server_user
+  local proxysql_count
+  server_user="${WSREP_CLUSTER_NAME}_slave"
+
+  # Verify that the user is not in ProxySQL
+  proxysql_count=$(proxysql_exec "select count(distinct username) from mysql_users where username='${server_user}'")
+  [[ $proxysql_count -eq 0 ]]
+
+  # Create a user on the async node
+  mysql_exec "$HOST_IP" "$ASYNC_PORT" "CREATE USER '${server_user}'@'%' IDENTIFIED WITH mysql_native_password BY 'passwd';"
+
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --sync-multi-cluster-users --server=${HOST_IP}:${ASYNC_PORT}
+  echo "$output" >&2
+  [ "$status" -eq  0 ]
+
+  # Verify that the user has been added to ProxySQL
+  proxysql_count=$(proxysql_exec "select count(distinct username) from mysql_users where username='${server_user}'")
+  [[ $proxysql_count -eq 1 ]]
+
+  # Cleanup by removing the user on the async node
+  mysql_exec "$HOST_IP" "$ASYNC_PORT" "DROP USER '${WSREP_CLUSTER_NAME}_slave'@'%'"
+
+  # Remove the user from proxysql
+  proxysql_exec "delete from mysql_users where username='${server_user}'; load mysql users to runtime"
+}
+
+
 @test "run the check for --quick-demo ($WSREP_CLUSTER_NAME)" {
-  #skip
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ quick_demo ]] && skip;
 
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin  --enable \
       --writer-hg=10 --reader-hg=11 --backup-writer-hg=12 \
@@ -258,7 +313,7 @@ fi
 }
 
 @test "run the check for --force ($WSREP_CLUSTER_NAME)" {
-  #skip
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ force ]] && skip;
 
   # Cleaning existing configuration to test --force option as normal run
   dump_runtime_nodes $LINENO "before disable"
@@ -349,7 +404,8 @@ fi
 
 
 @test "test for various parameter settings ($WSREP_CLUSTER_NAME)" {
-  #skip
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ parameters ]] && skip;
+
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable \
     --max-connections=111 \
@@ -396,7 +452,8 @@ fi
 
 
 @test "test for --writers-are-readers ($WSREP_CLUSTER_NAME)" {
-  #skip
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ writers_are_readers_basic ]] && skip;
+
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
 
   # -----------------------------------------------------------
@@ -505,7 +562,8 @@ fi
 
 
 @test "test for --writers-are-readers with a read-only node ($WSREP_CLUSTER_NAME)" {
-  #skip
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ writes_are_readers_read_only ]] && skip;
+
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
 
   # -----------------------------------------------------------
@@ -600,7 +658,8 @@ fi
 
 # Test loadbal
 @test "test for --mode=loadbal ($WSREP_CLUSTER_NAME)" {
-  #skip
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ loadbal_basic ]] && skip;
+
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
 
   echo "$LINENO : proxysql-admin --enable --mode=loadbal" >&2
@@ -674,7 +733,8 @@ fi
 
 # Test loadbal with a read-only node
 @test "test for --mode=loadbal with a read-only node ($WSREP_CLUSTER_NAME)" {
-  #skip
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ loadbal_read_only ]] && skip;
+
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
 
   # -----------------------------------------------------------
@@ -715,7 +775,8 @@ fi
 
 # Test singlewrite with --write-node
 @test "test for --write-node ($WSREP_CLUSTER_NAME)" {
-  #skip
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ singlewrite_write_node ]] && skip;
+
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
 
   # -----------------------------------------------------------
@@ -758,7 +819,8 @@ fi
 
 # Test singlewrite with --write-node is a read-only node
 @test "test for --write-node on a read-only node ($WSREP_CLUSTER_NAME)" {
-  #skip
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ singlewrite_read_only ]] && skip;
+
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
 
   # -----------------------------------------------------------
@@ -783,7 +845,8 @@ fi
 
 # Test --update-cluster
 @test "test --update-cluster ($WSREP_CLUSTER_NAME)" {
-  #skip
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ update_cluster_basic ]] && skip;
+
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
 
   # Stop node3
@@ -859,7 +922,8 @@ fi
 }
 
 @test "run --update-cluster with read-only --write-node server ($WSREP_CLUSTER_NAME)" {
-  #skip
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ update_cluster_read_only_writer ]] && skip;
+
   # Run --update-cluster with read-only --write-node server
   echo "$LINENO : changing node2 to read-only" >&2
   mysql_exec "$HOST_IP" "$PORT_2" "SET global read_only=1"
@@ -887,7 +951,8 @@ fi
 
 # Test --enable --update-cluster
 @test "test --enable --update-cluster ($WSREP_CLUSTER_NAME)" {
-  #skip
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ update_cluster_enable ]] && skip;
+
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
 
   # Stop node3
@@ -971,6 +1036,8 @@ fi
 
 # Test --enable with login-file
 @test "test --enable with login-file ($WSREP_CLUSTER_NAME)" {
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ enable_login_file ]] && skip;
+
   local openssl_binary
   openssl_binary=$(find_openssl_binary "$LINENO" || true)
   if [[ -z ${openssl_binary} ]]; then
@@ -1044,6 +1111,8 @@ fi
 
 # Test proxysql-login-file
 @test "test proxysql-login-file ($WSREP_CLUSTER_NAME)" {
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ proxysql_login_file ]] && skip;
+
   local openssl_binary
   openssl_binary=$(find_openssl_binary "$LINENO" || true)
   if [[ -z ${openssl_binary} ]]; then

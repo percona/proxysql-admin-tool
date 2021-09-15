@@ -130,6 +130,37 @@ PROXYSQL_BASEDIR=$WORKDIR/proxysql-bin
     [[ "${lines[0]}" =~ ERROR.*--write-node.*expects.* ]]
 }
 
+@test "run proxysql-admin --server without parameters" {
+    run sudo $WORKDIR/proxysql-admin --server
+    echo "$output" >&2
+    [ "$status" -eq 1 ]
+    [[ "${lines[0]}" =~ .*--server.* ]]
+}
+
+@test "run proxysql-admin --server with missing port" {
+    run sudo $WORKDIR/proxysql-admin --server=1.1.1.1 --syncusers
+    echo "$output" >&2
+    [ "$status" -eq 1 ]
+    [[ "${lines[0]}" =~ ERROR.*--server.*expected.* ]]
+
+    run sudo $WORKDIR/proxysql-admin --server=[1:1:1:1] --syncusers
+    echo "$output" >&2
+    [ "$status" -eq 1 ]
+    [[ "${lines[0]}" =~ ERROR.*--server.*expected.* ]]
+}
+
+@test "run proxysql-admin --server with unsupported commands" {
+    run sudo $WORKDIR/proxysql-admin --server=1.1.1.1 --disable
+    echo "$output" >&2
+    [ "$status" -eq 1 ]
+    [[ "${lines[0]}" =~ ERROR.*--server.*can.only.be.used.* ]]
+
+    run sudo $WORKDIR/proxysql-admin --server=[1:1:1:1] --update-cluster
+    echo "$output" >&2
+    [ "$status" -eq 1 ]
+    [[ "${lines[0]}" =~ ERROR.*--server.*can.only.be.used.* ]]
+}
+
 @test 'run proxysql-admin --max-connections without parameters' {
     run sudo $WORKDIR/proxysql-admin --max-connections
     echo "$output" >&2
