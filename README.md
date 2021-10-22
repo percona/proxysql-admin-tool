@@ -779,6 +779,8 @@ __iv) --force__
 
   This will skip existing configuration checks with __--enable__ option in mysql_servers,
   mysql_users and mysql_galera_hostgroups tables
+  This will also cause certain checks to issue warnings instead of an error,
+  allowing the operation to proceed.
 
 
 __v) --disable_updates__
