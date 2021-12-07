@@ -107,7 +107,7 @@ fi
 echo "Creating Symbolic links"
 ln -s $PROXYSQL $WORKDIR/proxysql-2.0/usr/bin
 ln -s $PROXYSQL_ADMIN_BASEDIR/proxysql-admin.cnf $WORKDIR/proxysql-2.0/etc
-for file in proxysql-admin proxysql-admin-common proxysql-login-file
+for file in proxysql-admin proxysql-common proxysql-admin-common percona-scheduler-admin proxysql-login-file
 do
   ln -s $PROXYSQL_ADMIN_BASEDIR/$file $WORKDIR
 done;

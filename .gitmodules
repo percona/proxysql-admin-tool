@@ -1,0 +1,3 @@
+[submodule "percona-scheduler"]
+	path = percona-scheduler
+	url = https://github.com/percona/pxc_scheduler_handler

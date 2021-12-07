@@ -1,0 +1,138 @@
+
+[pxccluster]
+activeFailover = 1
+failBack = false
+checkTimeOut = 2000
+# debug = 1 //Deprecated: this is redundant and not in use
+mainSegment = 0
+sslClient = "client-cert.pem"
+sslKey = "client-key.pem"
+sslCa = "ca.pem"
+sslCertificatePath = "/opt/cert/ssl_test"
+hgW = 100
+hgR = 101
+configHgRange =8000
+maintenanceHgRange =9000
+#bckHgW = 8100 #deprecated
+#bckHgR = 8101 #deprecated
+
+# --------------------------------
+# Set to true if there is a single writer node.  If this is set,
+# then maxNumWriters is assumed to be 1.
+#
+# Allowable values: true,false
+# Default: false
+#
+singlePrimary = true
+
+# --------------------------------
+# Set to the number of writer nodes desired.
+#
+# The value of this is assumed to be 1 if singlePrimary is true.
+#
+# If this is set to a value from 1 to 100, then the query rules
+# are setup for a distinct writer hostgroup (writes are sent to the
+# writer hostgroup and read are sent to the reader hostgroup).
+#
+# If this is set to a value > 100, then all queries (writes and reads)
+# are sent to the writer hostgroup.  This is assumed to be a
+# load-balancing scenario, where all nodes are equivalent and accept
+# both reads and writes.
+#
+# Default: (none)
+#
+maxNumWriters = 1
+
+writerIsAlsoReader = 1
+
+retryUp = 0
+retryDown = 2
+clusterId = 10
+persistPrimarySettings=0 #0 disable| 1 only persist Write settings | 2 persist Reand and Write settings
+
+# == proxysql ===================================================
+# The proxysql section is for ProxySQL-specific information.
+#
+# These settings will be read and used whenever the scheduler is run.
+#
+[proxysql]
+port = 6032
+host = "127.0.0.1"
+user = "<valid user to connect from real ip as for proxysql_server table>"
+password = "<password>"
+clustered = false
+lockfilepath ="/var/run/pxc_scheduler_handler"
+respectManualOfflineSoft=false
+
+
+#== global ======================================================
+# The global section are for variables that are not ProxySQL or
+# cluster specific.
+#
+# These settings will be read and used whenever the scheduler is run.
+#
+[global]
+debug = true
+
+#?? Should we just have logFile, what advantage does logTarget have?
+logLevel = "info"
+logTarget = "stdout" #stdout | file
+logFile = "/var/log/pxc_scheduler_handler/pscheduler.log"
+
+#?? Should we use the development for these two
+daemonize = false
+daemonInterval = 2000
+performance = true
+
+#?? What does this do?
+OS = "na"
+
+#?? Make common lockfileTimeout -> lockFileTimeout
+lockfiletimeout = 60 #seconds
+lockclustertimeout = 600 #120 # seconds
+
+
+#== setup =======================================================
+# These variables are used only upon Setup
+# Changing these variables after setup will not affect operation
+#
+[setup]
+
+# --------------------------------
+# The clusterAppUser is the ProxySQL user account that should be
+# used by clients to access the cluster.
+#
+# Uncomment the following options (clusterAppUser and clusterAppUserPassword)
+# to enable the setting of the clusterAppUser for this cluster.
+#
+#clusterAppUser="proxysql_user"
+#clusterAppUserPassword="passw0rd"
+
+# --------------------------------
+# The monitorUser is used by ProxySQL to access the servers and
+# check the connections.
+#
+monitorUser="monitor"
+monitorUserPassword="monitor"
+
+# --------------------------------
+# The clusterXXX information is used to setup the cluster for
+# use by ProxySQL.
+#
+clusterHost="localhost"
+clusterPort=4110
+clusterUser="admin"
+clusterUserPassword="admin"
+
+# --------------------------------
+# ProxySQL will use SSL to connect to the backend servers
+#
+useSSL=0
+
+# --------------------------------
+# Max number of connections from ProxySQL to the backend servers.
+#
+maxConnections=1000
+
+
+nodeCheckInterval=2000
