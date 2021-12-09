@@ -105,6 +105,11 @@ declare -i CHECK_IF_ENABLED=0
 declare -i FORCE=0
 declare -i REPORT_STATUS=0
 
+# This can be specifed by the "--server=IP:PORT" option for
+# a single address.  This is used by --syncusers to sync a
+# single node (that does not need to be part of a cluster)
+declare    SINGLE_SERVER=""
+
 declare -i USE_EXISTING_MONITOR_PASSWORD=0
 declare -i WITH_CLUSTER_APP_USER=1
 
@@ -247,12 +252,17 @@ Options:
   --remove-all-servers               When used with --update-cluster, this will remove all
                                      servers belonging to the current cluster before
                                      updating the list.
+  --server=<IPADDRESS>:<PORT>        Specifies the IP address and port for a single server. This can
+                                     be used with --syncusers or --sync-multi-cluster-users
+                                     to sync a single non-cluster server node.
   --add-query-rule                   Create query rules for synced mysql user. This is applicable only
                                      for singlewrite mode and works only with --syncusers
                                      and --sync-multi-cluster-users options.
   --force                            This option will skip existing configuration checks in mysql_servers,
-                                     mysql_users and mysql_galera_hostgroups tables. This option will only
-                                     work with 'proxysql-admin --enable'.
+                                     mysql_users and mysql_galera_hostgroups tables. This option will
+                                     work with '--enable' and '--update-cluster'.
+                                     This will also cause certain checks to issue warnings instead
+                                     of an error.
   --disable-updates                  Disable admin updates for ProxySQL cluster for the
                                      current operation. The default is to not change the
                                      admin variable settings.  If this option is specifed,
@@ -275,10 +285,13 @@ One of the options below must be provided.
                                      from a node in the cluster.
   --quick-demo                       Setup a quick demo with no authentication
   --syncusers                        Sync user accounts currently configured in MySQL to ProxySQL
-                                     May be used with --enable.
+                                     May be used with --enable.  --server may be used with this
+                                     to specify a single server to sync.
                                      (deletes ProxySQL users not in MySQL)
   --sync-multi-cluster-users         Sync user accounts currently configured in MySQL to ProxySQL
                                      May be used with --enable.
+                                     May be used with --enable.  --server may be used with this
+                                     to specify a single server to sync.
                                      (doesn't delete ProxySQL users not in MySQL)
   --is-enabled                       Checks if the current configuration is enabled in ProxySQL.
   --status                           Returns a status report on the current configuration.
@@ -585,10 +598,10 @@ function proxysql_connection_check() {
 #
 function cluster_connection_check() {
   mysql_exec "$LINENO" "SELECT @@PORT" >/dev/null
-  check_cmd $? "$LINENO" "PXC connection check failed."\
-                       "\n-- Could not connect to the PXC cluster at $CLUSTER_HOSTNAME:$CLUSTER_PORT"\
-                       "\n-- Please check the PXC connection parameters and status."
-  debug "$LINENO" "cluster connection check succeeded"
+  check_cmd $? "$LINENO" "Server connection check failed."\
+                       "\n-- Could not connect to the server at $CLUSTER_HOSTNAME:$CLUSTER_PORT"\
+                       "\n-- Please check the connection parameters and status."
+  debug "$LINENO" "server connection check succeeded"
 }
 
 
@@ -1874,6 +1887,7 @@ function add_query_rule()
 #   SYNCUSERS
 #   CLUSTER_HOSTNAME (overwrites)
 #   CLUSTER_PORT (overwrites)
+#   SINGLE_SERVER
 #
 # Arguments:
 #   None
@@ -1881,26 +1895,46 @@ function add_query_rule()
 function syncusers() {
   debug "$LINENO" "syncusers ()"
 
-  cluster_in_proxysql_check $WRITER_HOSTGROUP_ID
-
   local mysql_version
   local password_field
-  local cluster_node
+  local changes_made=0
 
-  # Get current MySQL users, filter out header row and mysql.sys user
-  # Find a cluster node that belongs to the cluster with $WRITER_HOSTGROUP_ID
-  cluster_node=$(find_cluster_node "$WRITER_HOSTGROUP_ID")
-  check_cmd $? "$LINENO" "Could not find a primary cluster node"
+  # If a single server has been specified with --server, use that server
+  # and skip the cluster check (it may be a standalone node)
+  if [[ -n $SINGLE_SERVER ]]; then
+    local ws_address
 
-  # Reset the central cluster node (so that calls to mysql_exec) will
-  # work with this new node, rather than the node in the config file
-  CLUSTER_HOSTNAME=$(echo -e "$cluster_node" | cut -f1)
-  CLUSTER_PORT=$(echo -e "$cluster_node" | cut -f2)
+    ws_address=$(separate_ip_port_from_address "$SINGLE_SERVER")
+    CLUSTER_HOSTNAME=$(echo "$ws_address" | cut -d' ' -f1)
+    CLUSTER_PORT=$(echo "$ws_address" | cut -d' ' -f2)
+
+    echo -e "\nSyncing user accounts from server(${CLUSTER_HOSTNAME}:${CLUSTER_PORT}) to ProxySQL"
+
+  else
+    cluster_in_proxysql_check $WRITER_HOSTGROUP_ID
+
+    local cluster_node
+
+    # Get current MySQL users, filter out header row and mysql.sys user
+    # Find a cluster node that belongs to the cluster with $WRITER_HOSTGROUP_ID
+    cluster_node=$(find_cluster_node "$WRITER_HOSTGROUP_ID")
+    check_cmd $? "$LINENO" "Could not find a primary cluster node"
+
+    # Reset the central cluster node (so that calls to mysql_exec) will
+    # work with this new node, rather than the node in the config file
+    CLUSTER_HOSTNAME=$(echo -e "$cluster_node" | cut -f1)
+    CLUSTER_PORT=$(echo -e "$cluster_node" | cut -f2)
+
+    echo -e "\nSyncing user accounts from PXC(${CLUSTER_HOSTNAME}:${CLUSTER_PORT}) to ProxySQL"
+
+  fi
+
+  # Check that we can connect to CLUSTER_HOSTNAME:CLUSTER_PORT
   cluster_connection_check
 
   mysql_version=$(mysql_exec "$LINENO" "SELECT VERSION();" | tail -1 | cut -d'.' -f1,2 )
-  check_cmd $? "$LINENO" "Could not connect to the PXC node."\
-                       "\n-- Please check the PXC connection parameters and status."
+  check_cmd $? "$LINENO" "Could not connect to the server."\
+                       "\n-- Please check the server connection parameters and status."
 
   case $mysql_version in
     5.6)
@@ -1909,16 +1943,10 @@ function syncusers() {
     5.7 | 8.0)
       password_field="authentication_string"
       ;;
-    10.2)
+    10.0 | 10.1 | 10.2 | 10.3 | 10.4 | 10.5)
       password_field="Password"
       ;;
-    10.3)
-      password_field="Password"
-      ;;
-    10.4)
-      password_field="Password"
-      ;;
-    *)
+     *)
       error "$LINENO" "Unexpected database server version: ${mysql_version}"\
                     "\n-- This version of proxysql-admin needs to be updated."
       exit 1
@@ -1930,14 +1958,12 @@ function syncusers() {
                   grep -E -v "^(mysql.sys|mysql.session|mysql.infoschema|mysql.pxc)" |
                   sort |
                   uniq )
-  check_cmd $? "$LINENO" "Failed to load the user list from PXC."\
-                       "\n-- Please check the PXC connection parameters and status."
+  check_cmd $? "$LINENO" "Failed to load the user list from the server."\
+                       "\n-- Please check the server connection parameters and status."
 
   #Checking whether user is part of proxysql admin user list
   # Get current ProxySQL users and filter out header row
   proxysql_users=$(get_proxysql_users)
-
-  echo -e "\nSyncing user accounts from PXC to ProxySQL"
 
   # TEST FOR USERS THAT EXIST IN MYSQL BUT NOT IN PROXYSQL HERE AND ADD
 
@@ -1988,7 +2014,8 @@ function syncusers() {
                                "\n-- Please check the ProxySQL connection parameters and status."
           proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE username='${user}' and destination_hostgroup in($WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID)"
           check_cmd $? "$LINENO" "Failed to delete the query rule for user ($user) from ProxySQL database."\
-                               "\n-- Please check the ProxySQL connection parameters and status."          
+                               "\n-- Please check the ProxySQL connection parameters and status."
+          changes_made=1
           break
         fi
       done< <(printf "%s\n" "${proxysql_users}")
@@ -2012,6 +2039,7 @@ function syncusers() {
           if [[ $ADD_QUERY_RULE -eq 1 ]];then
             add_query_rule "${user}"
           fi
+          changes_made=1
         else
           echo "Cannot add the user (${user}). The user (${user}) already exists in ProxySQL database with different hostgroup."
           check_user=""
@@ -2057,12 +2085,16 @@ function syncusers() {
                              "\n-- Please check the ProxySQL connection parameters and status."
         proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE username='${user}' and destination_hostgroup in($WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID)"
         check_cmd $? "$LINENO" "Failed to delete the query rule for user ($user) from ProxySQL database."\
-                               "\n-- Please check the ProxySQL connection parameters and status."   
+                               "\n-- Please check the ProxySQL connection parameters and status."
+        changes_made=1
       fi
     done< <(printf "%s\n" "$proxysql_users")
   fi
-  proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO
-  proxysql_load_to_runtime_save_to_disk "MYSQL QUERY RULES" $LINENO
+
+  if [[ $changes_made -eq 1 ]]; then
+    proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO
+    proxysql_load_to_runtime_save_to_disk "MYSQL QUERY RULES" $LINENO
+  fi
 }
 
 
@@ -2118,6 +2150,7 @@ function update_cluster()
   local data
   local -i force_to_runtime=0
 
+  # If we have a write node specified, check for read-only
   if [[ -n $WRITE_NODE ]]; then
     local ws_address ws_ip ws_port
     ws_address=$(separate_ip_port_from_address "$WRITE_NODE")
@@ -2132,8 +2165,12 @@ function update_cluster()
       writer_ws_port=$ws_port
       writer_ws_address=$(combine_ip_port_into_address "$writer_ws_ip" "$writer_ws_port")
 
-      error "$LINENO" "--write-node is a read-only node($writer_ws_address). Terminating."
-      exit 1
+      if [[ $FORCE -eq 1 ]]; then
+        warning "$LINENO" "--write-node is a read-only node($writer_ws_address)."
+      else
+        error "$LINENO" "--write-node is a read-only node($writer_ws_address). Terminating."
+        exit 1
+      fi
     fi
   fi
   all_hostgroups=$(get_all_hostgroups_from_writer_hostgroup $WRITER_HOSTGROUP_ID)
@@ -2548,11 +2585,65 @@ function report_status()
 function parse_args() {
   local go_out=""
 
+  local argument_list=(
+    "config-file:"
+    "login-file:"
+    "login-password:"
+    "login-password-file:"
+    "proxysql-datadir:"
+    "writer-hg:"
+    "backup-writer-hg:"
+    "reader-hg:"
+    "offline-hg:"
+    "proxysql-username:"
+    "proxysql-password::"
+    "proxysql-hostname:"
+    "proxysql-port:"
+    "cluster-username:"
+    "cluster-password::"
+    "cluster-hostname:"
+    "cluster-port:"
+    "monitor-username:"
+    "monitor-password:"
+    "cluster-app-username:"
+    "cluster-app-password:"
+    "node-check-interval:"
+    "quick-demo"
+    "mode:"
+    "write-node:"
+    "use-existing-monitor-password"
+    "without-cluster-app-user"
+    "enable"
+    "disable"
+    "update-cluster"
+    "is-enabled"
+    "adduser"
+    "syncusers"
+    "sync-multi-cluster-users"
+    "update-mysql-version"
+    "add-query-rule"
+    "status"
+    "max-connections:"
+    "max-transactions-behind:"
+    "use-ssl:"
+    "writers-are-readers:"
+    "remove-all-servers"
+    "disable-updates"
+    "force"
+    "use-stdin-for-credentials"
+    "server:"
+    "version"
+    "debug"
+    "help"
+  )
+
   # TODO: kennt, what happens if we don't have a functional getopt()?
   # Check if we have a functional getopt(1)
   if ! getopt --test; then
-    go_out="$(getopt --options=edv --longoptions=config-file:,login-file:,login-password:,login-password-file:,proxysql-datadir:,writer-hg:,backup-writer-hg:,reader-hg:,offline-hg:,proxysql-username:,proxysql-password::,proxysql-hostname:,proxysql-port:,cluster-username:,cluster-password::,cluster-hostname:,cluster-port:,monitor-username:,monitor-password:,cluster-app-username:,cluster-app-password:,node-check-interval:,quick-demo,mode:,write-node:,use-existing-monitor-password,without-cluster-app-user,enable,disable,update-cluster,is-enabled,adduser,syncusers,sync-multi-cluster-users,update-mysql-version,add-query-rule,status,max-connections:,max-transactions-behind:,use-ssl:,writers-are-readers:,remove-all-servers,disable-updates,force,use-stdin-for-credentials,version,debug,help \
-    --name="$(basename "$0")" -- "$@")"
+    go_out="$(getopt \
+                --options=edv \
+                --longoptions "$(printf "%s," "${argument_list[@]}")" \
+                --name="$(basename "$0")" -- "$@")"
     check_cmd $? "$LINENO" "Script error: getopt() failed with arguments: $*"
     eval set -- "$go_out"
   fi
@@ -2950,6 +3041,10 @@ function parse_args() {
         USE_STDIN_FOR_CREDENTIALS=1
         shift
         ;;
+      --server )
+        SINGLE_SERVER=$2
+        shift 2
+        ;;
       -v | --version )
         # Detection of this setting is done before this
         shift
@@ -2987,6 +3082,35 @@ function parse_args() {
     fi
   fi
   readonly WRITE_NODE
+
+  # SINGLE_SERVER should only be used with syncusers
+  if [[ -n $SINGLE_SERVER && $SYNCUSERS -ne 1 && $SYNCMULTICLUSTERUSERS -ne 1 ]]; then
+    error "$LINENO" "The --server option can only be used with --syncusers" \
+                  "\nand --sync-multi-cluster-users."
+    exit 1
+  fi
+
+  # SINGLE_SERVER validity check (check to see if the port is included)
+  if [[ -n $SINGLE_SERVER ]]; then
+    if [[ $SINGLE_SERVER =~ , ]]; then
+      error "$LINENO" "The --server option expects to receive the address" \
+                    "\n-- of a single node, therefore commas ',' are not allowed."
+      exit 1
+    fi
+    local ws_address
+    local ws_port
+
+    ws_address=$(separate_ip_port_from_address "$SINGLE_SERVER")
+    ws_port=$(echo "$ws_address" | cut -d' ' -f2)
+
+    # Check that we have a port and that it only contains digits
+    if [[ -z $ws_port || ! $ws_port =~ ^[[:digit:]]*$ ]]; then
+      error "$LINENO" "--server : expected 'address:port' found '$SINGLE_SERVER'"
+      exit 1
+    fi
+  fi
+  readonly SINGLE_SERVER
+
 
 
   if [[ ! $MODE =~ ^(loadbal|singlewrite)$ ]]; then

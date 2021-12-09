@@ -444,6 +444,9 @@ $
   with the ProxySQL database except password-less users and admin users.
   It also deletes ProxySQL users not in Percona XtraDB Cluster from the ProxySQL database.
 
+  The __--server__ option can be used with __--syncusers__ to specify a
+  specific server that will be synced (rather than a PXC cluster).
+
 ```bash
 $ /usr/bin/proxysql-admin --syncusers
 
@@ -482,12 +485,17 @@ mysql> select user,host from mysql.user where authentication_string!='' and user
 mysql>
 
 ```
+
   __5) --sync-multi-cluster-users__
 
   This option works in the same way as --syncusers but it does not delete ProxySQL users
   that are not present in the Percona XtraDB Cluster. It is to be used when syncing proxysql
   instances that manage multiple clusters.
   
+  The __--server__ option can be used with __--sync-multi-cluster-users__ to specify a
+  specific server that will be synced (rather than a PXC cluster).
+
+
   __6) --add-query-rule__
 
   Create query rules for synced mysql user. This is applicable only for singlewrite mode and
@@ -779,6 +787,8 @@ __iv) --force__
 
   This will skip existing configuration checks with __--enable__ option in mysql_servers,
   mysql_users and mysql_galera_hostgroups tables
+  This will also cause certain checks to issue warnings instead of an error,
+  allowing the operation to proceed.
 
 
 __v) --disable_updates__
@@ -790,6 +800,11 @@ variable settings. If this option is specified, then the values of
 the admin-checksum_mysql_query_rules, admin-checksum_mysql_servers,
 and admin-checksum_mysql_users will be set to 'false'.
 
+__vi) --server__
+
+This option is used with __--syncusers__  or __--sync-multi-cluster-users__ to specify
+a single server to sync, rather than a PXC cluster. This server does not have to belong
+to a PXC cluster and can be a standalone MySQL node.
 
 ## ProxySQL Status
 

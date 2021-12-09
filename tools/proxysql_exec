@@ -128,3 +128,4 @@ fi
 
 echo "Query : $QUERY"
 exec_sql "$QUERY_OPTIONS" "$QUERY"
+echo
