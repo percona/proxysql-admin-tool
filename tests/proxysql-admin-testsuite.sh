@@ -178,6 +178,8 @@ function get_mysql_version() {
     echo "10.4"
   elif echo "$version_string" | grep -qe "[[:space:]]10\.5\."; then
     echo "10.5"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.6\."; then
+    echo "10.6"
   else
     echo "Line $LINENO: Cannot determine the MySQL version: $mysqld_version"
     echo "This script needs to be updated."
