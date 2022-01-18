@@ -81,6 +81,13 @@ else
 fi
 
 WORKDIR=$1
+
+# Fetch PXC versions
+MAJOR_VERSION=`git ls-remote --refs --sort='version:refname' --tags https://github.com/percona/percona-xtradb-cluster | \
+           grep 'Percona-XtraDB-Cluster-' | tail -n1 | cut -d '/' -f3 | cut -d '-' -f4`
+MINOR_VERSION=`git ls-remote --refs --sort='version:refname' --tags https://github.com/percona/percona-xtradb-cluster | \
+           grep 'Percona-XtraDB-Cluster-' | tail -n1 | cut -d '/' -f3 | cut -d '-' -f5`
+
 if [ -d $WORKDIR ]; then
   echo "Directory with the provided name already exist."
   echo "Exiting..."
@@ -114,7 +121,7 @@ done;
 echo "...Symbolic links created successfully"
 
 echo "Fetching the PXC tarball packages"
-wget -q -O $WORKDIR/Percona-XtraDB-Cluster_8.0.22-13.1_Linux.x86_64.glibc2.17-minimal.tar.gz https://www.percona.com/downloads/Percona-XtraDB-Cluster-LATEST/Percona-XtraDB-Cluster-8.0.22/binary/tarball/Percona-XtraDB-Cluster_8.0.22-13.1_Linux.x86_64.glibc2.17-minimal.tar.gz
+wget -q -O $WORKDIR/Percona-XtraDB-Cluster_${MAJOR_VERSION}_Linux.x86_64.glibc2.17-minimal.tar.gz https://www.percona.com/downloads/Percona-XtraDB-Cluster-LATEST/Percona-XtraDB-Cluster-${MAJOR_VERSION}/binary/tarball/Percona-XtraDB-Cluster_${MAJOR_VERSION}-${MINOR_VERSION}_Linux.x86_64.glibc2.17-minimal.tar.gz
 echo "...Successful"
 
 echo "The workdir is ready for use located at: $WORKDIR"
