@@ -120,7 +120,7 @@ PROXYSQL_BASEDIR=$WORKDIR/proxysql-bin
     admin_version=$(sudo $WORKDIR/percona-scheduler-admin -v | head -1 | grep --extended-regexp -oe '[1-9]\.[0-9]\.[0-9]+')
     scheduler_version=$(sudo $WORKDIR/percona-scheduler-admin -v | tail -1 | grep --extended-regexp -oe '[1-9]\.[0-9]\.[0-9]+')
     proxysql_version=$(sudo $PROXYSQL_BASEDIR/usr/bin/proxysql --help | grep --extended-regexp -oe '[1-9]\.[0-9]\.[0-9]+')
-    echo "proxysql_version:$proxysql_version  admin_version:$admin_version" >&2
+    echo "proxysql_version:$proxysql_version  admin_version:$admin_version  scheduler_version:$scheduler_version" >&2
 
     # All the versions should be the same
     [ "${proxysql_version}" = "${admin_version}" ]
