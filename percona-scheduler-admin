@@ -251,8 +251,8 @@ EOF
 function version()
 {
     local path=$0
-    printf "%s version %s\n" "${path##*/}" "${PROXYSQL_ADMIN_VERSION}"
-    printf "scheduler version: $($SCHEDULER_BINARY --version)\n"
+    printf "%s Version: %s\n" "${path##*/}" "${PROXYSQL_ADMIN_VERSION}"
+    printf "$($SCHEDULER_BINARY --version)\n"
 }
 
 
@@ -1941,6 +1941,16 @@ function parse_args() {
   check_permission -r "$LINENO" "$CONFIG_FILE" "scheduler-admin configuration file"
   debug "$LINENO" "Loading config from: $CONFIG_FILE"
 
+  #
+  # Check that we can find my_print_defaults
+  #
+  if [[ ! -e $(which my_print_defaults 2>/dev/null) ]]; then
+    error "$LINENO" "my_print_defaults was not found, please install the mysql client package."
+    exit 1
+  fi
+
+  MY_PRINT_DEFAULTS=$(which my_print_defaults)
+
   # Read in the information from the config file
   PROXYSQL_HOSTNAME=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "proxysql" "host" "" 1)
   [[ $? -ne 0 ]] && exit 1
@@ -2727,15 +2737,6 @@ if [[ $? -ne 0 ]]; then
   echo "-- Version string : $MYSQL_CLIENT_VERSION"
   exit 1
 fi
-
-#
-# Check that we can find my_print_defaults
-#
-if [[ ! -e $(which my_print_defaults 2>/dev/null) ]]; then
-  error "$LINENO" "my_print_defaults was not found, please install the mysql client package."
-  exit 1
-fi
-MY_PRINT_DEFAULTS=$(which my_print_defaults)
 
 #
 # Check that we can find the scheduler

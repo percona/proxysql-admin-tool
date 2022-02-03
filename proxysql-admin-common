@@ -370,6 +370,7 @@ function update_mysql_version()
   else
     echo "$version_string"
     return 1
+  fi
   local cluster_node
 
   # Find a cluster node that belongs to the cluster with $WRITER_HOSTGROUP_ID
@@ -397,7 +398,6 @@ function update_mysql_version()
                           "\n-- Please check the ProxySQL connection parameters and status."
     echo "ProxySQL MySQL version changed to $mysql_version_string"
     proxysql_load_to_runtime_save_to_disk "MYSQL VARIABLES" $LINENO
->>>>>>> theirs
   fi
 }
 
