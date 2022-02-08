@@ -76,7 +76,7 @@ debug = true
 #?? Should we just have logFile, what advantage does logTarget have?
 logLevel = "debug"
 logTarget = "file" #stdout | file
-logFile = "/home/kennt/dev/test/logs/pscheduler.log"
+logFile = "/tmp/pscheduler.log"
 
 #?? Should we use the development for these two
 daemonize = false

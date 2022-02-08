@@ -340,37 +340,6 @@ function proxysql_load_to_runtime_save_to_disk() {
 #   None
 function update_mysql_version()
 {
-
-  local mysql_path=$1
-  local version_string
-  version_string=$(${mysql_path} --version)
-
-  if echo "$version_string" | grep -qe "[[:space:]]5\.5\."; then
-    echo "5.5"
-  elif echo "$version_string" | grep -qe "[[:space:]]5\.6\."; then
-    echo "5.6"
-  elif echo "$version_string" | grep -qe "[[:space:]]5\.7\."; then
-    echo "5.7"
-  elif echo "$version_string" | grep -qe "[[:space:]]8\.0\."; then
-    echo "8.0"
-  elif echo "$version_string" | grep -qe "[[:space:]]10\.0\."; then
-    echo "10.0"
-  elif echo "$version_string" | grep -qe "[[:space:]]10\.1\."; then
-    echo "10.1"
-  elif echo "$version_string" | grep -qe "[[:space:]]10\.2\."; then
-    echo "10.2"
-  elif echo "$version_string" | grep -qe "[[:space:]]10\.3\."; then
-    echo "10.3"
-  elif echo "$version_string" | grep -qe "[[:space:]]10\.4\."; then
-    echo "10.4"
-  elif echo "$version_string" | grep -qe "[[:space:]]10\.5\."; then
-    echo "10.5"
-  elif echo "$version_string" | grep -qe "[[:space:]]10\.6\."; then
-    echo "10.6"
-  else
-    echo "$version_string"
-    return 1
-  fi
   local cluster_node
 
   # Find a cluster node that belongs to the cluster with $WRITER_HOSTGROUP_ID
