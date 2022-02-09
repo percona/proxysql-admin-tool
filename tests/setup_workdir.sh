@@ -120,6 +120,11 @@ do
 done;
 echo "...Symbolic links created successfully"
 
+
+echo "Copying config files required for the test"
+cp $PROXYSQL_ADMIN_BASEDIR/tests/testsuite.toml $WORKDIR
+echo "...Copying done"
+
 echo "Fetching the PXC tarball packages"
 wget -q -O $WORKDIR/Percona-XtraDB-Cluster_${LATEST_VERSION}_Linux.x86_64.glibc2.17-minimal.tar.gz https://www.percona.com/downloads/Percona-XtraDB-Cluster-LATEST/Percona-XtraDB-Cluster-${LATEST_VERSION}/binary/tarball/Percona-XtraDB-Cluster_${LATEST_VERSION}-${VERSION_SUFFIX}_Linux.x86_64.glibc2.17-minimal.tar.gz
 echo "...Successful"
