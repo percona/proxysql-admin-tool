@@ -25,7 +25,7 @@ declare WORKDIR=""
 declare SCRIPT_PATH=$0
 declare SCRIPT_DIR=$(cd `dirname $0` && pwd)
 
-declare PXC_START_TIMEOUT=30
+declare PXC_START_TIMEOUT=60
 declare SUSER=root
 declare SPASS=
 declare OS_USER=$(whoami)
@@ -408,6 +408,11 @@ function start_pxc_node(){
         echo "Started PXC ${cluster_name}${i}. BasePort: $rbase1  Socket: /tmp/${cluster_name}${i}.sock"
         break
       fi
+      if [[ $X == ${PXC_START_TIMEOUT} ]]; then
+          echo "One of the nodes failed to start even after waiting for ${PXC_START_TIMEOUT} seconds."
+          echo "Please check the error logs for more information. Error logs can be foung in $WORKDIR/logs/"
+          exit 1
+      fi
     done
   done
 
@@ -488,9 +493,11 @@ function start_async_slave() {
 function cleanup_handler() {
   if [[ $ALLOW_SHUTDOWN == "Yes" ]]; then
     if [[ $RUN_TEST -ne 0 ]]; then
-      echo "NOTICE: Killing all mysqld and proxysql processes"
-      pkill -9 -x mysqld
-      pkill -9 -x proxysql
+      echo "NOTICE: Terminating all mysqld, proxysql and other related processes"
+      pkill -SIGTERM -x mysqld
+      pkill -SIGTERM -x proxysql
+      # wsrep_sst_xtrabackup-v2 could be hanging in some cases.
+      pkill -SIGTERM -x wsrep_sst_xtrabackup-v2
     fi
   fi
 }
@@ -652,8 +659,11 @@ if [[ ! -x $PROXYSQL_BASE/usr/bin/proxysql ]]; then
   echo "ERROR! Could not find proxysql executable : $PROXYSQL_BASE/usr/bin/proxysql"
   exit 1
 fi
-$PROXYSQL_BASE/usr/bin/proxysql -D $WORKDIR/proxysql_db $PROXYSQL_EXTRA_OPTIONS $WORKDIR/proxysql_db/proxysql.log &
-echo "....ProxySQL started"
+
+echo "Removing the previous proxysql logs"
+rm -f $WORKDIR/proxysql_db/proxysql.log
+$PROXYSQL_BASE/usr/bin/proxysql -D $WORKDIR/proxysql_db $PROXYSQL_EXTRA_OPTIONS --foreground > $WORKDIR/proxysql_db/proxysql.log 2>&1 &
+echo "....ProxySQL started. Redirecting the logs to $WORKDIR/proxysql_db/proxysql.log"
 
 
 echo "Creating link: $WORKDIR/pxc-bin --> $PXC_BASEDIR"

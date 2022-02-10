@@ -61,8 +61,8 @@ host = "127.0.0.1"
 user = "admin"
 password = "admin"
 clustered = false
-lockfilepath ="/home/kennt/dev/test/logs/pxc_scheduler_handler"
 respectManualOfflineSoft=false
+lockfilepath = "/tmp/"
 
 #== global ======================================================
 # The global section are for variables that are not ProxySQL or
