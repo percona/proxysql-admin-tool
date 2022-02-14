@@ -1,0 +1,757 @@
+#!/bin/bash
+# This script contains functions common to all proxysql-related scripts.
+# (currently only Percona XtraDB cluster in combination with ProxySQL is supported)
+# Version 2.0
+###############################################################################################
+
+# This program is copyright 2016-2020 Percona LLC and/or its affiliates.
+#
+# THIS PROGRAM IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR IMPLIED
+# WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+#
+# This program is free software; you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, version 2 or later
+#
+# You should have received a copy of the GNU General Public License version 2
+# along with this program; if not, write to the Free Software Foundation, Inc.,
+# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
+
+#-------------------------------------------------------------------------------
+#
+# Step 1 : Bash internal configuration
+#
+
+#bash prompt internal configuration
+declare BD=""
+declare NBD=""
+declare RED=""
+declare NRED=""
+
+# Test if stdout and stderr are open to a terminal
+if [[ -t 1 ]]; then
+  BD=$(tput bold)
+  NBD=$(tput sgr0)
+fi
+if [[ -t 2 ]]; then
+  RED=$(tput setaf 1)
+  NRED=$(tput sgr0)
+fi
+
+#-------------------------------------------------------------------------------
+#
+# Step 2 : Global variables
+#
+
+#
+# Script parameters/constants
+#
+readonly    PROXYSQL_ADMIN_VERSION="2.3.2"
+
+# The minimum required openssl version
+readonly    REQUIRED_OPENSSL_VERSION="1.1.1"
+
+# The name of the openssl binary packaged with proxysql-admin
+readonly    PROXYSQL_ADMIN_OPENSSL_NAME="proxysql-admin-openssl"
+
+declare  -i DEBUG=0
+
+declare    PROXYSQL_USERNAME=""
+declare    PROXYSQL_PASSWORD=""
+declare    PROXYSQL_PORT=""
+declare    PROXYSQL_HOSTNAME=""
+
+declare    CLUSTER_USERNAME=""
+declare    CLUSTER_PASSWORD=""
+declare    CLUSTER_HOSTNAME=""
+declare    CLUSTER_PORT=""
+
+declare    CLUSTER_APP_USERNAME=""
+declare    CLUSTER_APP_PASSWORD=""
+
+declare    MONITOR_USERNAME=""
+declare    MONITOR_PASSWORD=""
+
+#-------------------------------------------------------------------------------
+#
+# Step 3 : Helper functions
+#
+
+function error() {
+  local lineno=$1
+  shift
+  if [[ -n "$lineno" ]]; then
+    printf "${BD}ERROR${NBD} (line:$lineno) : ${*//%/%%}\n" 1>&2
+  else
+    printf "${BD}ERROR${NBD} : ${*//%/%%}\n" 1>&2
+  fi
+}
+
+function warning() {
+  local lineno=$1
+  shift
+  if [[ -n "$lineno" ]]; then
+    printf "${BD}WARNING${NBD} (line:$lineno) : ${*//%/%%}\n" 1>&2
+  else
+    printf "${BD}WARNING${NBD}: ${*//%/%%}\n" 1>&2
+  fi
+}
+
+function debug() {
+  if [[ $DEBUG -eq 1 ]]; then
+    local lineno=$1
+    shift
+    if [[ -n "$lineno" ]]; then
+      printf "${RED}${BD}debug (line:$lineno) : ${*//%/%%}${NBD}${NRED}\n" 1>&2
+    else
+      printf "${RED}debug: ${*//%/%%}${NRED}\n" 1>&2
+    fi
+  fi
+}
+
+function dump_arguments() {
+  local arg_list=""
+  for arg do
+    arg_list+=" '$arg'"
+  done
+  echo $arg_list
+}
+
+
+# Checks the return value of the most recent command
+#
+# Globals:
+#   None
+#
+# Arguments:
+#   1: the error code of the most recent command
+#   2: the lineno where the error occurred
+#   3: the error message if the error code is non-zero
+#
+# Exits the script if the retcode is non-zero.
+#
+function check_cmd() {
+  local retcode=$1
+  local lineno=$2
+  shift 2
+
+  if [[ ${retcode} -ne 0 ]]; then
+    error "$lineno" $*
+    exit 1
+  fi
+}
+
+
+# Check the permissions for a file or directory
+#
+# Globals:
+#   None
+#
+# Arguments:
+#   1: the bash test to be applied to the file
+#   2: the lineno where this call is invoked (used for errors)
+#   3: the path to the file
+#   4: (optional) description of the path (mostly used for existence checks)
+#
+# Exits the script if the permissions test fails.
+#
+function check_permission() {
+  local permission=$1
+  local lineno=$2
+  local path_to_check=$3
+  local description=""
+  if [[ $# -gt 3 ]]; then
+    description="$4"
+  fi
+
+  if [ ! $permission "$path_to_check" ] ; then
+    if [[ $permission == "-r" ]]; then
+      error "$lineno" "You do not have READ permission for: $path_to_check"
+    elif [[ $permission == "-w" ]]; then
+      error "$lineno" "You do not have WRITE permission for: $path_to_check"
+    elif [[ $permission == "-x" ]]; then
+      error "$lineno" "You do not have EXECUTE permission for: $path_to_check"
+    elif [[ $permission == "-e" ]]; then
+      if [[ -n $description ]]; then
+        error "$lineno" "Could not find the $description: $path_to_check"
+      else
+        error "$lineno" "Could not find: $path_to_check"
+      fi
+    elif [[ $permission == "-d" ]]; then
+      if [[ -n $description ]]; then
+        error "$lineno" "Could not find the $description: $path_to_check"
+      else
+        error "$lineno" "Could not find the directory: $path_to_check"
+      fi
+    elif [[ $permission == "-f" ]]; then
+      if [[ -n $description ]]; then
+        error "$lineno" "Could not find the $description: $path_to_check"
+      else
+        error "$lineno" "Could not find the file: $path_to_check"
+      fi
+    else
+      error "$lineno" "You do not have the correct permissions for: $path_to_check"
+    fi
+    exit 1
+  fi
+}
+
+
+# Separates the IP address from the port in a network address
+# Works for IPv4 and IPv6
+#
+# Globals:
+#   None
+#
+# Params:
+#   1. The network address to be parsed
+#
+# Outputs:
+#   A string with a space separating the IP address from the port
+#
+function separate_ip_port_from_address()
+{
+  #
+  # Break address string into host:port/path parts
+  #
+  local address=$1
+
+  # Has to have at least one ':' to separate the port from the ip address
+  if [[ $address =~ : ]]; then
+    ip_addr=${address%:*}
+    port=${address##*:}
+  else
+    ip_addr=$address
+    port=""
+  fi
+
+  # Remove any braces that surround the ip address portion
+  ip_addr=${ip_addr#\[}
+  ip_addr=${ip_addr%\]}
+
+  echo "${ip_addr} ${port}"
+}
+
+
+# Combines the IP address and port into a network address
+# Works for IPv4 and IPv6
+# (If the IP address is IPv6, the IP portion will have brackets)
+#
+# Globals:
+#   None
+#
+# Params:
+#   1: The IP address portion
+#   2: The port
+#
+# Outputs:
+#   A string containing the full network address
+#
+function combine_ip_port_into_address()
+{
+  local ip_addr=$1
+  local port=$2
+  local addr
+
+  if [[ ! $ip_addr =~ \[.*\] && $ip_addr =~ .*:.* ]] ; then
+    # If there are no brackets and it does have a ':', then add the brackets
+    # because this is an unbracketed IPv6 address
+    addr="[${ip_addr}]:${port}"
+  else
+    addr="${ip_addr}:${port}"
+  fi
+  echo "$addr"
+}
+
+
+# Tests if a string is an integer
+# (checks if made up of digits with an optional minus sign)
+#
+# Arguments
+#   Parameter 1: the string to be tested
+#
+# Returns
+#   0 : if the string is an integer
+#   1 : if the string is not like an integer
+#
+function is_integer()
+{
+  if [ "$1" -eq "$1" ] 2>/dev/null; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+
+# Returns the version string in a standardized format
+# Input "1.2.3" => echoes "010203"
+# Wrongly formatted values => echoes "000000"
+#
+# Globals:
+#   None
+#
+# Arguments:
+#   Parameter 1: a version string
+#                like "5.1.12"
+#                anything after the major.minor.revision is ignored
+# Outputs:
+#   A string that can be used directly with string comparisons.
+#   So, the string "5.1.12" is transformed into "050112"
+#   Note that individual version numbers can only go up to 99.
+#
+function normalize_version()
+{
+    local major=0
+    local minor=0
+    local patch=0
+
+    # Only parses purely numeric version numbers, 1.2.3
+    # Everything after the first three values are ignored
+    if [[ $1 =~ ^([0-9]+)\.([0-9]+)\.?([0-9]*)([^ ])* ]]; then
+        major=${BASH_REMATCH[1]}
+        minor=${BASH_REMATCH[2]}
+        patch=${BASH_REMATCH[3]}
+    fi
+
+    printf %02d%02d%02d $major $minor $patch
+}
+
+
+# Compares two version strings
+#   The version strings passed in will be normalized to a
+#   string-comparable version.
+#
+# Globals:
+#   None
+#
+# Arguments:
+#   Parameter 1: The left-side of the comparison (for example: "5.7.25")
+#   Parameter 2: the comparison operation
+#                   '>', '>=', '=', '==', '<', '<=', "!="
+#   Parameter 3: The right-side of the comparison (for example: "5.7.24")
+#
+# Returns:
+#   Returns 0 (success) if param1 op param2
+#   Returns 1 (failure) otherwise
+#
+function compare_versions()
+{
+    local version_1="$1"
+    local op=$2
+    local version_2="$3"
+
+    if [[ -z $version_1 || -z $version_2 ]]; then
+        error "$LINENO" "Missing version string in comparison"
+        echo -e "-- left-side:$version_1  operation:$op  right-side:$version_2"
+        return 1
+    fi
+
+    version_1="$( normalize_version "$version_1" )"
+    version_2="$( normalize_version "$version_2" )"
+
+    if [[ ! " = == > >= < <= != " =~ " $op " ]]; then
+        error "$LINENO" "Unknown operation : $op"
+        echo -e "-- Must be one of : = == > >= < <="
+        return 1
+    fi
+
+    [[ $op == "<"  &&   $version_1 <  $version_2 ]] && return 0
+    [[ $op == "<=" && ! $version_1 >  $version_2 ]] && return 0
+    [[ $op == "="  &&   $version_1 == $version_2 ]] && return 0
+    [[ $op == "==" &&   $version_1 == $version_2 ]] && return 0
+    [[ $op == ">"  &&   $version_1 >  $version_2 ]] && return 0
+    [[ $op == ">=" && ! $version_1 <  $version_2 ]] && return 0
+    [[ $op == "!=" &&   $version_1 != $version_2 ]] && return 0
+
+    return 1
+}
+
+
+# Outputs the version string (major.minor) for the path passed in
+#
+# Globals
+#   None
+#
+# Arguments
+#   Parameter 1 : Path to the client
+#
+# Outputs
+#   The version number (major.minor).  The version numbers are not
+#   normalized, so they cannot be directly compared.
+#
+function get_mysql_version()
+{
+
+  local mysql_path=$1
+  local version_string
+  version_string=$(${mysql_path} --version)
+
+  if echo "$version_string" | grep -qe "[[:space:]]5\.5\."; then
+    echo "5.5"
+  elif echo "$version_string" | grep -qe "[[:space:]]5\.6\."; then
+    echo "5.6"
+  elif echo "$version_string" | grep -qe "[[:space:]]5\.7\."; then
+    echo "5.7"
+  elif echo "$version_string" | grep -qe "[[:space:]]8\.0\."; then
+    echo "8.0"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.0\."; then
+    echo "10.0"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.1\."; then
+    echo "10.1"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.2\."; then
+    echo "10.2"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.3\."; then
+    echo "10.3"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.4\."; then
+    echo "10.4"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.5\."; then
+    echo "10.5"
+  else
+    echo "$version_string"
+    return 1
+  fi
+  return 0
+}
+
+
+# Looks for a version of OpenSSL 1.1.1
+#   This could be openssl, openssl11, or the proxysql-admin-openssl binary.
+#
+# Globals:
+#   REQUIRED_OPENSSL_VERSION
+#   PROXYSQL_ADMIN_OPENSSL_NAME
+#
+# Arguments:
+#   Parameter 1: the lineno where this function was called
+#
+# Returns 0 if a binary was found (with version 1.1.1+)
+#   and writes the path to the binary to stdout
+# Returns 1 otherwise (and prints out its own error message)
+#
+function find_openssl_binary()
+{
+  local lineno=$1
+  local path_to_openssl
+  local openssl_executable=""
+  local value
+  local openssl_version
+
+  # Check for the proper version of the executable
+  path_to_openssl=$(which openssl 2> /dev/null)
+  if [[ $? -eq 0 && -n ${path_to_openssl} && -e ${path_to_openssl} ]]; then
+
+    # We found a possible binary, check the version
+    value=$(${path_to_openssl} version)
+    openssl_version=$(expr match "$value" '.*[ \t]\+\([0-9]\+\.[0-9]\+\.[0-9]\+\)[^0-9].*')
+
+    # Extract the version from version string
+    if compare_versions "${openssl_version}" ">=" "$REQUIRED_OPENSSL_VERSION"; then
+      openssl_executable=${path_to_openssl}
+    fi
+  fi
+
+  # If we haven't found an acceptable openssl, look for openssl11
+  if [[ -z $openssl_executable ]]; then
+    # Check for openssl 1.1 executable (if installed alongside 1.0)
+    openssl_executable=$(which openssl11 2> /dev/null)
+  fi
+
+  # If we haven't found openssl/openssl11 look for our own binary
+  if [[ -z $openssl_executable ]]; then
+    openssl_executable=$(which "$(dirname $0)/${PROXYSQL_ADMIN_OPENSSL_NAME}" 2> /dev/null)
+  fi
+
+  if [[ -z $openssl_executable ]]; then
+    error "$lineno" "Could not find a v${REQUIRED_OPENSSL_VERSION}+ OpenSSL executable in the path." \
+                  "\n-- Please check that OpenSSL v${REQUIRED_OPENSSL_VERSION} or greater is installed and in the path."
+    return 1
+  fi
+
+  # Verify the openssl versions
+  value=$(${openssl_executable} version)
+
+  # Extract the version from version string
+  openssl_version=$(expr match "$value" '.*[ \t]\+\([0-9]\+\.[0-9]\+\.[0-9]\+\)[^0-9].*')
+
+  if compare_versions "$openssl_version" "<" "$REQUIRED_OPENSSL_VERSION"; then
+    error "$lineno" "Could not find OpenSSL with the required version. required:${REQUIRED_OPENSSL_VERSION} found:${openssl_version}" \
+                  "\n-- Please check that OpenSSL v${REQUIRED_OPENSSL_VERSION} or greater is installed and in the path."
+    return 1
+  fi
+
+  debug "$LINENO" "Found openssl executable:${openssl_executable} ${openssl_version}"
+
+  printf "%s" "${openssl_executable}"
+  return 0
+}
+
+# Retrieves/unencrypts the login information from the login-file
+#
+# Globals:
+#   REQUIRED_OPENSSL_VERSION
+#   PROXYSQL_ADMIN_OPENSSL_NAME
+#
+# Arguments:
+#   Parameter 1 : the path to the login-file
+#   Parameter 2 : the key for the login-file
+#
+# Outputs:
+#   Echoes the data (unencrypted) from the file
+#
+# Returns:
+#   1 (failure) if the openssl command failed
+#   0 (success) the openssl command succeeded and the contents of
+#               the file is sent to output
+#
+function get_login_file_data()
+{
+  local file_path="$1"
+  local file_key="$2"
+  local reval=""
+  local encrypted_data=""
+  local file_version file_iterations file_method file_data
+  local value
+  local openssl_executable=""
+
+  if [[ -z $file_path || -z $file_key ]]; then
+    error "$LINENO" "Missing file location(--login-file) or file key(--login-password or --login-password-file)"
+    return 1
+  fi
+
+  # Check for the proper version of the executable
+  openssl_executable=$(find_openssl_binary "$LINENO")
+  if [[ $? -ne 0 ]]; then
+    return 1
+  fi
+
+  if [[ ! -r $file_path ]]; then
+    error "$LINENO" "Could not read from the login-file: $file_path"
+    return 1
+  fi
+
+  debug "$LINENO" "Found openssl executable: $openssl_executable"
+  debug "$LINENO" "Using the encrypted login-file:$file_path for credentials"
+
+  # Get the file contents
+  file_data=$(cat "$file_path")
+
+  # Extract file parameters
+  file_version=$(extract_value "$file_data" "version")
+  if [[ -z $file_version ]]; then
+    error "$LINENO" "Could not find the version information in the file: $file_path"
+    return 1
+  fi
+  if [[ $file_version != "1" ]]; then
+    error "$LINENO" "Unsupported login-file version: $file_version"
+    return 1
+  fi
+
+  file_method=$(extract_value "$file_data" "encrypt_method")
+  if [[ -z $file_method ]]; then
+    error "$LINENO" "Could not find the encryption method in the file: $file_path"
+    return 1
+  fi
+  if [[ $file_method != "openssl-pbkdf2-aes-256-cbc" ]]; then
+    error "$LINENO" "Unsupported encryption method: $file_method"
+    return 1
+  fi
+
+  file_iterations=$(extract_value "$file_data" "iterations")
+  encrypted_data=$(extract_value "$file_data" "encrypted_data")
+  if [[ -z $file_iterations || -z $encrypted_data ]]; then
+    error "$LINENO" "Could not find the iteration count in the file: $file_path"
+    return 1
+  fi
+
+  # Decrypt the data
+  reval=$(${openssl_executable} enc -d -aes-256-cbc -pbkdf2 -iter "$file_iterations" -salt \
+            -in <(printf "%s" "$encrypted_data") -A -base64 -pass file:<(printf "%s" "$file_key") 2>/dev/null)
+  if [[ $? -ne 0 ]]; then
+    error "$LINENO" "Decryption of data in login-file failed: $file_path"
+    return 1
+  fi
+  printf "%s" "${reval}"
+}
+
+
+# Extracts the value from a "name=value" line
+#
+# Globals:
+#   None
+#
+# Arguments:
+#   Parameter 1 : the data (captured from the login file)
+#   Parameter 2 : the name of the variable to be extracted
+#
+# Output:
+#   Echoes the value portion
+#
+# Returns:
+#   1 (failure) if there is no line using the name
+#   0 (success) if the name exists in the file
+#
+function extract_value()
+{
+  local data=$1
+  local name=$2
+  local reval=""
+  local processed_data
+
+  # normalize the variable name by replacing all '_' with '-'
+  name=${name//_/-}
+
+  # This will normalize the variable name side of the strings
+  processed_data=$(printf "%s" "$data" | awk -F= '{st=index($0,"="); cur=$0; if ($1 ~ /_/) { gsub(/_/,"-",$1);} if (st != 0) { print $1"="substr(cur,st+1) } else { print cur }}')
+
+  # Check to see if the variable name is used in the login-file data
+  printf "%s" "$processed_data" | grep -q "^[ \t]*$name="
+  if [[ $? -ne 0 ]]; then
+    return 1
+  fi
+
+  # Get the named variable from the login-file data
+  reval=$(printf "%s" "$processed_data" | grep -- "^[ \t]*$name=" | cut -d= -f2- | tail -1)
+
+  printf "%s" "${reval}"
+  return 0
+}
+
+
+# Loads the credentials from the login-file
+# This will also verify the OpenSSL version and set the path to the executable.
+#
+# Globals:
+#   PROXYSQL_USERNAME (sets the value)
+#   PROXYSQL_PASSWORD (sets the value)
+#   PROXYSQL_HOSTNAME (sets the value)
+#   PROXYSQL_PORT (sets the value)
+#   CLUSTER_USERNAME (sets the value)
+#   CLUSTER_PASSWORD (sets the value)
+#   CLUSTER_HOSTNAME (sets the value)
+#   CLUSTER_PORT (sets the value)
+#   MONITOR_USERNAME (sets the value)
+#   MONITOR_PASSWORD (sets the value)
+#   CLUSTER_APP_USERNAME (sets the value)
+#   CLUSTER_APP_PASSWORD (sets the value)
+#
+# Parameters:
+#   Argument 1 : lineno this function was called from
+#   Argument 2 : the path to the login-file
+#   Argument 3 : the key for the login file
+#
+function load_login_file()
+{
+  local lineno="$1"
+  local login_file_path="$2"
+  local login_key="$3"
+  local data value
+
+  data=$(get_login_file_data "${login_file_path}" "${login_key}")
+  if [[ $? -ne 0 ]]; then
+    return 1
+  fi
+
+  value=$(extract_value "$data" "proxysql.user")
+  [[ $? -eq 0 ]] && PROXYSQL_USERNAME="$value" && debug "$LINENO" "Using login-file:proxysql.user";
+
+  value=$(extract_value "$data" "proxysql.password")
+  [[ $? -eq 0 ]] && PROXYSQL_PASSWORD="$value" && debug "$LINENO" "Using login-file:proxysql.password";
+
+  value=$(extract_value "$data" "proxysql.host")
+  [[ $? -eq 0 ]] && PROXYSQL_HOSTNAME="$value" && debug "$LINENO" "Using login-file:proxysql.host";
+
+  value=$(extract_value "$data" "proxysql.port")
+  [[ $? -eq 0 ]] && PROXYSQL_PORT="$value" && debug "$LINENO" "Using login-file:proxysql.port";
+
+  value=$(extract_value "$data" "cluster.user")
+  [[ $? -eq 0 ]] && CLUSTER_USERNAME="$value" && debug "$LINENO" "Using login-file:cluster.user";
+
+  value=$(extract_value "$data" "cluster.password")
+  [[ $? -eq 0 ]] && CLUSTER_PASSWORD="$value" && debug "$LINENO" "Using login-file:cluster.password";
+
+  value=$(extract_value "$data" "cluster.host")
+  [[ $? -eq 0 ]] && CLUSTER_HOSTNAME="$value" && debug "$LINENO" "Using login-file:cluster.host";
+
+  value=$(extract_value "$data" "cluster.port")
+  [[ $? -eq 0 ]] && CLUSTER_PORT="$value" && debug "$LINENO" "Using login-file:cluster.port";
+
+
+  value=$(extract_value "$data" "monitor.user")
+  [[ $? -eq 0 ]] && MONITOR_USERNAME="$value" && debug "$LINENO" "Using login-file:monitor.user";
+
+  value=$(extract_value "$data" "monitor.password")
+  [[ $? -eq 0 ]] && MONITOR_PASSWORD="$value" && debug "$LINENO" "Using login-file:monitor.password";
+
+
+  value=$(extract_value "$data" "cluster-app.user")
+  [[ $? -eq 0 ]] && CLUSTER_APP_USERNAME="$value" && debug "$LINENO" "Using login-file:cluster-app.user";
+
+  value=$(extract_value "$data" "cluster-app.password")
+  [[ $? -eq 0 ]] && CLUSTER_APP_PASSWORD="$value" && debug "$LINENO" "Using login-file:cluster-app.password";
+
+  return 0
+}
+
+
+# Writes/Encrypts the login information and writes it out to a file
+#
+# Globals:
+#   REQUIRED_OPENSSL_VERSION
+#   PROXYSQL_ADMIN_OPENSSL_NAME
+#
+# Arguments:
+#   Parameter 1 : path to the file with the unencrypted data
+#   Parameter 2 : the password
+#   Parameter 3 : the destination file (will be overwritten)
+#
+# Outputs:
+#   Echoes the data (unencrypted) from the file
+#
+# Returns:
+#   1 (failure) if the openssl command failed
+#   0 (success) the openssl command succeeded and the contents of
+#               the file is sent to output
+#
+function write_login_file()
+{
+  local input_file_path="$1"
+  local file_key="$2"
+  local output_file_path="$3"
+  local value
+  local openssl_executable=""
+
+  local reval=""
+  local encrypted_data=""
+  local file_version file_iterations file_method
+
+  # Verify the openssl versions
+  openssl_executable=$(find_openssl_binary "$LINENO")
+  if [[ $? -ne 0 ]]; then
+    return 1
+  fi
+
+  debug "$LINENO" "Found openssl executable: $openssl_executable"
+  debug "$LINENO" "Writing to output file: $OUTFILE"
+
+  # Setup encryption parameters
+  file_iterations=100000
+
+  # Encrypt the data
+  reval=$(${openssl_executable} enc -aes-256-cbc -pbkdf2 -iter "$file_iterations" -salt \
+            -in <(cat ${input_file_path}) -A -base64 -pass file:<(printf "%s" "$file_key") 2>/dev/null)
+  if [[ $? -ne 0 ]]; then
+    error "$LINENO" "Encryption of input data failed: $input_file_path"
+    return 1
+  fi
+
+  # Write out the file
+  printf "# Created $(date)\n" > ${OUTFILE}
+  printf "version=%s\n" "1" >> ${OUTFILE}
+  printf "encrypt_method=%s\n" "openssl-pbkdf2-aes-256-cbc" >> ${OUTFILE}
+  printf "iterations=%s\n" "${file_iterations}" >> ${OUTFILE}
+  printf "encrypted_data=%s\n" "${reval}" >> ${OUTFILE}
+
+  return 0
+}
