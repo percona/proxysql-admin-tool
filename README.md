@@ -11,8 +11,7 @@ proxysql-admin usage info
 Usage: proxysql-admin [ options ]
 Options:
   --config-file=<config-file>        Read login credentials from a configuration file
-                                     (command line and login-file options override any
-                                     configuration file values)
+                                     (command line options override any configuration file values)
 
   --login-file=<login-file-path>     Read login credentials from an encrypted file.
                                      If the --login-password or --login-password-file options
@@ -24,6 +23,7 @@ Options:
   --login-password-file=<path>       Read the key from a file using the <path>.
                                      This cannot be used with --login-password
 
+
   --writer-hg=<number>               The hostgroup that all traffic will be sent to
                                      by default. Nodes that have 'read-only=0' in MySQL
                                      will be assigned to this hostgroup.
@@ -34,7 +34,7 @@ Options:
                                      Nodes with 'read-only=0' in MySQL will be assigned
                                      to this hostgroup.
   --offline-hg=<number>              Nodes that are determined to be OFFLINE will
-                                     assigned to this hostgroup.
+                                     be assigned to this hostgroup.
 
   --proxysql-datadir=<datadir>       Specify the proxysql data directory location
   --proxysql-username=<user_name>    ProxySQL service username
@@ -48,8 +48,8 @@ Options:
   --cluster-hostname=<host_name>     Percona XtraDB Cluster node hostname
 
   --cluster-app-username=<user_name> Percona XtraDB Cluster node application username
-  --cluster-app-password[=<password>] Percona XtraDB Cluster node application passwrod
-  --without-cluster-app-user         Configure Percona XtraDB Cluster without application user
+  --cluster-app-password[=<password>] Percona XtraDB Cluster node application password
+  --without-cluster-app-user         Configure Percona XtraDB Cluster without an application user
 
   --monitor-username=<user_name>     Username for monitoring Percona XtraDB Cluster nodes through ProxySQL
   --monitor-password[=<password>]    Password for monitoring Percona XtraDB Cluster nodes through ProxySQL
@@ -88,12 +88,17 @@ Options:
   --remove-all-servers               When used with --update-cluster, this will remove all
                                      servers belonging to the current cluster before
                                      updating the list.
-  --add-query-rule                   Create query rules for synced mysql user. This is applicable
-                                     only for singlewrite mode and works only with --syncusers
+  --server=<IPADDRESS>:<PORT>        Specifies the IP address and port for a single server. This can
+                                     be used with --syncusers or --sync-multi-cluster-users
+                                     to sync a single non-cluster server node.
+  --add-query-rule                   Create query rules for synced mysql user. This is applicable only
+                                     for singlewrite mode and works only with --syncusers
                                      and --sync-multi-cluster-users options.
-  --force                            This option will skip existing configuration checks in
-                                     mysql_servers, mysql_users and mysql_galera_hostgroups tables.
-                                     This option will only work with __proxysql-admin --enable__.
+  --force                            This option will skip existing configuration checks in mysql_servers,
+                                     mysql_users and mysql_galera_hostgroups tables. This option will
+                                     work with '--enable' and '--update-cluster'.
+                                     This will also cause certain checks to issue warnings instead
+                                     of an error.
   --disable-updates                  Disable admin updates for ProxySQL cluster for the
                                      current operation. The default is to not change the
                                      admin variable settings.  If this option is specifed,
@@ -103,7 +108,7 @@ Options:
                                      to the client (instead of process substition).
                                      (default: process subsitution is used)
   --debug                            Enables additional debug logging.
-  --help                             Dispalys this help text.
+  --help                             Displays this help text.
 
 These options are the possible operations for proxysql-admin.
 One of the options below must be provided.
@@ -112,22 +117,25 @@ One of the options below must be provided.
   --enable, -e                       Auto-configure Percona XtraDB Cluster nodes into ProxySQL
   --update-cluster                   Updates the cluster membership, adds new cluster nodes
                                      to the configuration.
-  --update-mysql-version             Updates the mysql-server_version variable in ProxySQL with the version
+  --update-mysql-version             Updates the mysql-server_version variable in ProxySQL with the version 
                                      from a node in the cluster.
   --quick-demo                       Setup a quick demo with no authentication
   --syncusers                        Sync user accounts currently configured in MySQL to ProxySQL
-                                     May be used with --enable.
+                                     May be used with --enable.  --server may be used with this
+                                     to specify a single server to sync.
                                      (deletes ProxySQL users not in MySQL)
   --sync-multi-cluster-users         Sync user accounts currently configured in MySQL to ProxySQL
-                                     May be used with --enable.
+                                     May be used with --enable.  --server may be used with this
+                                     to specify a single server to sync.
                                      (doesn't delete ProxySQL users not in MySQL)
   --is-enabled                       Checks if the current configuration is enabled in ProxySQL.
   --status                           Returns a status report on the current configuration.
-                                     If "--writer-hg=<NUM>" is specified, than the
+                                     If "--writer-hg=<NUM>" is specified, then the
                                      data corresponding to the galera cluster with that
                                      writer hostgroup is displayed. Otherwise, information
                                      for all clusters will be displayed.
   --version, -v                      Prints the version info
+
 ```
 
 ___Prerequisites___

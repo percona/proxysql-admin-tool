@@ -290,7 +290,6 @@ One of the options below must be provided.
                                      to specify a single server to sync.
                                      (deletes ProxySQL users not in MySQL)
   --sync-multi-cluster-users         Sync user accounts currently configured in MySQL to ProxySQL
-                                     May be used with --enable.
                                      May be used with --enable.  --server may be used with this
                                      to specify a single server to sync.
                                      (doesn't delete ProxySQL users not in MySQL)
