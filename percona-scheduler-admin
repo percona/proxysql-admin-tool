@@ -1689,7 +1689,7 @@ function update_cluster()
             WHERE
               hostname = '$writer_ws_ip' AND
               port = $writer_ws_port AND
-              hostgroup_id = $WRITER_HOSTGROUP_ID;"
+              hostgroup_id in ($WRITER_HOSTGROUP_ID, $WRITER_CONFIG_HOSTGROUP_ID);"
         check_cmd $? "$LINENO" "Failed to update the writer-node" \
                              "\n-- Please check the ProxySQL connection parameters and status."
       fi

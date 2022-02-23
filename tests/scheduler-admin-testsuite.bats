@@ -849,6 +849,39 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   
 }
 
+# Test --update-cluster with --write-node
+@test "test --update-cluster --write-node ($WSREP_CLUSTER_NAME)" {
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ update_cluster_basic ]] && skip;
+
+  # Save the existing writer node
+  local saved_hgw_port writer_node
+  saved_hgw_port=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+
+  # Test with PORT_1
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --write-node="$HOST_IP:$PORT_1"
+  writer_node=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  [ "$writer_node" -eq "$PORT_1" ]
+  [ "$status" -eq 0 ]
+
+  # Test with PORT_2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --write-node="$HOST_IP:$PORT_2"
+  writer_node=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  [ "$writer_node" -eq "$PORT_2" ]
+  [ "$status" -eq 0 ]
+
+  # Test with PORT_3
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --write-node="$HOST_IP:$PORT_3"
+  writer_node=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  [ "$writer_node" -eq "$PORT_3" ]
+  [ "$status" -eq 0 ]
+
+  # Reset to saved_hgw_port
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --write-node="$HOST_IP:$saved_hgw_port"
+  writer_node=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  [ "$writer_node" -eq "$saved_hgw_port" ]
+  [ "$status" -eq 0 ]
+
+}
 
 @test "test upgrade from proxy-admin script ($WSREP_CLUSTER_NAME)" {
 
