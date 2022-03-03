@@ -21,7 +21,16 @@ source ./proxysql-common
 
 cd percona-scheduler
 
+if [[ ! -e $(command -v go 2> /dev/null)  ]]; then
+  echo "go packages not found. Please install golang package."
+  exit 1
+fi
+
 go build -a -ldflags "-X main.pxcSchedulerHandlerVersion=${PROXYSQL_ADMIN_VERSION}" -o pxc_scheduler_handler
 
+if [ $? -ne 0 ]; then
+  echo "go build process failed with errors. Exiting.."
+  exit 1
+fi
 cd ..
 cp percona-scheduler/pxc_scheduler_handler .

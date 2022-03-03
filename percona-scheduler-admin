@@ -829,7 +829,7 @@ function enable_proxysql() {
   debug "$LINENO" "enable_proxysql ()"
 
   # Checking proxysql binary location
-  if [[ ! -e $(which proxysql 2> /dev/null) ]]; then
+  if [[ ! $(check_binary "proxysql") ]]; then
     error "$LINENO" "The proxysql binary was not found."\
                   "\n-- Please install the ProxySQL package."
     exit 1
@@ -1944,12 +1944,12 @@ function parse_args() {
   #
   # Check that we can find my_print_defaults
   #
-  if [[ ! -e $(which my_print_defaults 2>/dev/null) ]]; then
+  if [[ ! $(check_binary my_print_defaults) ]]; then
     error "$LINENO" "my_print_defaults was not found, please install the mysql client package."
     exit 1
   fi
 
-  MY_PRINT_DEFAULTS=$(which my_print_defaults)
+  MY_PRINT_DEFAULTS=$(command -v my_print_defaults)
 
   # Read in the information from the config file
   PROXYSQL_HOSTNAME=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "proxysql" "host" "" 1)
@@ -2723,10 +2723,33 @@ do
 done
 
 
+function check_binary() {
+  local _binary="$1" _full_path
+
+  # Checks if the binary is available.
+  _full_path=$( command -v "$_binary" )
+  commandStatus=$?
+  echo "Checking binary $_binary"
+  if [ $commandStatus -ne 0 ]; then
+    echo "Unable to find binary '$_binary'."
+  else
+    # Checks if the binary has "execute" permission.
+    [ -x "$_full_path" ] && return 0
+
+    # It is not the case, if NOT in 'BSC_MODE_CHECK_CONFIG' mode, it is a fatal error.
+    echo "Binary '$_binary' is found but it does not have *execute* permission."
+  fi
+
+  # Otherwise, simple returns an error code.
+  return 1
+}
+
+
+
 #
-# Check that we can find the mysql client
+# Check that we can find the mysql client utility
 #
-if [[ ! -e $(which mysql 2> /dev/null) ]] ;then
+if [[ ! $(check_binary "mysql") ]] ;then
   error "$LINENO" "The mysql client was not found, please install the mysql client package."
   exit 1
 fi

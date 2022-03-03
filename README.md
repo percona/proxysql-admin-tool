@@ -901,7 +901,7 @@ One of the options below must be provided.
 
 ### Prerequisites
 -------------------
-* my_print_defaults utility must be installed on the system.
+* mysql client and my_print_defaults utility must be installed on the system.
 * ProxySQL and Percona XtraDB Cluster should be up and running.
 
 ### Percona Scheduler Admin Configuration File
