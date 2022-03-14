@@ -42,7 +42,7 @@ singlePrimary = true
 # Default: (none)
 #
 
-#maxNumWriters = 1
+maxNumWriters = 1
 
 writerIsAlsoReader = 1
 

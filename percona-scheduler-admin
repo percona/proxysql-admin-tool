@@ -305,7 +305,7 @@ function read_from_config_file()
       [[ -n ${default} ]] && retval=${default}
       if [[ $required -eq 1 ]]; then
         # This is a required value
-        error "$lineno" "Cannot find a required value : '${option}' in section '${section}'" \
+        error "$LINENO" "Cannot find a required value : '${option}' in section '${section}'" \
                       "\n-- in the config file:${config_path}"
         echo ${retval}
         return 1
@@ -1967,34 +1967,6 @@ function parse_args() {
   MONITOR_PASSWORD=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "setup" "monitorUserPassword" "" 1)
   [[ $? -ne 0 ]] && exit 1
 
-
-  # Configure the 'mode' option
-  local singlePrimary
-  local maxNumWriters
-  singlePrimary=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "pxccluster" "singlePrimary" "false" 0)
-  maxNumWriters=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "pxccluster" "maxNumWriters" "" 0)
-
-  if [[ $singlePrimary == "true" ]]; then
-    if [[ -n $maxNumWriters && $maxNumWriters -ne 1 ]]; then
-      # if singlePrimary is true, the only allowed value for maxNumWriters is 1
-      error "$LINENO" "singlePrimary is true but maxNumWriters is not 1 (value is $maxNumWriters}"
-      exit 1
-    fi
-    MODE="singlewrite"
-  else
-    if [[ -z $maxNumWriters ]]; then
-      error "$LINENO" "singlePrimary is false but maxNumWriters is not set"
-      exit 1
-    elif [[ $maxNumWriters -le 0 ]]; then
-      error "$LINENO" "maxNumwWriters($maxNumWriters) must be greater than 0"
-      exit 1
-    elif [[ $maxNumWriters -le 100 ]]; then
-      MODE="singlewrite"
-    else
-      MODE="loadbal"
-    fi
-  fi
-
   # Get the HG information
   WRITER_HOSTGROUP_ID=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "pxccluster" "hgW" "-1" 1)
   [[ $? -ne 0 ]] && exit 1
@@ -2031,13 +2003,53 @@ function parse_args() {
   fi
 
   local writers_are_readers
-  writers_are_readers=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "pxccluster" "writerIsAlsoReader" "yes" 0)
+  writers_are_readers=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "pxccluster" "writerIsAlsoReader" 1 0)
   if [[ ! $writers_are_readers =~ ^(0|1) ]]; then
-    error "" "Invalid --writers-are-readers option: '$writers_are_readers'"
+    error "$LINENO" "Invalid --writers-are-readers option: '$writers_are_readers'"
     echo "Please use one of these values: '0', '1'"
     exit 1
   fi
-  if [[ $writers_are_readers = "yes" ]]; then
+
+  # Configure the 'mode' option
+  local singlePrimary
+  local maxNumWriters
+  singlePrimary=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "pxccluster" "singlePrimary" "false" 0)
+  maxNumWriters=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "pxccluster" "maxNumWriters" "" 0)
+
+  if [[ $singlePrimary == "true" ]]; then
+    if [[ -z $maxNumWriters ]]; then
+       # Set maxNumWriters=1 when singlePrimary = true
+       maxNumWriters=1
+    elif [[ -n $maxNumWriters && $maxNumWriters -ne 1 ]]; then
+      # if singlePrimary is true, the only allowed value for maxNumWriters is 1
+      error "$LINENO" "singlePrimary is true but maxNumWriters is not 1 (value is $maxNumWriters}"
+      exit 1
+    fi
+    MODE="singlewrite"
+  else
+    if [[ -z $maxNumWriters ]]; then
+      error "$LINENO" "singlePrimary is false but maxNumWriters is not set"
+      exit 1
+    elif [[ $maxNumWriters -le 0 ]]; then
+      error "$LINENO" "maxNumwWriters($maxNumWriters) must be greater than 0"
+      exit 1
+    elif [[ $maxNumWriters -le 100 ]]; then
+      if [[ $writers_are_readers -eq 0 ]];then
+        error "$LINENO" "Cannot have WriterIsAlsoReader=0 when maxNumWriters > 1"
+        exit 1
+      # Use singlewrite mode when $maxNumWriters=1
+      elif [[ $maxNumWriters -eq 1 ]]; then
+        debug "$LINENO" "Enabling singlewrite mode since singlePrimary=false and maxNumWriters=1"
+        MODE="singlewrite"
+      else
+        MODE="loadbal"
+      fi
+    else
+      MODE="loadbal"
+    fi
+  fi
+
+  if [[ $writers_are_readers -eq 1 ]]; then
     WRITERS_ARE_READERS_OPTION=1
   else
     WRITERS_ARE_READERS_OPTION=0
@@ -2360,7 +2372,7 @@ function main() {
         echo -e "ProxySQL has been enabled, but scheduler is inactive, skipping"
         exit 1
       fi
-    else
+    elif [[ $errcode -eq 1 ]]; then
       error "$LINENO" "The cluster (with writer hostgroup: $WRITER_HOSTGROUP_ID) has not been configured in ProxySQL"
       exit 1
     fi
@@ -2714,10 +2726,11 @@ function wait_for_scheduler_processing ()
         [[ -n $data && $data -eq 1 ]] && break
 
       done
-        if [[ $i -eq $timeout ]]; then
-            echo -e "Warning: Timeout $timeout seconds exceeded when waiting for scheduler to process the nodes."
-          echo -e "Please check the error logs for more information."
-        fi
+
+      if [[ $i -eq $timeout ]]; then
+        echo -e "Warning: Timeout $timeout seconds exceeded when waiting for scheduler to process the nodes."
+        echo -e "Please check the error logs for more information."
+      fi
     fi
 }
 
