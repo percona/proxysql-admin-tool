@@ -1267,12 +1267,9 @@ function enable_proxysql() {
   proxysql_load_to_runtime_save_to_disk "SCHEDULER" $LINENO
 
   if [[ $MODE == "singlewrite" ]]; then
-    echo -e "\nWrite node info"
-    proxysql_exec "$LINENO" \
-      "SELECT hostname,hostgroup_id,port,weight
-       FROM runtime_mysql_servers
-       WHERE hostgroup_id=$WRITER_HOSTGROUP_ID AND
-             status != 'SHUNNED'" "-t"
+    echo -e "\nWaiting for scheduler script to process new nodes..."
+    wait_for_scheduler_processing
+    report_status $WRITER_HOSTGROUP_ID
     echo ""
   fi
 }
@@ -1698,22 +1695,8 @@ function update_cluster()
 
   if [[ -n $new_node_list || $force_to_runtime -eq 1 ]]; then
     proxysql_load_to_runtime_save_to_disk "MYSQL SERVERS" $LINENO
-    echo "Waiting for ProxySQL to process the new nodes..."
-    if is_mode_singlewrite $WRITER_HOSTGROUP_ID; then
-      sleep 5
-      for i in `seq 1 10`;
-      do
-        # Check if there is only 1 writer
-        data=$(proxysql_exec "$LINENO" \
-                "SELECT COUNT(*)
-                  FROM runtime_mysql_servers
-                  WHERE
-                    hostgroup_id = $WRITER_HOSTGROUP_ID")
-        [[ -n $data && $data -eq 1 ]] && break
-
-        sleep 2
-      done
-    fi
+    echo "Waiting for scheduler script to process the nodes..."
+    wait_for_scheduler_processing
   fi
 
   echo -e "\nCluster node info"
@@ -1799,7 +1782,7 @@ function report_status()
   check_cmd "$?" "$LINENO" "Cannot retrieve hostgroup information from ProxySQL" \
                          "\n-- Please check the ProxySQL configuration and status."
 
-  echo -e "mysql_servers rows for this configuration"
+  echo -e "Proxysql status (mysql_servers rows) for this configuration"
   proxysql_exec "$LINENO" \
     "SELECT
         CASE
@@ -2363,10 +2346,10 @@ function parse_args() {
 function main() {
 
   if [[ $UPDATE_CLUSTER -eq 1 ]]; then
-    if [[ $ENABLE -eq 1 ]]; then
-      check_if_enabled $WRITER_HOSTGROUP_ID
-      errcode=$?
 
+    check_if_enabled $WRITER_HOSTGROUP_ID
+    errcode=$?
+    if [[ $ENABLE -eq 1 ]]; then
       if [[ $errcode -eq 1 ]]; then
         # hostgroup is not in use, so we need to enable it
         echo -e "ProxySQL has not been configured, enabling"
@@ -2377,6 +2360,9 @@ function main() {
         echo -e "ProxySQL has been enabled, but scheduler is inactive, skipping"
         exit 1
       fi
+    else
+      error "$LINENO" "The cluster (with writer hostgroup: $WRITER_HOSTGROUP_ID) has not been configured in ProxySQL"
+      exit 1
     fi
 
     update_cluster
@@ -2707,6 +2693,33 @@ function on_exit()
   fi
 }
 
+#
+# Waits until the scheduler processes the mysql_servers table in singlewrite
+# mode i.e waits until the writer count becomes 1.
+#
+function wait_for_scheduler_processing ()
+{
+    # Wait for 30 seconds
+    local timeout=30
+    if is_mode_singlewrite $WRITER_HOSTGROUP_ID; then
+      for i in `seq 1 $timeout`;
+      do
+        sleep 1
+        # Check if there is only 1 writer
+        data=$(proxysql_exec "$LINENO" \
+                "SELECT COUNT(*)
+                  FROM runtime_mysql_servers
+                  WHERE
+                    hostgroup_id = $WRITER_HOSTGROUP_ID")
+        [[ -n $data && $data -eq 1 ]] && break
+
+      done
+        if [[ $i -eq $timeout ]]; then
+            echo -e "Warning: Timeout $timeout seconds exceeded when waiting for scheduler to process the nodes."
+          echo -e "Please check the error logs for more information."
+        fi
+    fi
+}
 
 #-------------------------------------------------------------------------------
 #
