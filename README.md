@@ -1048,6 +1048,15 @@ nodeCheckInterval=2000
 ```
 It is recommended that you use --config-file to run the _percona-scheduler-admin_ script.
 
+### How to build
+----------------
+
+1. Update the git submodules by executing
+
+   `git submodule update --init`
+
+2. Build the scheduler submodule by running the `build_scheduler.sh`. After that we should be able to see the `pxc_scheduler_handler` binary in the base directory.
+
 ### Percona Scheduler Admin Functions
 ------------------------------
 This script can perform the following functions
@@ -1081,22 +1090,30 @@ Configuring the ProxySQL monitoring user.
 ProxySQL monitor user name as per command line/config-file is monitor
 
 Monitoring user 'monitor'@'127.%' has been setup in the ProxySQL database.
-Adding the Percona XtraDB Cluster server nodes to ProxySQL
-Using the scheduler binary located at <path/to/pxc_scheduler>/pxc_scheduler_handler
+Adding the Percona XtraDB Cluster nodes to ProxySQL
+Using the scheduler binary located at /home/venki/work/proxysql/proxysql-admin-tool/pxc_scheduler_handler
 
-Write node info
-+-----------+--------------+------+--------+
-| hostname  | hostgroup_id | port | weight |
-+-----------+--------------+------+--------+
-| 127.0.0.1 | 100          | 4110 | 1000   |
-| 127.0.0.1 | 100          | 4120 | 1000   |
-| 127.0.0.1 | 100          | 4130 | 1000   |
-+-----------+--------------+------+--------+
+Waiting for scheduler script to process new nodes...
+Proxysql status (mysql_servers rows) for this configuration
++---------------+-------+-----------+------+--------+--------+----------+---------+-----------+
+| hostgroup     | hg_id | hostname  | port | status | weight | max_conn | use_ssl | gtid_port |
++---------------+-------+-----------+------+--------+--------+----------+---------+-----------+
+| writer        | 100   | 127.0.0.1 | 4130 | ONLINE | 1000   | 1000     | 0       | 0         |
+| reader        | 101   | 127.0.0.1 | 4110 | ONLINE | 1000   | 1000     | 0       | 0         |
+| reader        | 101   | 127.0.0.1 | 4120 | ONLINE | 1000   | 1000     | 0       | 0         |
+| reader        | 101   | 127.0.0.1 | 4130 | ONLINE | 1000   | 1000     | 0       | 0         |
+| writer-config | 8100  | 127.0.0.1 | 4110 | ONLINE | 1000   | 1000     | 0       | 0         |
+| writer-config | 8100  | 127.0.0.1 | 4120 | ONLINE | 1000   | 1000     | 0       | 0         |
+| writer-config | 8100  | 127.0.0.1 | 4130 | ONLINE | 1000   | 1000     | 0       | 0         |
+| reader-config | 8101  | 127.0.0.1 | 4110 | ONLINE | 1000   | 1000     | 0       | 0         |
+| reader-config | 8101  | 127.0.0.1 | 4120 | ONLINE | 1000   | 1000     | 0       | 0         |
+| reader-config | 8101  | 127.0.0.1 | 4130 | ONLINE | 1000   | 1000     | 0       | 0         |
++---------------+-------+-----------+------+--------+--------+----------+---------+-----------+
+
 
 ProxySQL configuration completed!
 
 ProxySQL has been successfully configured to use with Percona XtraDB Cluster
-
 
 Observe below that
 mysql> select * from mysql_servers order by hostgroup_id;
@@ -1332,3 +1349,200 @@ online writer node.
 $ percona-scheduler-admin --config-file=config.toml --update-mysql-version
 ProxySQL MySQL version changed to 8.0.26
 ```
+__12) --auto-assign-weights__
+
+Enabling this option along with the `--update-cluster` operation shall make the script to automatically assign weights of the PXC nodes when the whole cluster is in a singlewrite configuration.
+
+As a best practice, we should always ensure that election of a primary node is always deterministic. In other words we must always set a clear priority for the writers like: 1000, 999, 998.. so that there will be a deterministic method of failover. In addition to that, we should also reduce the load of reads on the primary, which means that we should have something like: 900 for the writer while 1000,1000 for the other readers, so that the writer node is less loaded with reads while the reads are equally split across all the other readers.
+
+This option shall do job for acheiving the above behavior automatically without any manual intervention.
+
+Example:
+```bash
+This shall be the default configuration when the percona-scheduler-admin sets up the proxysql.
+
+Cluster node info
++---------------+-------+----------+------+--------+--------+
+| hostgroup     | hg_id | hostname | port | status | weight |
++---------------+-------+----------+------+--------+--------+
+| writer        | 100   | ::1      | 4110 | ONLINE | 1000   |
+| reader        | 101   | ::1      | 4110 | ONLINE | 1000   |
+| reader        | 101   | ::1      | 4120 | ONLINE | 1000   |
+| reader        | 101   | ::1      | 4130 | ONLINE | 1000   |
+| writer-config | 8100  | ::1      | 4110 | ONLINE | 1000   |
+| writer-config | 8100  | ::1      | 4120 | ONLINE | 1000   |
+| writer-config | 8100  | ::1      | 4130 | ONLINE | 1000   |
+| reader-config | 8101  | ::1      | 4110 | ONLINE | 1000   |
+| reader-config | 8101  | ::1      | 4120 | ONLINE | 1000   |
+| reader-config | 8101  | ::1      | 4130 | ONLINE | 1000   |
++---------------+-------+----------+------+--------+--------+
+
+Cluster membership updated in the ProxySQL database!
+```
+
+```bash
+$ percona-scheduler-admin --config-file=config.toml --update-cluster --auto-assign-weights
+No new nodes detected.
+
+Cluster node info
++---------------+-------+----------+------+--------+--------+
+| hostgroup     | hg_id | hostname | port | status | weight |
++---------------+-------+----------+------+--------+--------+
+| writer        | 100   | ::1      | 4110 | ONLINE | 1000   |
+| reader        | 101   | ::1      | 4110 | ONLINE | 900    |
+| reader        | 101   | ::1      | 4120 | ONLINE | 1000   |
+| reader        | 101   | ::1      | 4130 | ONLINE | 1000   |
+| writer-config | 8100  | ::1      | 4130 | ONLINE | 998    |
+| writer-config | 8100  | ::1      | 4120 | ONLINE | 999    |
+| writer-config | 8100  | ::1      | 4110 | ONLINE | 1000   |
+| reader-config | 8101  | ::1      | 4110 | ONLINE | 900    |
+| reader-config | 8101  | ::1      | 4120 | ONLINE | 1000   |
+| reader-config | 8101  | ::1      | 4130 | ONLINE | 1000   |
++---------------+-------+----------+------+--------+--------+
+
+Cluster membership updated in the ProxySQL database!
+
+```
+
+As explained above, this suffices the two basic requirements that
+
+1. Writer node should receive less reads i.e, the value 900 is assigned to writer node while it is 1000 for other readers, ensures writer node receives less writes.
+
+2. All writer nodes should have unique weights like 999,998.
+
+
+
+__13) --update-read-weight__
+
+When used along with `--update-cluster`, this option shall assign the specified read weight to the given node.
+
+Usage:
+```bash
+$ percona-scheduler-admin --config-file=config.toml --update-cluster --update-read-weight="<IP_ADDRESS:PORT>, <New Weight>"
+```
+
+The arguments to `--update-read-weight` options follow the syntax `<IP_ADDRESS:PORT>, <Hostgroup>, <New Weight>`. The `<IP_ADDRESS>` can be both in IPV4 and IPV6.
+
+Example:
+```bash
+This shall be the default configuration when the percona-scheduler-admin sets up the proxysql.
+
+Cluster node info
++---------------+-------+----------+------+--------+--------+
+| hostgroup     | hg_id | hostname | port | status | weight |
++---------------+-------+----------+------+--------+--------+
+| writer        | 100   | ::1      | 4110 | ONLINE | 1000   |
+| reader        | 101   | ::1      | 4110 | ONLINE | 1000   |
+| reader        | 101   | ::1      | 4120 | ONLINE | 1000   |
+| reader        | 101   | ::1      | 4130 | ONLINE | 1000   |
+| writer-config | 8100  | ::1      | 4110 | ONLINE | 1000   |
+| writer-config | 8100  | ::1      | 4120 | ONLINE | 1000   |
+| writer-config | 8100  | ::1      | 4130 | ONLINE | 1000   |
+| reader-config | 8101  | ::1      | 4110 | ONLINE | 1000   |
+| reader-config | 8101  | ::1      | 4120 | ONLINE | 1000   |
+| reader-config | 8101  | ::1      | 4130 | ONLINE | 1000   |
++---------------+-------+----------+------+--------+--------+
+
+Cluster membership updated in the ProxySQL database!
+```
+
+```bash
+./percona-scheduler-admin --config-file=config.toml --update-cluster --update-read-weight="[::1]:4130,1111"
+No new nodes detected.
+Waiting for scheduler script to process the nodes...
+
+Cluster node info
++---------------+-------+----------+------+--------+--------+
+| hostgroup     | hg_id | hostname | port | status | weight |
++---------------+-------+----------+------+--------+--------+
+| writer        | 100   | ::1      | 4130 | ONLINE | 1000   |
+| reader        | 101   | ::1      | 4110 | ONLINE | 1000   |
+| reader        | 101   | ::1      | 4120 | ONLINE | 1000   |
+| reader        | 101   | ::1      | 4130 | ONLINE | 1111   |
+| writer-config | 8100  | ::1      | 4110 | ONLINE | 1000   |
+| writer-config | 8100  | ::1      | 4120 | ONLINE | 1000   |
+| writer-config | 8100  | ::1      | 4130 | ONLINE | 1000   |
+| reader-config | 8101  | ::1      | 4110 | ONLINE | 1000   |
+| reader-config | 8101  | ::1      | 4120 | ONLINE | 1000   |
+| reader-config | 8101  | ::1      | 4130 | ONLINE | 1111   |
++---------------+-------+----------+------+--------+--------+
+
+Cluster membership updated in the ProxySQL database!
+```
+The weights corresponding to the node `[::1]:4130` in the reader and reader-config hostgroups has been updated to the new value `1111`.
+
+
+__14) --update-write-weight__
+
+When used along with `--update-cluster`, this option shall assign the specified write weight to the given node.
+
+Usage:
+```bash
+$ percona-scheduler-admin --config-file=config.toml --update-cluster --update-write-weight="<IP_ADDRESS:PORT>, <New Weight>"
+```
+
+The arguments to `--update-write-weight` options follow the syntax `<IP_ADDRESS:PORT>, <New Weight>`. The `<IP_ADDRESS>` can be both in IPV4 and IPV6.
+
+Example:
+```bash
+This shall be the default configuration when the percona-scheduler-admin sets up the proxysql.
+
+Cluster node info
++---------------+-------+----------+------+--------+--------+
+| hostgroup     | hg_id | hostname | port | status | weight |
++---------------+-------+----------+------+--------+--------+
+| writer        | 100   | ::1      | 4110 | ONLINE | 1000   |
+| reader        | 101   | ::1      | 4110 | ONLINE | 1000   |
+| reader        | 101   | ::1      | 4120 | ONLINE | 1000   |
+| reader        | 101   | ::1      | 4130 | ONLINE | 1000   |
+| writer-config | 8100  | ::1      | 4110 | ONLINE | 1000   |
+| writer-config | 8100  | ::1      | 4120 | ONLINE | 1000   |
+| writer-config | 8100  | ::1      | 4130 | ONLINE | 1000   |
+| reader-config | 8101  | ::1      | 4110 | ONLINE | 1000   |
+| reader-config | 8101  | ::1      | 4120 | ONLINE | 1000   |
+| reader-config | 8101  | ::1      | 4130 | ONLINE | 1000   |
++---------------+-------+----------+------+--------+--------+
+
+Cluster membership updated in the ProxySQL database!
+```
+
+```bash
+./percona-scheduler-admin --config-file=config.toml --update-cluster --update-write-weight="[::1]:4130,1111"
+No new nodes detected.
+Waiting for scheduler script to process the nodes...
+
+Cluster node info
++---------------+-------+----------+------+--------+--------+
+| hostgroup     | hg_id | hostname | port | status | weight |
++---------------+-------+----------+------+--------+--------+
+| writer        | 100   | ::1      | 4130 | ONLINE | 1111   |
+| reader        | 101   | ::1      | 4110 | ONLINE | 1000   |
+| reader        | 101   | ::1      | 4120 | ONLINE | 1000   |
+| reader        | 101   | ::1      | 4130 | ONLINE | 1000   |
+| writer-config | 8100  | ::1      | 4110 | ONLINE | 1000   |
+| writer-config | 8100  | ::1      | 4120 | ONLINE | 1000   |
+| writer-config | 8100  | ::1      | 4130 | ONLINE | 1111   |
+| reader-config | 8101  | ::1      | 4110 | ONLINE | 1000   |
+| reader-config | 8101  | ::1      | 4120 | ONLINE | 1000   |
+| reader-config | 8101  | ::1      | 4130 | ONLINE | 1000   |
++---------------+-------+----------+------+--------+--------+
+
+Cluster membership updated in the ProxySQL database!
+```
+The weights corresponding to the node `[::1]:4130` in the writer and writer-config hostgroups has been updated to the new value `1111`.
+
+
+### Known Limitations
+
+1. The below options are mutually exclusive. Any attempt to run them shall result in error.
+
+    1.1. `--update-write-weight` and `--auto-assign-weights`
+
+    1.2. `--write-node` and `--auto-assign-weights`
+
+    1.3. `--write-node` and `--update-write-weight`
+
+2. It is recommended to not place the log file and the lock file (values pointed by `logFile` and `lockfilepath` respectively in the `toml` file) in the Home Direcotry. This is because the scheduler script is run under the context of user `proxysql:proxysql`, and there shall be be errors as proxysql service will not be able to write into the home directory.
+
+    In order to override this, one could set `ProtectHome=no` in `
+/etc/systemd/system/multi-user.target.wants/proxysql.service`

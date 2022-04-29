@@ -126,3 +126,35 @@ PROXYSQL_BASEDIR=$WORKDIR/proxysql-bin
     [ "${proxysql_version}" = "${admin_version}" ]
     [ "${admin_version}" = "${scheduler_version}" ]
 }
+
+# Mutually exclusive options
+@test "run percona-scheduler-admin --auto-assign-weights, write-node and --update-write-weight options" {
+    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --auto-assign-weights --write-node=1.1.1.1,2.2.2.2:44
+    echo "$output" >&2
+    [ "$status" -eq 1 ]
+    [[ "${lines[0]}" =~ ERROR.*options.are.mutually.exclusive.* ]]
+
+    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --write-node=2.2.2.2:44 --update-write-weight="[::1]:4130,2000"
+    echo "$output" >&2
+    [ "$status" -eq 1 ]
+    [[ "${lines[0]}" =~ ERROR.*options.are.mutually.exclusive.* ]]
+
+    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-write-weight="[::1]:4130,2000" --auto-assign-weights
+    echo "$output" >&2
+    [ "$status" -eq 1 ]
+    [[ "${lines[0]}" =~ ERROR.*options.are.mutually.exclusive.* ]]
+}
+
+# Malformed address in --update-write-weight
+@test "run percona-scheduler-admin --update-write-weight" {
+    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-write-weight="[::1]:4130av,20s00"
+    echo "$output" >&2
+    [ "$status" -eq 1 ]
+    echo ${lines[0]}
+    [[ "${lines[0]}" =~ ERROR.*expected.address.in.format.* ]]
+
+    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-write-weight="[::1]:4130,20s00"
+    echo "$output" >&2
+    [ "$status" -eq 1 ]
+    [[ "${lines[0]}" =~ ERROR.*Weight.in.--update-write-weight.requires.a.number.* ]]
+}

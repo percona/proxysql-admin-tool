@@ -83,7 +83,10 @@ declare    SCHEDULER_BINARY=""
 declare    SAFE_MONITOR_USERNAME=""
 declare    SAFE_MONITOR_PASSWORD=""
 
+declare    LOCK_FILE_PATH=""
 declare    WRITE_NODE=""
+declare    UPDATE_READ_WEIGHT=""
+declare    UPDATE_WRITE_WEIGHT=""
 
 declare    MODE="singlewrite"
 declare -i NODE_CHECK_INTERVAL=-1
@@ -99,6 +102,7 @@ declare -i READER_CONFIG_HOSTGROUP_ID=-1
 declare -i WRITER_MAINT_HOSTGROUP_ID=-1
 declare -i READER_MAINT_HOSTGROUP_ID=-1
 
+declare -i AUTO_ASSIGN_WEIGHTS=0
 declare -i QUICK_DEMO=0
 declare -i ENABLE=0
 declare -i DISABLE=0
@@ -183,6 +187,11 @@ Options:
                                      writes for singlewrite mode.  If left unspecified,
                                      the cluster node is then used as the write node.
                                      This only applies when 'mode=singlewrite' is used.
+  --auto-assign-weights              Auto assigns weights in a 'singlewrite' mode.
+  --update-read-weight=<IP:PORT,WT>  When used with --update-cluster, this option shall assign the
+                                     specified read weight to the given node.
+  --update-write-weight=<IP:PORT,WT> When used with --update-cluster, this option shall assign the
+                                     specified write weight to the given node.
   --remove-all-servers               When used with --update-cluster, this will remove all
                                      servers belonging to the current cluster before
                                      updating the list.
@@ -209,7 +218,7 @@ Options:
   --debug                            Enables additional debug logging.
   --help                             Displays this help text.
 
-These options are the possible operations for proxysql-admin.
+These options are the possible operations for percona-scheduler-admin.
 One of the options below must be provided.
   --adduser                          Adds the Percona XtraDB Cluster application user to the ProxySQL database
   --disable, -d                      Remove any Percona XtraDB Cluster configurations from ProxySQL
@@ -806,7 +815,194 @@ function add_servers_to_proxysql()
   done
 }
 
+# Updates the weight of a given node to a specific value
+#
+# Globals:
+#   WRITER_HOSTGROUP_ID
+#   READER_HOSTGROUP_ID
+#   WRITER_CONFIG_HOSTGROUP_ID
+#   READER_CONFIG_HOSTGROUP_ID
+#
 
+function update_weight() {
+
+  local type=$1
+  local update_weight=$2
+  local update_hgs operation
+
+  if [[ $type == "READ" ]]; then
+    operation="--update-read-weight"
+    update_hgs="($READER_HOSTGROUP_ID,$READER_CONFIG_HOSTGROUP_ID)"
+  else
+    operation="--update-write-weight"
+    update_hgs="($WRITER_HOSTGROUP_ID,$WRITER_CONFIG_HOSTGROUP_ID)"
+  fi
+
+  # Extract node details and validate inputs
+  local address=$(echo $update_weight | cut -d, -f1)
+  local weight=$(echo $update_weight | cut -d, -f2)
+
+  local node_address=$(separate_ip_port_from_address "$address")
+  local node_ip=$(echo "$node_address" | cut -d' ' -f1)
+  local node_port=$(echo "$node_address" | cut -d' ' -f2)
+
+  host_info=$(proxysql_exec "$LINENO" \
+          "SELECT COUNT(*)
+             FROM mysql_servers
+             WHERE hostgroup_id IN $update_hgs AND
+               hostname='$node_ip' AND
+               port=$node_port")
+  check_cmd $? "$LINENO" "Could not retrieve hostgroup and server information from ProxySQL"\
+                         "\n-- Please check the ProxySQL connection parameters and status."
+
+  if [ $host_info -eq 0 ]; then
+    error "$LINENO" "Failed to execute $operation: Could not find the node belonging to the cluster with address $address"
+    exit 1
+  fi
+
+  local hgs
+
+  # We are here means we are good to update the weight.
+  proxysql_exec "$LINENO" \
+    "UPDATE mysql_servers
+      SET weight = $weight
+      WHERE
+        hostname='$node_ip' AND
+        hostgroup_id IN $update_hgs AND
+        port=$node_port"
+  check_cmd $? "$LINENO" "Failed to update the write-node" \
+                       "\n-- Please check the ProxySQL connection parameters and status."
+
+}
+
+
+# Adjusts the weights of the servers when in a singlewrite configuration.
+#
+# This will adjust the weights of the servers in the list
+#
+# Election of primary MUST be deterministic, this is a must have requirement in
+# real-world. So we must set a clear priority for the writers like: 1000, 999,
+# 998.
+#
+# At the same time when possible we should also reduce the load of reads on the
+# primary, which means that we should have something like: 900 for the writer
+# while 1000,1000 for the other readers.
+#
+# Also, this should be consistent both in writer HG and Writer Config HG  after
+# which the scheduler will manage it using the Writer Config HG as reference.
+#
+# Globals:
+#   WRITER_HOSTGROUP_ID
+#   READER_HOSTGROUP_ID
+#   WRITER_CONFIG_HOSTGROUP_ID
+#   READER_CONFIG_HOSTGROUP_ID
+#
+function adjust_weights () {
+
+  local errcode
+  is_mode_singlewrite $WRITER_HOSTGROUP_ID
+  if [[ $? -eq 0 && $AUTO_ASSIGN_WEIGHTS -eq 1 ]]; then
+
+    # Load the servers to runtime and wait till the scheduler processes the cluster nodes.
+    proxysql_load_to_runtime_save_to_disk "MYSQL SERVERS" $LINENO
+
+    wait_for_scheduler_processing
+
+    # Fetch the writer node.
+    local writer_node
+
+    writer_node=$(proxysql_exec "$LINENO" \
+      "SELECT hostname  || ':' || port
+        FROM mysql_servers
+        WHERE
+          hostgroup_id = $WRITER_HOSTGROUP_ID AND
+          status NOT IN (\"OFFLINE_HARD\",\"OFFLINE_SOFT\")")
+    check_cmd $? "$LINENO" "Failed to query ProxySQL for the user."\
+                           "\n-- Please check the ProxySQL connection parameters and status."
+
+    local writer_host=${writer_node%:*}
+    local writer_port=${writer_node##*:}
+
+    debug "Chosen writer node = $writer_host:$writer_port, reducing its reader's weightage to 900"
+
+    # Set the weight of all nodes to 1000
+    proxysql_exec "$LINENO" \
+      "UPDATE mysql_servers
+        SET weight = 1000"
+    check_cmd $? "$LINENO" "Failed to update the weight" \
+                         "\n-- Please check the ProxySQL connection parameters and status."
+
+    # Set the writer node's weight in reader HG
+    proxysql_exec "$LINENO" \
+      "UPDATE mysql_servers
+        SET weight = 900
+        WHERE
+          hostname = '$writer_host' AND
+          port = $writer_port AND
+          hostgroup_id IN ($READER_HOSTGROUP_ID,$READER_CONFIG_HOSTGROUP_ID);"
+    check_cmd $? "$LINENO" "Failed to update weight" \
+                         "\n-- Please check the ProxySQL connection parameters and status."
+
+
+    # Now update write weights of other nodes.
+    # To do so, update the writer-config HG.
+    #
+    # Get the list of nodes in writer config other than the current writer.
+    # For each node update weight.
+    local backup_writers
+    backup_writers=$(proxysql_exec "$LINENO" \
+        "SELECT hostname  || ':' || port AS bkp_writer
+        FROM mysql_servers
+        WHERE
+          hostgroup_id = $WRITER_CONFIG_HOSTGROUP_ID AND
+          bkp_writer != \"$writer_host:$writer_port\" AND
+          status NOT IN (\"OFFLINE_HARD\",\"OFFLINE_SOFT\")")
+    check_cmd $? "$LINENO" "Failed to query ProxySQL for the user."\
+                           "\n-- Please check the ProxySQL connection parameters and status."
+    if [[ -n $backup_writers ]]; then
+      # Extract the hostname and port from the rows
+      # Creates a string of "host:port" separated by spaces
+      local counter=1
+      while read line; do
+        if [[ -z $line ]]; then
+          continue
+        fi
+
+        local ip_addr=${line%:*}
+        local port=${line##*:}
+        local new_weight=$((1000-counter))
+
+        # Update the new weights in WRITER_CONFIG_HOSTGROUP_ID
+        proxysql_exec "$LINENO" \
+        "UPDATE mysql_servers
+          SET weight = $new_weight
+          WHERE
+          hostgroup_id IN ($WRITER_HOSTGROUP_ID, $WRITER_CONFIG_HOSTGROUP_ID) AND
+            hostname = '$ip_addr' AND
+            port = '$port' AND
+            status NOT IN ('OFFLINE_HARD','OFFLINE_SOFT')"
+        check_cmd $? "$LINENO" "Failed to query ProxySQL for the user."\
+                     "\n-- Please check the ProxySQL connection parameters and status."
+        counter=$(($counter+1))
+
+      done< <(printf "%s\n" "$backup_writers")
+
+      # Set the writer weight to 1000.
+      proxysql_exec "$LINENO" \
+      "UPDATE mysql_servers
+        SET weight = 1000
+        WHERE
+        hostname='$writer_host' AND
+        port=$writer_port AND
+        hostgroup_id IN ($WRITER_HOSTGROUP_ID, $WRITER_CONFIG_HOSTGROUP_ID) AND
+        status NOT IN ('OFFLINE_HARD','OFFLINE_SOFT')"
+      check_cmd $? "$LINENO" "Failed to query ProxySQL for the user."\
+                   "\n-- Please check the ProxySQL connection parameters and status."
+
+    fi
+    proxysql_load_to_runtime_save_to_disk "MYSQL SERVERS" $LINENO
+  fi
+}
 # Auto configure Percona XtraDB Cluster nodes into ProxySQL
 #
 # Globals:
@@ -1095,7 +1291,7 @@ function enable_proxysql() {
   fi
 
 
-  echo -e "Adding the Percona XtraDB Cluster server nodes to ProxySQL"
+  echo -e "Adding the Percona XtraDB Cluster nodes to ProxySQL"
 
   # Remove any existing nodes from mysql_servers
   proxysql_exec "$LINENO" "DELETE FROM mysql_servers WHERE hostgroup_id IN ($all_hostgroups)"
@@ -1133,7 +1329,7 @@ function enable_proxysql() {
       # Update the write_node to have a higher priority
       proxysql_exec "$LINENO" \
         "UPDATE mysql_servers
-          SET weight = 1000000
+          SET weight = 1000
           WHERE
             hostname = '$writer_ws_ip' AND
             port = $writer_ws_port AND
@@ -1269,6 +1465,10 @@ function enable_proxysql() {
   if [[ $MODE == "singlewrite" ]]; then
     echo -e "\nWaiting for scheduler script to process new nodes..."
     wait_for_scheduler_processing
+
+    # Adjust weights after adding servers to proxysql.
+    adjust_weights
+
     report_status $WRITER_HOSTGROUP_ID
     echo ""
   fi
@@ -1665,10 +1865,6 @@ function update_cluster()
         check_cmd $? "$LINENO" "Failed to delete other write node rows" \
                              "\n-- Please check the ProxySQL connection parameters and status."
 
-        # readd as a writer node
-        add_servers_to_proxysql $writer_ws_address
-        force_to_runtime=1
-
         # Clear any other previous write-node
         proxysql_exec "$LINENO" \
           "UPDATE mysql_servers
@@ -1678,6 +1874,10 @@ function update_cluster()
               weight = 1000000"
         check_cmd $? "$LINENO" "Failed to update the write-node" \
                              "\n-- Please check the ProxySQL connection parameters and status."
+
+        # readd as a writer node
+        add_servers_to_proxysql $writer_ws_address
+        force_to_runtime=1
 
         # Update the write_node to have a higher priority
         proxysql_exec "$LINENO" \
@@ -1693,11 +1893,26 @@ function update_cluster()
     fi
   fi
 
+  # Check if --update-write-weight has been specified
+  if [[ -n $UPDATE_WRITE_WEIGHT ]]; then
+    update_weight "WRITE" $UPDATE_WRITE_WEIGHT
+    force_to_runtime=1
+  fi
+
+  # Check if --update-read-weight has been specified
+  if [[ -n $UPDATE_READ_WEIGHT ]]; then
+    update_weight "READ" $UPDATE_READ_WEIGHT
+    force_to_runtime=1
+  fi
+
   if [[ -n $new_node_list || $force_to_runtime -eq 1 ]]; then
     proxysql_load_to_runtime_save_to_disk "MYSQL SERVERS" $LINENO
     echo "Waiting for scheduler script to process the nodes..."
     wait_for_scheduler_processing
   fi
+
+  # Adjust weights after updating servers to proxysql.
+  adjust_weights
 
   echo -e "\nCluster node info"
   proxysql_exec "$LINENO" \
@@ -1721,6 +1936,7 @@ function update_cluster()
         hostgroup_id AS hg_id,
         hostname,
         port,
+        status,
         weight
      FROM runtime_mysql_servers
      WHERE hostgroup_id in ($all_hostgroups)
@@ -1831,6 +2047,9 @@ function parse_args() {
     "update-cluster"
     "is-enabled"
     "adduser"
+    "auto-assign-weights"
+    "update-read-weight:"
+    "update-write-weight:"
     "syncusers"
     "sync-multi-cluster-users"
     "update-mysql-version"
@@ -1985,6 +2204,15 @@ function parse_args() {
   WRITER_MAINT_HOSTGROUP_ID=$((maint_range + $WRITER_HOSTGROUP_ID))
   READER_MAINT_HOSTGROUP_ID=$((maint_range + $READER_HOSTGROUP_ID))
 
+  # Check for LockFilePath
+  LOCK_FILE_PATH=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "proxysql" "lockfilepath" "" 1)
+  [[ $? -ne 0 ]] && exit 1
+
+  if [[ ! -d $(cd "$(dirname ${LOCK_FILE_PATH})" && pwd)/${LOCK_FILE_PATH} ]]; then
+    error "" "lockfilepath is set to an invalid location ${LOCK_FILE_PATH}. Make sure the directory exists."
+    exit 1
+  fi
+
   # Hostgroup value checks
   # the config range must be less than the maint range
   if [[ $config_range -ge $maint_range ]]; then
@@ -2106,6 +2334,18 @@ function parse_args() {
         NEEDS_WRITER_HOSTGROUP=1
         NEEDS_READER_HOSTGROUP=1
         ;;
+      --auto-assign-weights )
+        shift
+        AUTO_ASSIGN_WEIGHTS=1
+        ;;
+      --update-read-weight )
+        UPDATE_READ_WEIGHT="$2"
+        shift 2
+        ;;
+      --update-write-weight )
+        UPDATE_WRITE_WEIGHT="$2"
+        shift 2
+        ;;
       --adduser )
         shift
         ADDUSER=1
@@ -2204,6 +2444,17 @@ function parse_args() {
     fi
   fi
 
+  # --update-write-weight and --auto-assign-weights are mutually exclusive
+  if [[ -n $UPDATE_WRITE_WEIGHT && $AUTO_ASSIGN_WEIGHTS -eq 1 ]]; then
+      error "" "--auto-assign-weights and --update-write-weight options are mutually exclusive."
+      exit 1
+  fi
+
+  # --write-node and --auto-assign-weights are mutually exclusive
+  if [[ -n $WRITE_NODE && $AUTO_ASSIGN_WEIGHTS -eq 1 ]]; then
+      error "" "--write-node and --auto-assign-weights options are mutually exclusive."
+      exit 1
+  fi
 
   # WRITE_NODE validity check (check to see if the port is included)
   if [[ -n $WRITE_NODE ]]; then
@@ -2214,6 +2465,15 @@ function parse_args() {
                     "\n-- of a single node, therefore commas ',' are not allowed."
       exit 1
     fi
+    if [[ -n $UPDATE_WRITE_WEIGHT ]]; then
+        error "" "--write-node and --update-write-weight options are mutually exclusive."
+        exit 1
+    fi
+    if [ $AUTO_ASSIGN_WEIGHTS -eq 1 ]; then
+        error "" "--write-node and --auto-assign-weights options are mutually exclusive."
+        exit 1
+    fi
+
     local ws_address
     local ws_port
 
@@ -2302,6 +2562,14 @@ function parse_args() {
     CLUSTER_PORT="3306"
   fi
 
+  if [[ -n $UPDATE_READ_WEIGHT ]]; then
+    validate_update_weights "READ" $UPDATE_READ_WEIGHT
+  fi
+
+  if [[ -n $UPDATE_WRITE_WEIGHT ]]; then
+    validate_update_weights "WRITE" $UPDATE_WRITE_WEIGHT
+  fi
+
   #
   # By this point, all of the connection parameters
   # (proxysql and PXC cluster) should have been set.
@@ -2331,8 +2599,61 @@ function parse_args() {
   readonly WITH_CLUSTER_APP_USER
 
   readonly MAX_CONNECTIONS
+
+  readonly AUTO_ASSIGN_WEIGHTS
+  readonly UPDATE_READ_WEIGHT
+  readonly UPDATE_WRITE_WEIGHT
 }
 
+# Validate update-* options
+function validate_update_weights() {
+
+  local option="$1"
+  local new_weight_info=$2
+  local update_operation arg_count
+
+  if [[ $option == "READ" ]]; then
+    update_operation="--update-read-weight"
+  else
+    update_operation="--update-write-weight"
+  fi
+
+  # The update option requires exact 2 arguments
+  arg_count=$(echo $new_weight_info | tr ',' '\n' | wc -l)
+  if [[ $arg_count -le 2 || $arg_count -ge 2 ]]; then
+    error "" "$update_operation option requires exactly two arguments in format \"<IP_ADDR:PORT>,NEW_WEIGHT\". Found $new_weight_info"
+    exit 1
+  fi
+
+  # Extract node details and validate inputs
+  local address=$(echo $new_weight_info | cut -d, -f1)
+  local weight=$(echo $new_weight_info | cut -d, -f2)
+
+  local node_address=$(separate_ip_port_from_address "$address")
+  local node_ip=$(echo "$node_address" | cut -d' ' -f1)
+  local node_port=$(echo "$node_address" | cut -d' ' -f2)
+
+  # Check that we have a port and that it only contains digits
+  if [[ -z $node_port || ! $node_port =~ ^[[:digit:]]*$ ]]; then
+    error "$LINENO" "$update_operation : expected address in format 'address:port' but found '$new_weight_info'"
+    exit 1
+  fi
+
+  if ! is_integer "$node_port"; then
+    error "" "Port in $update_operation requires a number : $node_port"
+    exit 1
+  fi
+
+  if ! is_integer "$weight"; then
+    error "" "Weight in $update_operation requires a number : $weight"
+    exit 1
+  fi
+
+  if [[ $weight -le 0 || $weight -ge 10000000 ]]; then
+    error "" "Weight in $update_operation is out of range. Please set it to a value in range [0,10000000]."
+    exit 1
+  fi
+}
 
 # Main function
 #
@@ -2373,7 +2694,7 @@ function main() {
         exit 1
       fi
     elif [[ $errcode -eq 1 ]]; then
-      error "$LINENO" "The cluster (with writer hostgroup: $WRITER_HOSTGROUP_ID) has not been configured in ProxySQL"
+      error "$LINENO" "The cluster (with writer hostgroup: $WRITER_HOSTGROUP_ID) has not been configured in ProxySQL. Use along with --enable option to enable the configuration."
       exit 1
     fi
 
@@ -2462,6 +2783,21 @@ function main() {
   elif [[ $UPDATE_MYSQL_VERSION -eq 1 ]]; then
 
     update_mysql_version
+
+  elif [[ $AUTO_ASSIGN_WEIGHTS -eq 1 ]]; then
+
+    error "" "--auto-assign-weights requires either --update-cluster or --enable."
+    exit 1
+
+  elif [[ -n $UPDATE_READ_WEIGHT ]]; then
+
+    error "" "--update-read-weight requires --update-cluster."
+    exit 1
+
+  elif [[ -n $UPDATE_WRITE_WEIGHT ]]; then
+
+    error "" "--update-write-weight requires --update-cluster."
+    exit 1
 
   else
 
@@ -2722,7 +3058,8 @@ function wait_for_scheduler_processing ()
                 "SELECT COUNT(*)
                   FROM runtime_mysql_servers
                   WHERE
-                    hostgroup_id = $WRITER_HOSTGROUP_ID")
+                    hostgroup_id = $WRITER_HOSTGROUP_ID AND
+                    status = 'ONLINE'")
         [[ -n $data && $data -eq 1 ]] && break
 
       done
@@ -2730,6 +3067,7 @@ function wait_for_scheduler_processing ()
       if [[ $i -eq $timeout ]]; then
         echo -e "Warning: Timeout $timeout seconds exceeded when waiting for scheduler to process the nodes."
         echo -e "Please check the error logs for more information."
+        exit 1
       fi
     fi
 }
@@ -2792,8 +3130,8 @@ fi
 #
 SCHEDULER_BINARY="$(dirname ${BASH_SOURCE[0]})/pxc_scheduler_handler"
 SCHEDULER_BINARY=$(cd "$(dirname "${SCHEDULER_BINARY}")" && pwd)/$(basename "${SCHEDULER_BINARY}")
-if [[ -z $SCHEDULER_BINARY ]]; then
-  error "$LINENO" "Cannot find pxc_scheduler_handler (the percona-scheduler binary)"\
+if [[ ! -x $SCHEDULER_BINARY ]]; then
+  error "$LINENO" "Cannot find pxc_scheduler_handler or either the file does not have execute permission."\
                 "\n---- Check the proxysql-admin installation."
   exit 1
 fi

@@ -228,7 +228,6 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [ "$status" -eq  0 ]
 }
 
-
 @test "run percona-scheduler-admin --update-mysql-version ($WSREP_CLUSTER_NAME)" {
   [[ -n $TEST_NAME && ! $TEST_NAME =~ update_mysql_version ]] && skip;
 
@@ -949,4 +948,80 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --is-enabled <<< 'n'
   echo "$output" >&2
   [ "$status" -eq  0 ]
+}
+
+# Test --update-cluster with --update-read-weight
+@test "test --update-cluster --update-read-weight and --update-write-weight ($WSREP_CLUSTER_NAME)" {
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ update_cluster_basic ]] && skip;
+
+  # Update node weight using --update-weight option
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --update-read-weight="$HOST_IP:$PORT_1,1234"
+
+  # Validate
+  node_weight=$(proxysql_exec "select weight from runtime_mysql_servers where hostname='$HOST_IP' AND port=$PORT_1 AND hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
+  [ $node_weight -eq 1234 ]
+
+  node_weight=$(proxysql_exec "select weight from runtime_mysql_servers where hostname='$HOST_IP' AND port=$PORT_1 AND hostgroup_id = $READER_CONFIG_HOSTGROUP_ID " | awk '{print $0}')
+  [ $node_weight -eq 1234 ]
+  [ "$status" -eq 0 ]
+
+  # Update node weight using --update-write-weight option
+  writer_port=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --update-write-weight="$HOST_IP:$writer_port,2340"
+
+  # Validate
+  node_weight=$(proxysql_exec "select weight from runtime_mysql_servers where hostname='$HOST_IP' AND port=$writer_port AND hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  [ $node_weight -eq 2340 ]
+
+  node_weight=$(proxysql_exec "select weight from runtime_mysql_servers where hostname='$HOST_IP' AND port=$writer_port AND hostgroup_id = $WRITER_CONFIG_HOSTGROUP_ID " | awk '{print $0}')
+  [ $node_weight -eq 2340 ]
+  [ "$status" -eq 0 ]
+
+  # Reset weights
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --remove-all-servers
+}
+
+# Test --update-cluster with --auto-assign-weights
+@test "test --update-cluster --auto-assign-weights ($WSREP_CLUSTER_NAME)" {
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ update_cluster_basic ]] && skip;
+
+  # Update node weight using --update-weight option
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --auto-assign-weights
+
+  # There should be only one writer.
+  writer_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  [ $writer_count -eq 1 ]
+  [ "$status" -eq 0 ]
+
+  # Writer weight should be 1000
+  writer_weight=$(proxysql_exec "select weight from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  [ $writer_weight -eq 1000 ]
+  [ "$status" -eq 0 ]
+
+  # Writer should have less weight for reads
+  writer_port=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  writer_reader_weight=$(proxysql_exec "select weight from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID and port=$writer_port" | awk '{print $0}')
+  [ $writer_reader_weight -eq 900 ]
+
+  # There should be 3 readers
+  reader_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
+  [ $reader_count -eq 3 ]
+  [ "$status" -eq 0 ]
+
+  # All readers should have weight as 1000 except the writer node.
+  reader_1000_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID and weight=1000 and port != $writer_port" | awk '{print $0}')
+  proxysql_exec "select * from runtime_mysql_servers "
+  [ $reader_1000_count -eq 2 ]
+  [ "$status" -eq 0 ]
+
+  # There should be one node with writer weight 999 in writer config hostgroup
+  writer_999_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_CONFIG_HOSTGROUP_ID and weight=999" | awk '{print $0}')
+  [ $writer_999_count -eq 1 ]
+
+  # There should be one node with writer weight 998 in writer config hostgroup
+  writer_998_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_CONFIG_HOSTGROUP_ID and weight=998" | awk '{print $0}')
+  [ $writer_998_count -eq 1 ]
+
+  # Reset weights
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --remove-all-servers
 }
