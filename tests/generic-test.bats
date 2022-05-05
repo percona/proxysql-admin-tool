@@ -161,7 +161,7 @@ PROXYSQL_BASEDIR=$WORKDIR/proxysql-bin
     [[ "${lines[0]}" =~ ERROR.*--server.*can.only.be.used.* ]]
 }
 
-@test 'run proxysql-admin --max-connections without parameters' {
+@test 'run proxysql-admin --max-connections with empty parameters' {
     run sudo $WORKDIR/proxysql-admin --max-connections
     echo "$output" >&2
     [ "$status" -eq 1 ]

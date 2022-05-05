@@ -10,6 +10,12 @@
 TEST_SUITES=()
 TEST_SUITES+=("proxysql-admin-testsuite.bats")
 
+# This is the 2nd set of tests
+# These suites will be run AFTER the two passes through
+# the first set of tests.
+TEST_SUITES2=()
+TEST_SUITES2+=("scheduler-admin-testsuite.bats")
+
 
 #
 # Variables
@@ -19,7 +25,7 @@ declare WORKDIR=""
 declare SCRIPT_PATH=$0
 declare SCRIPT_DIR=$(cd `dirname $0` && pwd)
 
-declare PXC_START_TIMEOUT=30
+declare PXC_START_TIMEOUT=60
 declare SUSER=root
 declare SPASS=
 declare OS_USER=$(whoami)
@@ -314,6 +320,9 @@ function start_pxc_node(){
 
   echo "[sst]" >> my.cnf
   echo "wsrep_debug=1" >> my.cnf
+  if [[ $USE_IPVERSION == "v6" ]]; then
+    echo "sockopt=",pf=ip6"" >> my.cnf
+  fi
 
   # Assume that node1 is the bootstrapped node
   bootstrap_node="${PXC_BASEDIR}/${cluster_name}1"
@@ -402,6 +411,11 @@ function start_pxc_node(){
         echo "Started PXC ${cluster_name}${i}. BasePort: $rbase1  Socket: /tmp/${cluster_name}${i}.sock"
         break
       fi
+      if [[ $X == ${PXC_START_TIMEOUT} ]]; then
+          echo "One of the nodes failed to start even after waiting for ${PXC_START_TIMEOUT} seconds."
+          echo "Please check the error logs for more information. Error logs can be foung in $WORKDIR/logs/"
+          exit 1
+      fi
     done
   done
 
@@ -482,9 +496,11 @@ function start_async_slave() {
 function cleanup_handler() {
   if [[ $ALLOW_SHUTDOWN == "Yes" ]]; then
     if [[ $RUN_TEST -ne 0 ]]; then
-      echo "NOTICE: Killing all mysqld and proxysql processes"
-      pkill -9 -x mysqld
-      pkill -9 -x proxysql
+      echo "NOTICE: Terminating all mysqld, proxysql and other related processes"
+      pkill -SIGTERM -x mysqld
+      pkill -SIGTERM -x proxysql
+      # wsrep_sst_xtrabackup-v2 could be hanging in some cases.
+      pkill -SIGTERM -x wsrep_sst_xtrabackup-v2
     fi
   fi
 }
@@ -646,8 +662,11 @@ if [[ ! -x $PROXYSQL_BASE/usr/bin/proxysql ]]; then
   echo "ERROR! Could not find proxysql executable : $PROXYSQL_BASE/usr/bin/proxysql"
   exit 1
 fi
-$PROXYSQL_BASE/usr/bin/proxysql -D $WORKDIR/proxysql_db $PROXYSQL_EXTRA_OPTIONS $WORKDIR/proxysql_db/proxysql.log &
-echo "....ProxySQL started"
+
+echo "Removing the previous proxysql logs"
+rm -f $WORKDIR/proxysql_db/proxysql.log
+$PROXYSQL_BASE/usr/bin/proxysql -D $WORKDIR/proxysql_db $PROXYSQL_EXTRA_OPTIONS --foreground > $WORKDIR/proxysql_db/proxysql.log 2>&1 &
+echo "....ProxySQL started. Redirecting the logs to $WORKDIR/proxysql_db/proxysql.log"
 
 
 echo "Creating link: $WORKDIR/pxc-bin --> $PXC_BASEDIR"
@@ -787,7 +806,191 @@ if [[ $RUN_TEST -eq 1 ]]; then
   echo "================================================================"
   echo ""
 
-  for test_file in ${TEST_SUITES[@]}; do
+  echo ""
+  echo "================================================================"
+  echo "percona-scheduler-admin args test log"
+  sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES \
+        bats $SCRIPT_DIR/scheduler-args.bats
+  echo "================================================================"
+  echo ""
+
+  if [[ ${#TEST_SUITES[@]} -gt 0 ]]; then
+    for test_file in ${TEST_SUITES[@]}; do
+      echo "cluster_one : $test_file"
+      SECONDS=0
+
+      sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES \
+            bats $SCRIPT_DIR/$test_file
+      rc=$?
+      if (( $SECONDS > 60 )) ; then
+        let "minutes=(SECONDS%3600)/60"
+        let "seconds=(SECONDS%3600)%60"
+        echo "Completed in $minutes minute(s) and $seconds second(s)"
+      else
+        echo "Completed in $SECONDS seconds"
+      fi
+
+      if [[ $rc -ne 0 ]]; then
+        ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=$LOCALHOST_IP --port=6032 --protocol=tcp \
+          -e "select hostgroup_id,hostname,port,status,weight,comment from runtime_mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
+        echo "********************************"
+        echo "* $test_file failed, the servers (ProxySQL+PXC) will be left running"
+        echo "* for debugging purposes."
+        echo "********************************"
+        ALLOW_SHUTDOWN="No"
+        exit 1
+      fi
+      echo "================================================================"
+      echo ""
+    done
+    echo ""
+  fi
+fi
+
+if [[ $USE_CLUSTER_TWO -eq 1 ]]; then
+
+  echo "Starting cluster two..."
+  WSREP_CLUSTER=""
+  NODES=0
+  start_pxc_node cluster_two 4200
+  echo "....cluster two started"
+
+  echo "Starting cluster two async slave..."
+  start_async_slave cluster_two 4290
+  echo "....cluster two async slave started"
+
+  echo "Creating accounts on the cluster"
+  if [[ $MYSQL_VERSION == "5.6" ]]; then
+    ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock <<EOF
+GRANT ALL ON *.* TO admin@'${LOCALHOST_NAME}' identified by 'admin' WITH GRANT OPTION;
+GRANT SELECT ON SYS.* TO monitor@'${LOCALHOST_NAME}' identified by 'monitor';
+FLUSH PRIVILEGES;
+EOF
+  elif [[ $MYSQL_VERSION == "5.7" ]]; then
+    ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock <<EOF
+GRANT ALL ON *.* TO admin@'%' IDENTIFIED BY 'admin' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+EOF
+  elif [[ $MYSQL_VERSION > "8.0" || $MYSQL_VERSION == "8.0" ]]; then
+    # For 8.0 separate out the user creation from the grant
+    ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock <<EOF
+CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH mysql_native_password BY 'admin';
+GRANT ALL ON *.* TO admin@'%' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+EOF
+  fi
+
+  # Setup the slave (note that slave is not started automatically)
+  echo "Setting up slave for async replication"
+
+  if [[ $MYSQL_VERSION == "5.6" ]]; then
+    ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_two_slave.sock -uroot <<EOF
+GRANT ALL ON *.* TO admin@'${LOCALHOST_NAME}' identified by 'admin' WITH GRANT OPTION;
+GRANT REPLICATION CLIENT ON *.* TO 'monitor'@'${LOCALHOST_NAME}' IDENTIFIED BY 'monit0r';
+CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4210, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1;
+FLUSH PRIVILEGES;
+EOF
+  elif [[ $MYSQL_VERSION == "5.7" ]]; then
+    ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_two_slave.sock -uroot <<EOF
+GRANT ALL ON *.* TO admin@'%' identified by 'admin' WITH GRANT OPTION;
+CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4210, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1 FOR CHANNEL 'master-a';
+FLUSH PRIVILEGES;
+EOF
+  elif [[ $MYSQL_VERSION > "8.0" || $MYSQL_VERSION == "8.0" ]]; then
+    # For 8.0 separate out the user creation from the grant
+    ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two_slave.sock <<EOF
+CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH mysql_native_password BY 'admin';
+GRANT ALL ON *.* TO admin@'%' WITH GRANT OPTION;
+CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4210, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1 FOR CHANNEL 'master-a';
+FLUSH PRIVILEGES;
+EOF
+  fi
+
+  echo ""
+  CLUSTER_TWO_PORT=$(${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock -Bs -e "select @@port")
+  sudo sed -i "0,/^[ \t]*export CLUSTER_PORT[ \t]*=.*$/s|^[ \t]*export CLUSTER_PORT[ \t]*=.*$|export CLUSTER_PORT=\"$CLUSTER_TWO_PORT\"|" /etc/proxysql-admin.cnf
+  sudo sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_two\"|" /etc/proxysql-admin.cnf
+  sudo sed -i "0,/^[ \t]*export WRITER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITER_HOSTGROUP_ID[ \t]*=.*$|export WRITER_HOSTGROUP_ID=\"20\"|" /etc/proxysql-admin.cnf
+  sudo sed -i "0,/^[ \t]*export READER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READER_HOSTGROUP_ID[ \t]*=.*$|export READER_HOSTGROUP_ID=\"21\"|" /etc/proxysql-admin.cnf
+  sudo sed -i "0,/^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$|export BACKUP_WRITER_HOSTGROUP_ID=\"22\"|" /etc/proxysql-admin.cnf
+  sudo sed -i "0,/^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$|export OFFLINE_HOSTGROUP_ID=\"23\"|" /etc/proxysql-admin.cnf
+  echo "================================================================"
+  echo ""
+
+  if [[ $RUN_TEST -eq 1 ]]; then
+    for test_file in ${TEST_SUITES[@]}; do
+      echo "cluster_two : $test_file"
+      SECONDS=0
+
+      sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES \
+            bats $SCRIPT_DIR/$test_file
+      rc=$?
+
+      if (( $SECONDS > 60 )) ; then
+        let "minutes=(SECONDS%3600)/60"
+        let "seconds=(SECONDS%3600)%60"
+        echo "Completed in $minutes minute(s) and $seconds second(s)"
+      else
+        echo "Completed in $SECONDS seconds"
+      fi
+
+      if [[ $rc -ne 0 ]]; then
+        ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=$LOCALHOST_IP --port=6032 --protocol=tcp \
+          -e "select hostgroup_id,hostname,port,status,weight,comment from runtime_mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
+        echo "********************************"
+        echo "* $test_file failed, the servers (ProxySQL+PXC)will be left running"
+        echo "* for debugging purposes."
+        echo "********************************"
+        ALLOW_SHUTDOWN="No"
+        exit 1
+      fi
+      echo "================================================================"
+      echo ""
+    done
+    echo ""
+  fi
+fi
+
+
+# Run the second suite of tests (scheduler testing)
+if [[ $RUN_TEST -eq 1 ]]; then
+
+  # Disable existing login.cnf usage
+  if [ -e "/dummypathnonexisting/.mylogin.cnf" ]; then
+    error "" "/dummypathnonexisting/.mylogin.cnf found. This should not happen.";
+    exit 1
+  fi
+  export MYSQL_TEST_LOGIN_FILE="/dummypathnonexisting/.mylogin.cnf"
+
+
+  echo "================================================================"
+  echo "Cleaning up ProxySQL config"
+  # Need to clear out any previous entries in ProxySQL
+  CLUSTER_ONE_PORT=$(${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock -Bs -e "select @@port")
+  sudo sed -i "0,/^[ \t]*export CLUSTER_PORT[ \t]*=.*$/s|^[ \t]*export CLUSTER_PORT[ \t]*=.*$|export CLUSTER_PORT=\"$CLUSTER_ONE_PORT\"|" /etc/proxysql-admin.cnf
+  sudo sed -i "0,/^[ \t]*export CLUSTER_HOSTNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_HOSTNAME[ \t]*=.*$|export CLUSTER_HOSTNAME=\"${LOCALHOST_NAME}\"|" /etc/proxysql-admin.cnf
+  sudo sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_one\"|" /etc/proxysql-admin.cnf
+  sudo sed -i "0,/^[ \t]*export WRITER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITER_HOSTGROUP_ID[ \t]*=.*$|export WRITER_HOSTGROUP_ID=\"10\"|" /etc/proxysql-admin.cnf
+  sudo sed -i "0,/^[ \t]*export READER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READER_HOSTGROUP_ID[ \t]*=.*$|export READER_HOSTGROUP_ID=\"11\"|" /etc/proxysql-admin.cnf
+  sudo sed -i "0,/^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$|export BACKUP_WRITER_HOSTGROUP_ID=\"12\"|" /etc/proxysql-admin.cnf
+  sudo sed -i "0,/^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$|export OFFLINE_HOSTGROUP_ID=\"13\"|" /etc/proxysql-admin.cnf
+  sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES \
+        bats $SCRIPT_DIR/disable_proxysql.bats
+
+  if [[ $USE_CLUSTER_TWO -eq 1 ]]; then
+    CLUSTER_TWO_PORT=$(${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock -Bs -e "select @@port")
+    sudo sed -i "0,/^[ \t]*export CLUSTER_PORT[ \t]*=.*$/s|^[ \t]*export CLUSTER_PORT[ \t]*=.*$|export CLUSTER_PORT=\"$CLUSTER_TWO_PORT\"|" /etc/proxysql-admin.cnf
+    sudo sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_two\"|" /etc/proxysql-admin.cnf
+    sudo sed -i "0,/^[ \t]*export WRITER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITER_HOSTGROUP_ID[ \t]*=.*$|export WRITER_HOSTGROUP_ID=\"20\"|" /etc/proxysql-admin.cnf
+    sudo sed -i "0,/^[ \t]*export READER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READER_HOSTGROUP_ID[ \t]*=.*$|export READER_HOSTGROUP_ID=\"21\"|" /etc/proxysql-admin.cnf
+    sudo sed -i "0,/^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$|export BACKUP_WRITER_HOSTGROUP_ID=\"22\"|" /etc/proxysql-admin.cnf
+    sudo sed -i "0,/^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$|export OFFLINE_HOSTGROUP_ID=\"23\"|" /etc/proxysql-admin.cnf
+    sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES \
+          bats $SCRIPT_DIR/disable_proxysql.bats
+  fi
+  echo "================================================================"
+
+  for test_file in ${TEST_SUITES2[@]}; do
     echo "cluster_one : $test_file"
     SECONDS=0
 
@@ -816,111 +1019,38 @@ if [[ $RUN_TEST -eq 1 ]]; then
     echo ""
   done
   echo ""
-fi
-
-if [[ $USE_CLUSTER_TWO -eq 0 ]]; then
-  exit 1
-fi
 
 
-echo "Starting cluster two..."
-WSREP_CLUSTER=""
-NODES=0
-start_pxc_node cluster_two 4200
-echo "....cluster two started"
+  if [[ $USE_CLUSTER_TWO -eq 1 ]]; then
+    for test_file in ${TEST_SUITES2[@]}; do
+      echo "cluster_two : $test_file"
+      SECONDS=0
 
-echo "Starting cluster two async slave..."
-start_async_slave cluster_two 4290
-echo "....cluster two async slave started"
+      sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES \
+            bats $SCRIPT_DIR/$test_file
+      rc=$?
 
-echo "Creating accounts on the cluster"
-if [[ $MYSQL_VERSION == "5.6" ]]; then
-  ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock <<EOF
-GRANT ALL ON *.* TO admin@'${LOCALHOST_NAME}' identified by 'admin' WITH GRANT OPTION;
-GRANT SELECT ON SYS.* TO monitor@'${LOCALHOST_NAME}' identified by 'monitor';
-FLUSH PRIVILEGES;
-EOF
-elif [[ $MYSQL_VERSION == "5.7" ]]; then
-  ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock <<EOF
-GRANT ALL ON *.* TO admin@'%' IDENTIFIED BY 'admin' WITH GRANT OPTION;
-FLUSH PRIVILEGES;
-EOF
-elif [[ $MYSQL_VERSION > "8.0" || $MYSQL_VERSION == "8.0" ]]; then
-  # For 8.0 separate out the user creation from the grant
-  ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock <<EOF
-CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH mysql_native_password BY 'admin';
-GRANT ALL ON *.* TO admin@'%' WITH GRANT OPTION;
-FLUSH PRIVILEGES;
-EOF
-fi
+      if (( $SECONDS > 60 )) ; then
+        let "minutes=(SECONDS%3600)/60"
+        let "seconds=(SECONDS%3600)%60"
+        echo "Completed in $minutes minute(s) and $seconds second(s)"
+      else
+        echo "Completed in $SECONDS seconds"
+      fi
 
-# Setup the slave (note that slave is not started automatically)
-echo "Setting up slave for async replication"
-
-if [[ $MYSQL_VERSION == "5.6" ]]; then
-  ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_two_slave.sock -uroot <<EOF
-GRANT ALL ON *.* TO admin@'${LOCALHOST_NAME}' identified by 'admin' WITH GRANT OPTION;
-GRANT REPLICATION CLIENT ON *.* TO 'monitor'@'${LOCALHOST_NAME}' IDENTIFIED BY 'monit0r';
-CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4210, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1;
-FLUSH PRIVILEGES;
-EOF
-elif [[ $MYSQL_VERSION == "5.7" ]]; then
-  ${PXC_BASEDIR}/bin/mysql -S/tmp/cluster_two_slave.sock -uroot <<EOF
-GRANT ALL ON *.* TO admin@'%' identified by 'admin' WITH GRANT OPTION;
-CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4210, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1 FOR CHANNEL 'master-a';
-FLUSH PRIVILEGES;
-EOF
-elif [[ $MYSQL_VERSION > "8.0" || $MYSQL_VERSION == "8.0" ]]; then
-  # For 8.0 separate out the user creation from the grant
-  ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two_slave.sock <<EOF
-CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH mysql_native_password BY 'admin';
-GRANT ALL ON *.* TO admin@'%' WITH GRANT OPTION;
-CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4210, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1 FOR CHANNEL 'master-a';
-FLUSH PRIVILEGES;
-EOF
-fi
-
-echo ""
-CLUSTER_TWO_PORT=$(${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock -Bs -e "select @@port")
-sudo sed -i "0,/^[ \t]*export CLUSTER_PORT[ \t]*=.*$/s|^[ \t]*export CLUSTER_PORT[ \t]*=.*$|export CLUSTER_PORT=\"$CLUSTER_TWO_PORT\"|" /etc/proxysql-admin.cnf
-sudo sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_two\"|" /etc/proxysql-admin.cnf
-sudo sed -i "0,/^[ \t]*export WRITER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITER_HOSTGROUP_ID[ \t]*=.*$|export WRITER_HOSTGROUP_ID=\"20\"|" /etc/proxysql-admin.cnf
-sudo sed -i "0,/^[ \t]*export READER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READER_HOSTGROUP_ID[ \t]*=.*$|export READER_HOSTGROUP_ID=\"21\"|" /etc/proxysql-admin.cnf
-sudo sed -i "0,/^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$|export BACKUP_WRITER_HOSTGROUP_ID=\"22\"|" /etc/proxysql-admin.cnf
-sudo sed -i "0,/^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$|export OFFLINE_HOSTGROUP_ID=\"23\"|" /etc/proxysql-admin.cnf
-echo "================================================================"
-echo ""
-
-if [[ $RUN_TEST -eq 1 ]]; then
-
-  for test_file in ${TEST_SUITES[@]}; do
-    echo "cluster_two : $test_file"
-    SECONDS=0
-
-    sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES \
-          bats $SCRIPT_DIR/$test_file
-    rc=$?
-
-    if (( $SECONDS > 60 )) ; then
-      let "minutes=(SECONDS%3600)/60"
-      let "seconds=(SECONDS%3600)%60"
-      echo "Completed in $minutes minute(s) and $seconds second(s)"
-    else
-      echo "Completed in $SECONDS seconds"
-    fi
-
-    if [[ $rc -ne 0 ]]; then
-      ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=$LOCALHOST_IP --port=6032 --protocol=tcp \
-        -e "select hostgroup_id,hostname,port,status,weight,comment from runtime_mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
-      echo "********************************"
-      echo "* $test_file failed, the servers (ProxySQL+PXC)will be left running"
-      echo "* for debugging purposes."
-      echo "********************************"
-      ALLOW_SHUTDOWN="No"
-      exit 1
-    fi
-    echo "================================================================"
+      if [[ $rc -ne 0 ]]; then
+        ${PXC_BASEDIR}/bin/mysql --user=admin --password=admin --host=$LOCALHOST_IP --port=6032 --protocol=tcp \
+          -e "select hostgroup_id,hostname,port,status,weight,comment from runtime_mysql_servers order by hostgroup_id,status,hostname,port" 2>/dev/null
+        echo "********************************"
+        echo "* $test_file failed, the servers (ProxySQL+PXC)will be left running"
+        echo "* for debugging purposes."
+        echo "********************************"
+        ALLOW_SHUTDOWN="No"
+        exit 1
+      fi
+      echo "================================================================"
+      echo ""
+    done
     echo ""
-  done
-  echo ""
+  fi
 fi

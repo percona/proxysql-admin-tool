@@ -114,14 +114,24 @@ fi
 echo "Creating Symbolic links"
 ln -s $PROXYSQL $WORKDIR/proxysql-2.0/usr/bin
 ln -s $PROXYSQL_ADMIN_BASEDIR/proxysql-admin.cnf $WORKDIR/proxysql-2.0/etc
-for file in proxysql-admin proxysql-admin-common proxysql-login-file
+for file in proxysql-admin proxysql-common proxysql-admin-common percona-scheduler-admin proxysql-login-file
 do
   ln -s $PROXYSQL_ADMIN_BASEDIR/$file $WORKDIR
 done;
+
+if [ -f $PROXYSQL_ADMIN_BASEDIR/percona-scheduler/pxc_scheduler_handler ]; then
+  echo "...Percona Scheduler script found at $PROXYSQL_ADMIN_BASEDIR/percona-scheduler. Copying the script to workdir"
+  ln -s $PROXYSQL_ADMIN_BASEDIR/percona-scheduler/pxc_scheduler_handler $WORKDIR/pxc_scheduler_handler
+fi
 echo "...Symbolic links created successfully"
 
+
+echo "Copying config files required for the test"
+cp $PROXYSQL_ADMIN_BASEDIR/tests/testsuite.toml $WORKDIR
+echo "...Copying done"
+
 echo "Fetching the PXC tarball packages"
-wget -q -O $WORKDIR/Percona-XtraDB-Cluster_${LATEST_VERSION}_Linux.x86_64.glibc2.17-minimal.tar.gz https://www.percona.com/downloads/Percona-XtraDB-Cluster-LATEST/Percona-XtraDB-Cluster-${LATEST_VERSION}/binary/tarball/Percona-XtraDB-Cluster_${LATEST_VERSION}-${VERSION_SUFFIX}_Linux.x86_64.glibc2.17-minimal.tar.gz
+wget -O $WORKDIR/Percona-XtraDB-Cluster_${LATEST_VERSION}_Linux.x86_64.glibc2.17-minimal.tar.gz https://www.percona.com/downloads/Percona-XtraDB-Cluster-LATEST/Percona-XtraDB-Cluster-${LATEST_VERSION}/binary/tarball/Percona-XtraDB-Cluster_${LATEST_VERSION}-${VERSION_SUFFIX}_Linux.x86_64.glibc2.17-minimal.tar.gz
 echo "...Successful"
 
 echo "The workdir is ready for use located at: $WORKDIR"
