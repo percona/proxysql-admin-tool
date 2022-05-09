@@ -119,8 +119,8 @@ monitorUserPassword="monitor"
 # The clusterXXX information is used to setup the cluster for
 # use by ProxySQL.
 #
-clusterHost="localhost"
-clusterPort=4110
+clusterHost="<IP_ADDRESS>"
+clusterPort=3306
 clusterUser="admin"
 clusterUserPassword="admin"
 
