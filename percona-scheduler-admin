@@ -187,7 +187,8 @@ Options:
                                      writes for singlewrite mode.  If left unspecified,
                                      the cluster node is then used as the write node.
                                      This only applies when 'mode=singlewrite' is used.
-  --auto-assign-weights              Auto assigns weights in a 'singlewrite' mode.
+  --auto-assign-weights              When used with --update-cluster, this option shall auto assign
+                                     the weights if in 'singlewrite' mode.
   --update-read-weight=<IP:PORT,WT>  When used with --update-cluster, this option shall assign the
                                      specified read weight to the given node.
   --update-write-weight=<IP:PORT,WT> When used with --update-cluster, this option shall assign the
@@ -238,10 +239,6 @@ One of the options below must be provided.
                                      (doesn't delete ProxySQL users not in MySQL)
   --is-enabled                       Checks if the current configuration is enabled in ProxySQL.
   --status                           Returns a status report on the current configuration.
-                                     If "--writer-hg=<NUM>" is specified, then the
-                                     data corresponding to the galera cluster with that
-                                     writer hostgroup is displayed. Otherwise, information
-                                     for all clusters will be displayed.
   --version, -v                      Prints the version info
 
 EOF
@@ -2620,7 +2617,7 @@ function validate_update_weights() {
 
   # The update option requires exact 2 arguments
   arg_count=$(echo $new_weight_info | tr ',' '\n' | wc -l)
-  if [[ $arg_count -le 2 || $arg_count -ge 2 ]]; then
+  if [[ $arg_count -lt 2 || $arg_count -gt 2 ]]; then
     error "" "$update_operation option requires exactly two arguments in format \"<IP_ADDR:PORT>,NEW_WEIGHT\". Found $new_weight_info"
     exit 1
   fi

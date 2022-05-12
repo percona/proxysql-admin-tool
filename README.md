@@ -831,7 +831,7 @@ proxysql-status admin admin 127.0.0.1 6032
 
 ## Percona Scheduler Admin
 
-The Percona Scheduler Admin (percona-scheduler_admin) solution configures Percona XtraDB cluster nodes into ProxySQL and can be used to automatically perform failover due to node failures, service degradation and maintenence.
+The Percona Scheduler Admin (percona-scheduler-admin) solution configures Percona XtraDB cluster nodes into ProxySQL and can be used to automatically perform failover due to node failures, service degradation and maintenence.
 
 Please log ProxySQL Admin bug reports here: https://jira.percona.com/projects/PSQLADM.
 
@@ -847,6 +847,12 @@ Options:
                                      writes for singlewrite mode.  If left unspecified,
                                      the cluster node is then used as the write node.
                                      This only applies when 'mode=singlewrite' is used.
+  --auto-assign-weights              When used with --update-cluster, this option shall auto assign
+                                     the weights if in 'singlewrite' mode.
+  --update-read-weight=<IP:PORT,WT>  When used with --update-cluster, this option shall assign the
+                                     specified read weight to the given node.
+  --update-write-weight=<IP:PORT,WT> When used with --update-cluster, this option shall assign the
+                                     specified write weight to the given node.
   --remove-all-servers               When used with --update-cluster, this will remove all
                                      servers belonging to the current cluster before
                                      updating the list.
@@ -873,7 +879,7 @@ Options:
   --debug                            Enables additional debug logging.
   --help                             Displays this help text.
 
-These options are the possible operations for proxysql-admin.
+These options are the possible operations for percona-scheduler-admin.
 One of the options below must be provided.
   --adduser                          Adds the Percona XtraDB Cluster application user to the ProxySQL database
   --disable, -d                      Remove any Percona XtraDB Cluster configurations from ProxySQL
@@ -887,15 +893,12 @@ One of the options below must be provided.
                                      to specify a single server to sync.
                                      (deletes ProxySQL users not in MySQL)
   --sync-multi-cluster-users         Sync user accounts currently configured in MySQL to ProxySQL
+                                     May be used with --enable.
                                      May be used with --enable.  --server may be used with this
                                      to specify a single server to sync.
                                      (doesn't delete ProxySQL users not in MySQL)
   --is-enabled                       Checks if the current configuration is enabled in ProxySQL.
   --status                           Returns a status report on the current configuration.
-                                     If "--writer-hg=<NUM>" is specified, then the
-                                     data corresponding to the galera cluster with that
-                                     writer hostgroup is displayed. Otherwise, information
-                                     for all clusters will be displayed.
   --version, -v                      Prints the version info
 ```
 
@@ -1028,8 +1031,8 @@ monitorUserPassword="monitor"
 # The clusterXXX information is used to setup the cluster for
 # use by ProxySQL.
 #
-clusterHost="localhost"
-clusterPort=4110
+clusterHost="192.168.56.34"
+clusterPort=3306
 clusterUser="admin"
 clusterUserPassword="admin"
 
@@ -1048,8 +1051,8 @@ nodeCheckInterval=2000
 ```
 It is recommended that you use --config-file to run the _percona-scheduler-admin_ script.
 
-### How to build
-----------------
+### How to build and test
+-------------------------
 
 1. Update the git submodules by executing
 
@@ -1057,6 +1060,14 @@ It is recommended that you use --config-file to run the _percona-scheduler-admin
 
 2. Build the scheduler submodule by running the `build_scheduler.sh`. After that we should be able to see the `pxc_scheduler_handler` binary in the base directory.
 
+3. Create admin for communication through proxysql and pxc_scheduler_handler.
+
+  Example:
+  ```sql
+  CREATE USER `admin`@`192.%` IDENTIFIED WITH 'mysql_native_password' BY 'admin';
+
+  GRANT ALL PRIVILEGES ON *.* TO 'admin'@'192.%' WITH GRANT OPTION;
+  ```
 ### Percona Scheduler Admin Functions
 ------------------------------
 This script can perform the following functions
@@ -1089,26 +1100,26 @@ ProxySQL read/write configuration mode is singlewrite
 Configuring the ProxySQL monitoring user.
 ProxySQL monitor user name as per command line/config-file is monitor
 
-Monitoring user 'monitor'@'127.%' has been setup in the ProxySQL database.
+Monitoring user 'monitor'@'192.%' has been setup in the ProxySQL database.
 Adding the Percona XtraDB Cluster nodes to ProxySQL
-Using the scheduler binary located at /home/venki/work/proxysql/proxysql-admin-tool/pxc_scheduler_handler
+Using the scheduler binary located at /home/vagrant/proxysql-admin-tool/pxc_scheduler_handler
 
 Waiting for scheduler script to process new nodes...
 Proxysql status (mysql_servers rows) for this configuration
-+---------------+-------+-----------+------+--------+--------+----------+---------+-----------+
-| hostgroup     | hg_id | hostname  | port | status | weight | max_conn | use_ssl | gtid_port |
-+---------------+-------+-----------+------+--------+--------+----------+---------+-----------+
-| writer        | 100   | 127.0.0.1 | 4130 | ONLINE | 1000   | 1000     | 0       | 0         |
-| reader        | 101   | 127.0.0.1 | 4110 | ONLINE | 1000   | 1000     | 0       | 0         |
-| reader        | 101   | 127.0.0.1 | 4120 | ONLINE | 1000   | 1000     | 0       | 0         |
-| reader        | 101   | 127.0.0.1 | 4130 | ONLINE | 1000   | 1000     | 0       | 0         |
-| writer-config | 8100  | 127.0.0.1 | 4110 | ONLINE | 1000   | 1000     | 0       | 0         |
-| writer-config | 8100  | 127.0.0.1 | 4120 | ONLINE | 1000   | 1000     | 0       | 0         |
-| writer-config | 8100  | 127.0.0.1 | 4130 | ONLINE | 1000   | 1000     | 0       | 0         |
-| reader-config | 8101  | 127.0.0.1 | 4110 | ONLINE | 1000   | 1000     | 0       | 0         |
-| reader-config | 8101  | 127.0.0.1 | 4120 | ONLINE | 1000   | 1000     | 0       | 0         |
-| reader-config | 8101  | 127.0.0.1 | 4130 | ONLINE | 1000   | 1000     | 0       | 0         |
-+---------------+-------+-----------+------+--------+--------+----------+---------+-----------+
++---------------+-------+---------------+------+--------+--------+----------+---------+-----------+
+| hostgroup     | hg_id | hostname      | port | status | weight | max_conn | use_ssl | gtid_port |
++---------------+-------+---------------+------+--------+--------+----------+---------+-----------+
+| writer        | 100   | 192.168.56.32 | 3306 | ONLINE | 1000   | 1000     | 0       | 0         |
+| reader        | 101   | 192.168.56.32 | 3306 | ONLINE | 1000   | 1000     | 0       | 0         |
+| reader        | 101   | 192.168.56.33 | 3306 | ONLINE | 1000   | 1000     | 0       | 0         |
+| reader        | 101   | 192.168.56.34 | 3306 | ONLINE | 1000   | 1000     | 0       | 0         |
+| writer-config | 8100  | 192.168.56.32 | 3306 | ONLINE | 1000   | 1000     | 0       | 0         |
+| writer-config | 8100  | 192.168.56.33 | 3306 | ONLINE | 1000   | 1000     | 0       | 0         |
+| writer-config | 8100  | 192.168.56.34 | 3306 | ONLINE | 1000   | 1000     | 0       | 0         |
+| reader-config | 8101  | 192.168.56.32 | 3306 | ONLINE | 1000   | 1000     | 0       | 0         |
+| reader-config | 8101  | 192.168.56.33 | 3306 | ONLINE | 1000   | 1000     | 0       | 0         |
+| reader-config | 8101  | 192.168.56.34 | 3306 | ONLINE | 1000   | 1000     | 0       | 0         |
++---------------+-------+---------------+------+--------+--------+----------+---------+-----------+
 
 
 ProxySQL configuration completed!
@@ -1116,27 +1127,26 @@ ProxySQL configuration completed!
 ProxySQL has been successfully configured to use with Percona XtraDB Cluster
 
 Observe below that
-mysql> select * from mysql_servers order by hostgroup_id;
-+--------------+-----------+------+-----------+--------+--------+-------------+-----------------+---------------------+---------+----------------+---------+
-| hostgroup_id | hostname  | port | gtid_port | status | weight | compression | max_connections | max_replication_lag | use_ssl | max_latency_ms | comment |
-+--------------+-----------+------+-----------+--------+--------+-------------+-----------------+---------------------+---------+----------------+---------+
-| 100          | 127.0.0.1 | 4130 | 0         | ONLINE | 1000   | 0           | 1000            | 0                   | 0       | 0              |         |
-| 101          | 127.0.0.1 | 4110 | 0         | ONLINE | 1000   | 0           | 1000            | 0                   | 0       | 0              |         |
-| 101          | 127.0.0.1 | 4120 | 0         | ONLINE | 1000   | 0           | 1000            | 0                   | 0       | 0              |         |
-| 101          | 127.0.0.1 | 4130 | 0         | ONLINE | 1000   | 0           | 1000            | 0                   | 0       | 0              |         |
-| 8100         | 127.0.0.1 | 4110 | 0         | ONLINE | 1000   | 0           | 1000            | 0                   | 0       | 0              |         |
-| 8100         | 127.0.0.1 | 4120 | 0         | ONLINE | 1000   | 0           | 1000            | 0                   | 0       | 0              |         |
-| 8100         | 127.0.0.1 | 4130 | 0         | ONLINE | 1000   | 0           | 1000            | 0                   | 0       | 0              |         |
-| 8101         | 127.0.0.1 | 4110 | 0         | ONLINE | 1000   | 0           | 1000            | 0                   | 0       | 0              |         |
-| 8101         | 127.0.0.1 | 4120 | 0         | ONLINE | 1000   | 0           | 1000            | 0                   | 0       | 0              |         |
-| 8101         | 127.0.0.1 | 4130 | 0         | ONLINE | 1000   | 0           | 1000            | 0                   | 0       | 0              |         |
-+--------------+-----------+------+-----------+--------+--------+-------------+-----------------+---------------------+---------+----------------+---------+
-10 rows in set (0.00 sec)
-
+select * from runtime_mysql_servers;
++--------------+---------------+------+-----------+--------+--------+-------------+-----------------+---------------------+---------+----------------+---------+
+| hostgroup_id | hostname      | port | gtid_port | status | weight | compression | max_connections | max_replication_lag | use_ssl | max_latency_ms | comment |
++--------------+---------------+------+-----------+--------+--------+-------------+-----------------+---------------------+---------+----------------+---------+
+| 100          | 192.168.56.32 | 3306 | 0         | ONLINE | 1000   | 0           | 1000            | 0                   | 0       | 0              |         |
+| 8101         | 192.168.56.33 | 3306 | 0         | ONLINE | 1000   | 0           | 1000            | 0                   | 0       | 0              |         |
+| 8101         | 192.168.56.34 | 3306 | 0         | ONLINE | 1000   | 0           | 1000            | 0                   | 0       | 0              |         |
+| 8101         | 192.168.56.32 | 3306 | 0         | ONLINE | 1000   | 0           | 1000            | 0                   | 0       | 0              |         |
+| 8100         | 192.168.56.33 | 3306 | 0         | ONLINE | 1000   | 0           | 1000            | 0                   | 0       | 0              |         |
+| 8100         | 192.168.56.34 | 3306 | 0         | ONLINE | 1000   | 0           | 1000            | 0                   | 0       | 0              |         |
+| 8100         | 192.168.56.32 | 3306 | 0         | ONLINE | 1000   | 0           | 1000            | 0                   | 0       | 0              |         |
+| 101          | 192.168.56.33 | 3306 | 0         | ONLINE | 1000   | 0           | 1000            | 0                   | 0       | 0              |         |
+| 101          | 192.168.56.34 | 3306 | 0         | ONLINE | 1000   | 0           | 1000            | 0                   | 0       | 0              |         |
+| 101          | 192.168.56.32 | 3306 | 0         | ONLINE | 1000   | 0           | 1000            | 0                   | 0       | 0              |         |
++--------------+---------------+------+-----------+--------+--------+-------------+-----------------+---------------------+---------+----------------+---------+
+10 rows in set (0.01 sec)
 
 mysql> select * from scheduler\G
 *************************** 1. row ***************************
-         id: 7
+         id: 6
      active: 1
 interval_ms: 5000
    filename: <path/to/pxc_scheduler>/pxc_scheduler_handler
@@ -1207,9 +1217,9 @@ Query OK, 0 rows affected (0.04 sec)
 
 
 # Run percona-scheduler-admin with --syncusers
-./percona-scheduler-admin --config-file=config.toml --syncusers
+$ percona-scheduler-admin --config-file=config.toml --syncusers
 
-Syncing user accounts from PXC(127.0.0.1:4130) to ProxySQL
+Syncing user accounts from PXC(192.168.56.32:3306) to ProxySQL
 
 Adding user to ProxySQL: test_user
 
@@ -1263,27 +1273,28 @@ If used with __--remove-all-servers__, then the server list for this configurati
 A specific galera cluster can be updated by using the __--writer-hg__ option with __--update-cluster__.  Otherwise the cluster specified in the config file will be updated.
 
 ```bash
-$ percona-scheduler-admin --config-file=config.toml --write-node=127.0.0.1:4130 --update-cluster
+$ percona-scheduler-admin --config-file=config.toml --write-node=192.168.56.34:3306 --update-cluster
 No new nodes detected.
-Waiting for ProxySQL to process the new nodes...
+Waiting for scheduler script to process the nodes...
 
 Cluster node info
-+---------------+-------+-----------+------+---------+
-| hostgroup     | hg_id | hostname  | port | weight  |
-+---------------+-------+-----------+------+---------+
-| writer        | 100   | 127.0.0.1 | 4130 | 1000000 |
-| reader        | 101   | 127.0.0.1 | 4110 | 1000    |
-| reader        | 101   | 127.0.0.1 | 4120 | 1000    |
-| reader        | 101   | 127.0.0.1 | 4130 | 1000    |
-| writer-config | 8100  | 127.0.0.1 | 4110 | 1000    |
-| writer-config | 8100  | 127.0.0.1 | 4120 | 1000    |
-| writer-config | 8100  | 127.0.0.1 | 4130 | 1000    |
-| reader-config | 8101  | 127.0.0.1 | 4110 | 1000    |
-| reader-config | 8101  | 127.0.0.1 | 4120 | 1000    |
-| reader-config | 8101  | 127.0.0.1 | 4130 | 1000    |
-+---------------+-------+-----------+------+---------+
++---------------+-------+---------------+------+--------+---------+
+| hostgroup     | hg_id | hostname      | port | status | weight  |
++---------------+-------+---------------+------+--------+---------+
+| writer        | 100   | 192.168.56.34 | 3306 | ONLINE | 1000000 |
+| reader        | 101   | 192.168.56.32 | 3306 | ONLINE | 1000    |
+| reader        | 101   | 192.168.56.33 | 3306 | ONLINE | 1000    |
+| reader        | 101   | 192.168.56.34 | 3306 | ONLINE | 1000    |
+| writer-config | 8100  | 192.168.56.32 | 3306 | ONLINE | 1000    |
+| writer-config | 8100  | 192.168.56.33 | 3306 | ONLINE | 1000    |
+| writer-config | 8100  | 192.168.56.34 | 3306 | ONLINE | 1000000 |
+| reader-config | 8101  | 192.168.56.32 | 3306 | ONLINE | 1000    |
+| reader-config | 8101  | 192.168.56.33 | 3306 | ONLINE | 1000    |
+| reader-config | 8101  | 192.168.56.34 | 3306 | ONLINE | 1000    |
++---------------+-------+---------------+------+--------+---------+
 
 Cluster membership updated in the ProxySQL database!
+ 
 ```
 
   __9) --is-enabled__
@@ -1320,24 +1331,22 @@ ERROR (line:2450) : The current configuration has not been enabled
   supported by this ProxySQL instance.
 
   ```bash
-  $ percona-scheduler-admin --config-file=config.toml --status
-mysql_servers rows for this configuration
-+---------------+-------+-----------+------+--------+--------+----------+---------+-----------+
-| hostgroup     | hg_id | hostname  | port | status | weight | max_conn | use_ssl | gtid_port |
-+---------------+-------+-----------+------+--------+--------+----------+---------+-----------+
-| writer        | 100   | 127.0.0.1 | 4110 | ONLINE | 1000   | 1000     | 0       | 0         |
-| writer        | 100   | 127.0.0.1 | 4120 | ONLINE | 1000   | 1000     | 0       | 0         |
-| writer        | 100   | 127.0.0.1 | 4130 | ONLINE | 1000   | 1000     | 0       | 0         |
-| reader        | 101   | 127.0.0.1 | 4110 | ONLINE | 1000   | 1000     | 0       | 0         |
-| reader        | 101   | 127.0.0.1 | 4120 | ONLINE | 1000   | 1000     | 0       | 0         |
-| reader        | 101   | 127.0.0.1 | 4130 | ONLINE | 1000   | 1000     | 0       | 0         |
-| writer-config | 8100  | 127.0.0.1 | 4110 | ONLINE | 1000   | 1000     | 0       | 0         |
-| writer-config | 8100  | 127.0.0.1 | 4120 | ONLINE | 1000   | 1000     | 0       | 0         |
-| writer-config | 8100  | 127.0.0.1 | 4130 | ONLINE | 1000   | 1000     | 0       | 0         |
-| reader-config | 8101  | 127.0.0.1 | 4110 | ONLINE | 1000   | 1000     | 0       | 0         |
-| reader-config | 8101  | 127.0.0.1 | 4120 | ONLINE | 1000   | 1000     | 0       | 0         |
-| reader-config | 8101  | 127.0.0.1 | 4130 | ONLINE | 1000   | 1000     | 0       | 0         |
-+---------------+-------+-----------+------+--------+--------+----------+---------+-----------+
+$ percona-scheduler-admin --config-file=config.toml --status
+Proxysql status (mysql_servers rows) for this configuration
++---------------+-------+---------------+------+--------+--------+----------+---------+-----------+
+| hostgroup     | hg_id | hostname      | port | status | weight | max_conn | use_ssl | gtid_port |
++---------------+-------+---------------+------+--------+--------+----------+---------+-----------+
+| writer        | 100   | 192.168.56.32 | 3306 | ONLINE | 1000   | 1000     | 0       | 0         |
+| reader        | 101   | 192.168.56.32 | 3306 | ONLINE | 1000   | 1000     | 0       | 0         |
+| reader        | 101   | 192.168.56.33 | 3306 | ONLINE | 1000   | 1000     | 0       | 0         |
+| reader        | 101   | 192.168.56.34 | 3306 | ONLINE | 1000   | 1000     | 0       | 0         |
+| writer-config | 8100  | 192.168.56.32 | 3306 | ONLINE | 1000   | 1000     | 0       | 0         |
+| writer-config | 8100  | 192.168.56.33 | 3306 | ONLINE | 1000   | 1000     | 0       | 0         |
+| writer-config | 8100  | 192.168.56.34 | 3306 | ONLINE | 1000   | 1000     | 0       | 0         |
+| reader-config | 8101  | 192.168.56.32 | 3306 | ONLINE | 1000   | 1000     | 0       | 0         |
+| reader-config | 8101  | 192.168.56.33 | 3306 | ONLINE | 1000   | 1000     | 0       | 0         |
+| reader-config | 8101  | 192.168.56.34 | 3306 | ONLINE | 1000   | 1000     | 0       | 0         |
++---------------+-------+---------------+------+--------+--------+----------+---------+-----------+
 ```
 
 __11) --update-mysql-version__
@@ -1347,7 +1356,7 @@ online writer node.
 
 ```bash
 $ percona-scheduler-admin --config-file=config.toml --update-mysql-version
-ProxySQL MySQL version changed to 8.0.26
+ProxySQL MySQL version changed to 8.0.27
 ```
 __12) --auto-assign-weights__
 
@@ -1362,22 +1371,20 @@ Example:
 This shall be the default configuration when the percona-scheduler-admin sets up the proxysql.
 
 Cluster node info
-+---------------+-------+----------+------+--------+--------+
-| hostgroup     | hg_id | hostname | port | status | weight |
-+---------------+-------+----------+------+--------+--------+
-| writer        | 100   | ::1      | 4110 | ONLINE | 1000   |
-| reader        | 101   | ::1      | 4110 | ONLINE | 1000   |
-| reader        | 101   | ::1      | 4120 | ONLINE | 1000   |
-| reader        | 101   | ::1      | 4130 | ONLINE | 1000   |
-| writer-config | 8100  | ::1      | 4110 | ONLINE | 1000   |
-| writer-config | 8100  | ::1      | 4120 | ONLINE | 1000   |
-| writer-config | 8100  | ::1      | 4130 | ONLINE | 1000   |
-| reader-config | 8101  | ::1      | 4110 | ONLINE | 1000   |
-| reader-config | 8101  | ::1      | 4120 | ONLINE | 1000   |
-| reader-config | 8101  | ::1      | 4130 | ONLINE | 1000   |
-+---------------+-------+----------+------+--------+--------+
-
-Cluster membership updated in the ProxySQL database!
++---------------+-------+---------------+------+--------+--------+
+| hostgroup     | hg_id | hostname      | port | status | weight |
++---------------+-------+---------------+------+--------+--------+
+| writer        | 100   | 192.168.56.32 | 3306 | ONLINE | 1000   |
+| reader        | 101   | 192.168.56.32 | 3306 | ONLINE | 1000   |
+| reader        | 101   | 192.168.56.33 | 3306 | ONLINE | 1000   |
+| reader        | 101   | 192.168.56.34 | 3306 | ONLINE | 1000   |
+| writer-config | 8100  | 192.168.56.32 | 3306 | ONLINE | 1000   |
+| writer-config | 8100  | 192.168.56.33 | 3306 | ONLINE | 1000   |
+| writer-config | 8100  | 192.168.56.34 | 3306 | ONLINE | 1000   |
+| reader-config | 8101  | 192.168.56.32 | 3306 | ONLINE | 1000   |
+| reader-config | 8101  | 192.168.56.33 | 3306 | ONLINE | 1000   |
+| reader-config | 8101  | 192.168.56.34 | 3306 | ONLINE | 1000   |
++---------------+-------+---------------+------+--------+--------+
 ```
 
 ```bash
@@ -1385,23 +1392,22 @@ $ percona-scheduler-admin --config-file=config.toml --update-cluster --auto-assi
 No new nodes detected.
 
 Cluster node info
-+---------------+-------+----------+------+--------+--------+
-| hostgroup     | hg_id | hostname | port | status | weight |
-+---------------+-------+----------+------+--------+--------+
-| writer        | 100   | ::1      | 4110 | ONLINE | 1000   |
-| reader        | 101   | ::1      | 4110 | ONLINE | 900    |
-| reader        | 101   | ::1      | 4120 | ONLINE | 1000   |
-| reader        | 101   | ::1      | 4130 | ONLINE | 1000   |
-| writer-config | 8100  | ::1      | 4130 | ONLINE | 998    |
-| writer-config | 8100  | ::1      | 4120 | ONLINE | 999    |
-| writer-config | 8100  | ::1      | 4110 | ONLINE | 1000   |
-| reader-config | 8101  | ::1      | 4110 | ONLINE | 900    |
-| reader-config | 8101  | ::1      | 4120 | ONLINE | 1000   |
-| reader-config | 8101  | ::1      | 4130 | ONLINE | 1000   |
-+---------------+-------+----------+------+--------+--------+
++---------------+-------+---------------+------+--------+--------+
+| hostgroup     | hg_id | hostname      | port | status | weight |
++---------------+-------+---------------+------+--------+--------+
+| writer        | 100   | 192.168.56.32 | 3306 | ONLINE | 1000   |
+| reader        | 101   | 192.168.56.32 | 3306 | ONLINE | 900    |
+| reader        | 101   | 192.168.56.33 | 3306 | ONLINE | 1000   |
+| reader        | 101   | 192.168.56.34 | 3306 | ONLINE | 1000   |
+| writer-config | 8100  | 192.168.56.34 | 3306 | ONLINE | 998    |
+| writer-config | 8100  | 192.168.56.33 | 3306 | ONLINE | 999    |
+| writer-config | 8100  | 192.168.56.32 | 3306 | ONLINE | 1000   |
+| reader-config | 8101  | 192.168.56.32 | 3306 | ONLINE | 900    |
+| reader-config | 8101  | 192.168.56.33 | 3306 | ONLINE | 1000   |
+| reader-config | 8101  | 192.168.56.34 | 3306 | ONLINE | 1000   |
++---------------+-------+---------------+------+--------+--------+
 
 Cluster membership updated in the ProxySQL database!
-
 ```
 
 As explained above, this suffices the two basic requirements that
@@ -1421,55 +1427,54 @@ Usage:
 $ percona-scheduler-admin --config-file=config.toml --update-cluster --update-read-weight="<IP_ADDRESS:PORT>, <New Weight>"
 ```
 
-The arguments to `--update-read-weight` options follow the syntax `<IP_ADDRESS:PORT>, <Hostgroup>, <New Weight>`. The `<IP_ADDRESS>` can be both in IPV4 and IPV6.
+The arguments to `--update-read-weight` options follow the syntax `<IP_ADDRESS:PORT>, <New Weight>`. The `<IP_ADDRESS>` can be both in IPV4 and IPV6.
 
 Example:
 ```bash
 This shall be the default configuration when the percona-scheduler-admin sets up the proxysql.
 
 Cluster node info
-+---------------+-------+----------+------+--------+--------+
-| hostgroup     | hg_id | hostname | port | status | weight |
-+---------------+-------+----------+------+--------+--------+
-| writer        | 100   | ::1      | 4110 | ONLINE | 1000   |
-| reader        | 101   | ::1      | 4110 | ONLINE | 1000   |
-| reader        | 101   | ::1      | 4120 | ONLINE | 1000   |
-| reader        | 101   | ::1      | 4130 | ONLINE | 1000   |
-| writer-config | 8100  | ::1      | 4110 | ONLINE | 1000   |
-| writer-config | 8100  | ::1      | 4120 | ONLINE | 1000   |
-| writer-config | 8100  | ::1      | 4130 | ONLINE | 1000   |
-| reader-config | 8101  | ::1      | 4110 | ONLINE | 1000   |
-| reader-config | 8101  | ::1      | 4120 | ONLINE | 1000   |
-| reader-config | 8101  | ::1      | 4130 | ONLINE | 1000   |
-+---------------+-------+----------+------+--------+--------+
-
-Cluster membership updated in the ProxySQL database!
++---------------+-------+---------------+------+--------+--------+
+| hostgroup     | hg_id | hostname      | port | status | weight |
++---------------+-------+---------------+------+--------+--------+
+| writer        | 100   | 192.168.56.32 | 3306 | ONLINE | 1000   |
+| reader        | 101   | 192.168.56.32 | 3306 | ONLINE | 1000   |
+| reader        | 101   | 192.168.56.33 | 3306 | ONLINE | 1000   |
+| reader        | 101   | 192.168.56.34 | 3306 | ONLINE | 1000   |
+| writer-config | 8100  | 192.168.56.32 | 3306 | ONLINE | 1000   |
+| writer-config | 8100  | 192.168.56.33 | 3306 | ONLINE | 1000   |
+| writer-config | 8100  | 192.168.56.34 | 3306 | ONLINE | 1000   |
+| reader-config | 8101  | 192.168.56.32 | 3306 | ONLINE | 1000   |
+| reader-config | 8101  | 192.168.56.33 | 3306 | ONLINE | 1000   |
+| reader-config | 8101  | 192.168.56.34 | 3306 | ONLINE | 1000   |
++---------------+-------+---------------+------+--------+--------+
 ```
 
 ```bash
-./percona-scheduler-admin --config-file=config.toml --update-cluster --update-read-weight="[::1]:4130,1111"
+$ percona-scheduler-admin --config-file=config.toml --update-cluster --update-read-weight="192.168.56.32:3306,1111"
 No new nodes detected.
 Waiting for scheduler script to process the nodes...
 
 Cluster node info
-+---------------+-------+----------+------+--------+--------+
-| hostgroup     | hg_id | hostname | port | status | weight |
-+---------------+-------+----------+------+--------+--------+
-| writer        | 100   | ::1      | 4130 | ONLINE | 1000   |
-| reader        | 101   | ::1      | 4110 | ONLINE | 1000   |
-| reader        | 101   | ::1      | 4120 | ONLINE | 1000   |
-| reader        | 101   | ::1      | 4130 | ONLINE | 1111   |
-| writer-config | 8100  | ::1      | 4110 | ONLINE | 1000   |
-| writer-config | 8100  | ::1      | 4120 | ONLINE | 1000   |
-| writer-config | 8100  | ::1      | 4130 | ONLINE | 1000   |
-| reader-config | 8101  | ::1      | 4110 | ONLINE | 1000   |
-| reader-config | 8101  | ::1      | 4120 | ONLINE | 1000   |
-| reader-config | 8101  | ::1      | 4130 | ONLINE | 1111   |
-+---------------+-------+----------+------+--------+--------+
++---------------+-------+---------------+------+--------+--------+
+| hostgroup     | hg_id | hostname      | port | status | weight |
++---------------+-------+---------------+------+--------+--------+
+| writer        | 100   | 192.168.56.32 | 3306 | ONLINE | 1000   |
+| reader        | 101   | 192.168.56.33 | 3306 | ONLINE | 1000   |
+| reader        | 101   | 192.168.56.34 | 3306 | ONLINE | 1000   |
+| reader        | 101   | 192.168.56.32 | 3306 | ONLINE | 1111   |
+| writer-config | 8100  | 192.168.56.34 | 3306 | ONLINE | 998    |
+| writer-config | 8100  | 192.168.56.33 | 3306 | ONLINE | 999    |
+| writer-config | 8100  | 192.168.56.32 | 3306 | ONLINE | 1000   |
+| reader-config | 8101  | 192.168.56.33 | 3306 | ONLINE | 1000   |
+| reader-config | 8101  | 192.168.56.34 | 3306 | ONLINE | 1000   |
+| reader-config | 8101  | 192.168.56.32 | 3306 | ONLINE | 1111   |
++---------------+-------+---------------+------+--------+--------+
 
 Cluster membership updated in the ProxySQL database!
+
 ```
-The weights corresponding to the node `[::1]:4130` in the reader and reader-config hostgroups has been updated to the new value `1111`.
+The weights corresponding to the node `192.168.56.32:3306` in the reader and reader-config hostgroups has been updated to the new value `1111`.
 
 
 __14) --update-write-weight__
@@ -1488,48 +1493,47 @@ Example:
 This shall be the default configuration when the percona-scheduler-admin sets up the proxysql.
 
 Cluster node info
-+---------------+-------+----------+------+--------+--------+
-| hostgroup     | hg_id | hostname | port | status | weight |
-+---------------+-------+----------+------+--------+--------+
-| writer        | 100   | ::1      | 4110 | ONLINE | 1000   |
-| reader        | 101   | ::1      | 4110 | ONLINE | 1000   |
-| reader        | 101   | ::1      | 4120 | ONLINE | 1000   |
-| reader        | 101   | ::1      | 4130 | ONLINE | 1000   |
-| writer-config | 8100  | ::1      | 4110 | ONLINE | 1000   |
-| writer-config | 8100  | ::1      | 4120 | ONLINE | 1000   |
-| writer-config | 8100  | ::1      | 4130 | ONLINE | 1000   |
-| reader-config | 8101  | ::1      | 4110 | ONLINE | 1000   |
-| reader-config | 8101  | ::1      | 4120 | ONLINE | 1000   |
-| reader-config | 8101  | ::1      | 4130 | ONLINE | 1000   |
-+---------------+-------+----------+------+--------+--------+
-
-Cluster membership updated in the ProxySQL database!
++---------------+-------+---------------+------+--------+--------+
+| hostgroup     | hg_id | hostname      | port | status | weight |
++---------------+-------+---------------+------+--------+--------+
+| writer        | 100   | 192.168.56.32 | 3306 | ONLINE | 1000   |
+| reader        | 101   | 192.168.56.32 | 3306 | ONLINE | 1000   |
+| reader        | 101   | 192.168.56.33 | 3306 | ONLINE | 1000   |
+| reader        | 101   | 192.168.56.34 | 3306 | ONLINE | 1000   |
+| writer-config | 8100  | 192.168.56.32 | 3306 | ONLINE | 1000   |
+| writer-config | 8100  | 192.168.56.33 | 3306 | ONLINE | 1000   |
+| writer-config | 8100  | 192.168.56.34 | 3306 | ONLINE | 1000   |
+| reader-config | 8101  | 192.168.56.32 | 3306 | ONLINE | 1000   |
+| reader-config | 8101  | 192.168.56.33 | 3306 | ONLINE | 1000   |
+| reader-config | 8101  | 192.168.56.34 | 3306 | ONLINE | 1000   |
++---------------+-------+---------------+------+--------+--------+
 ```
 
 ```bash
-./percona-scheduler-admin --config-file=config.toml --update-cluster --update-write-weight="[::1]:4130,1111"
+$ percona-scheduler-admin --config-file=config.toml --update-cluster --update-write-weight="192.168.56.33:3306,1111"
 No new nodes detected.
 Waiting for scheduler script to process the nodes...
 
 Cluster node info
-+---------------+-------+----------+------+--------+--------+
-| hostgroup     | hg_id | hostname | port | status | weight |
-+---------------+-------+----------+------+--------+--------+
-| writer        | 100   | ::1      | 4130 | ONLINE | 1111   |
-| reader        | 101   | ::1      | 4110 | ONLINE | 1000   |
-| reader        | 101   | ::1      | 4120 | ONLINE | 1000   |
-| reader        | 101   | ::1      | 4130 | ONLINE | 1000   |
-| writer-config | 8100  | ::1      | 4110 | ONLINE | 1000   |
-| writer-config | 8100  | ::1      | 4120 | ONLINE | 1000   |
-| writer-config | 8100  | ::1      | 4130 | ONLINE | 1111   |
-| reader-config | 8101  | ::1      | 4110 | ONLINE | 1000   |
-| reader-config | 8101  | ::1      | 4120 | ONLINE | 1000   |
-| reader-config | 8101  | ::1      | 4130 | ONLINE | 1000   |
-+---------------+-------+----------+------+--------+--------+
++---------------+-------+---------------+------+--------+--------+
+| hostgroup     | hg_id | hostname      | port | status | weight |
++---------------+-------+---------------+------+--------+--------+
+| writer        | 100   | 192.168.56.32 | 3306 | ONLINE | 1000   |
+| reader        | 101   | 192.168.56.32 | 3306 | ONLINE | 1000   |
+| reader        | 101   | 192.168.56.33 | 3306 | ONLINE | 1000   |
+| reader        | 101   | 192.168.56.34 | 3306 | ONLINE | 1000   |
+| writer-config | 8100  | 192.168.56.32 | 3306 | ONLINE | 1000   |
+| writer-config | 8100  | 192.168.56.34 | 3306 | ONLINE | 1000   |
+| writer-config | 8100  | 192.168.56.33 | 3306 | ONLINE | 1111   |
+| reader-config | 8101  | 192.168.56.32 | 3306 | ONLINE | 1000   |
+| reader-config | 8101  | 192.168.56.33 | 3306 | ONLINE | 1000   |
+| reader-config | 8101  | 192.168.56.34 | 3306 | ONLINE | 1000   |
++---------------+-------+---------------+------+--------+--------+
 
 Cluster membership updated in the ProxySQL database!
+
 ```
-The weights corresponding to the node `[::1]:4130` in the writer and writer-config hostgroups has been updated to the new value `1111`.
+The weights corresponding to the node `192.168.56.33:3306` in the writer-config hostgroups has been updated to the new value `1111`. Note that only writer-config hostgroup has been updated since the node doesn't have a corresponding entry in the writer hostgroup.
 
 
 ### Known Limitations
