@@ -34,5 +34,7 @@ if [ $? -ne 0 ]; then
   echo "go build process failed with errors. Exiting.."
   exit 1
 fi
+
 cd ..
 cp percona-scheduler/pxc_scheduler_handler .
+echo "Build was successful. The binary can be found in ./pxc_scheduler_handler"

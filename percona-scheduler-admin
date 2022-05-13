@@ -139,7 +139,9 @@ declare    ADMIN_CLUSTER_CHECK_INTERVAL_ORIGINAL_VALUE=""
 
 declare    MYSQL_CLIENT_VERSION=""
 
+# SSL options
 declare -i USE_SSL_OPTION=0
+declare    SSL_CERTIFICATE_PATH=""
 
 #
 # Default value for max_connections in mysql_servers
@@ -2281,7 +2283,9 @@ function parse_args() {
   fi
 
   USE_SSL_OPTION=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "setup" "useSSL" "0" 0)
+
   MAX_CONNECTIONS=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "setup" "maxConnections" "1000" 0)
+
   # Verify that we have an integer >= 0
   if [[ -n $MAX_CONNECTIONS ]]; then
     if ! is_integer "$MAX_CONNECTIONS"
@@ -2523,13 +2527,47 @@ function parse_args() {
   readonly NODE_CHECK_INTERVAL
   readonly MODE
 
-
   if [[ $USE_SSL_OPTION != "0" && $USE_SSL_OPTION != "1" ]]; then
     error "" "Invalid useSSL option: '$USE_SSL_OPTION'"
     echo "Please use one of these values: '0','1'"
     exit 1
   fi
+
+  if [[ $USE_SSL_OPTION -eq 1 ]]; then
+
+    SSL_CERTIFICATE_PATH=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "pxccluster" "sslCertificatePath" "" 1)
+    # Check if the sslCertificatePath exists.
+    if [ -z ${SSL_CERTIFICATE_PATH} ]; then
+      error "$LINENO" "useSSL is set but sslCertificatePath is set to an empty path."
+      exit 1
+    fi
+
+    if [[ ! -d ${SSL_CERTIFICATE_PATH} ]]; then
+      error "$LINENO" "useSSL is set but sslCertificatePath is set to an invalid path ${SSL_CERTIFICATE_PATH}"
+      exit 1
+    fi
+
+    local ssl_ca=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "pxccluster" "sslCa" "" 1)
+    local ssl_key=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "pxccluster" "sslKey" "" 1)
+    local ssl_client=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "pxccluster" "sslClient" "" 1)
+
+    if [ ! -f ${SSL_CERTIFICATE_PATH}/$ssl_ca ]; then
+      error "$LINENO" "Could not find SSL CA in ${SSL_CERTIFICATE_PATH}/$ssl_ca"
+      exit 1
+    fi
+
+    if [ ! -f ${SSL_CERTIFICATE_PATH}/$ssl_key ]; then
+      error "$LINENO" "Could not find SSL Key in ${SSL_CERTIFICATE_PATH}/$ssl_key"
+      exit 1
+    fi
+
+    if [ ! -f ${SSL_CERTIFICATE_PATH}/$ssl_client ]; then
+      error "$LINENO" "Could not find SSL Client cert in ${SSL_CERTIFICATE_PATH}/$ssl_client"
+      exit 1
+    fi
+  fi
   readonly USE_SSL_OPTION
+  readonly SSL_CERTIFICATE_PATH
 
 
   # Check the options gathered from the command line
