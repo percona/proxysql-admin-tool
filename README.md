@@ -1463,8 +1463,8 @@ Cluster node info
 | reader        | 101   | 192.168.56.33 | 3306 | ONLINE | 1000   |
 | reader        | 101   | 192.168.56.34 | 3306 | ONLINE | 1000   |
 | reader        | 101   | 192.168.56.32 | 3306 | ONLINE | 1111   |
-| writer-config | 8100  | 192.168.56.34 | 3306 | ONLINE | 998    |
-| writer-config | 8100  | 192.168.56.33 | 3306 | ONLINE | 999    |
+| writer-config | 8100  | 192.168.56.34 | 3306 | ONLINE | 1000   |
+| writer-config | 8100  | 192.168.56.33 | 3306 | ONLINE | 1000   |
 | writer-config | 8100  | 192.168.56.32 | 3306 | ONLINE | 1000   |
 | reader-config | 8101  | 192.168.56.33 | 3306 | ONLINE | 1000   |
 | reader-config | 8101  | 192.168.56.34 | 3306 | ONLINE | 1000   |
