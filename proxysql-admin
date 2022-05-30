@@ -838,9 +838,13 @@ function enable_proxysql() {
         exit 1
       fi
       if [[ $is_read_only -eq 1 ]]; then
-        error "$LINENO" "The specified write node ($WRITE_NODE) is read-only" \
-                      "\n-- and cannot be used as a writer node."
-        exit 1
+        if [[ $FORCE -eq 1 ]]; then
+            warning "$LINENO" "The specified write node ($WRITE_NODE) is read-only"
+        else
+            error "$LINENO" "The specified write node ($WRITE_NODE) is read-only" \
+                          "\n-- and cannot be used as a writer node."
+            exit 1
+        fi
       fi
     else
       # If there is no WRITE_NODE specified, check that we have at least

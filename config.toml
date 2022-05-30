@@ -1,9 +1,11 @@
+# For the detailed manual, see
+# https://github.com/percona/pxc_scheduler_handler#how-to-configure-pxc-scheduler-handler
+#
 
 [pxccluster]
 activeFailover = 1
 failBack = false
 checkTimeOut = 2000
-# debug = 1 //Deprecated: this is redundant and not in use
 mainSegment = 0
 sslClient = "client-cert.pem"
 sslKey = "client-key.pem"
@@ -13,8 +15,6 @@ hgW = 100
 hgR = 101
 configHgRange =8000
 maintenanceHgRange =9000
-#bckHgW = 8100 #deprecated
-#bckHgR = 8101 #deprecated
 
 # --------------------------------
 # Set to true if there is a single writer node.  If this is set,
@@ -42,13 +42,22 @@ singlePrimary = true
 # Default: (none)
 #
 maxNumWriters = 1
-
 writerIsAlsoReader = 1
-
 retryUp = 0
 retryDown = 2
 clusterId = 10
-persistPrimarySettings=0 #0 disable| 1 only persist Write settings | 2 persist Reand and Write settings
+
+# Controls the primary settings during failover.
+# More details at https://github.com/percona/pxc_scheduler_handler#persist-primary-values
+#
+# Allowed values:
+#
+#       0 Disable
+#       1 Persist only write settings
+#       2 Persist both read and write settings
+persistPrimarySettings=0
+
+
 
 # == proxysql ===================================================
 # The proxysql section is for ProxySQL-specific information.
@@ -65,6 +74,7 @@ lockfilepath ="/var/run/pxc_scheduler_handler"
 respectManualOfflineSoft=false
 
 
+
 #== global ======================================================
 # The global section are for variables that are not ProxySQL or
 # cluster specific.
@@ -74,22 +84,31 @@ respectManualOfflineSoft=false
 [global]
 debug = true
 
-#?? Should we just have logFile, what advantage does logTarget have?
+# stdout: output is redirected to proxysql logs
+# file: output is written to the file pointed by logFile
+logTarget = "file" #stdout | file
+
+# Defines the log level to be used.
+# Allowed options are [error,warning,info,debug]
 logLevel = "info"
-logTarget = "stdout" #stdout | file
 logFile = "/var/log/pxc_scheduler_handler/pscheduler.log"
 
-#?? Should we use the development for these two
+# Should be set to false if we are pxc_scheduler_handler through percona-scheduler-admin.
 daemonize = false
 daemonInterval = 2000
+
+# boolean variable which enables reporting of statistics.
 performance = true
 
-#?? What does this do?
+# Not used currently
 OS = "na"
 
-#?? Make common lockfileTimeout -> lockFileTimeout
-lockfiletimeout = 60 #seconds
-lockclustertimeout = 600 #120 # seconds
+# Time in seconds after which the file lock is considered expired [local instance lock]
+lockFileTimeout = 60 #seconds
+
+# Time in seconds after which the cluster lock is considered expired
+lockClusterTimeout = 600 #seconds
+
 
 
 #== setup =======================================================

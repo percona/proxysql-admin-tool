@@ -839,67 +839,80 @@ percona-scheduler-admin usage info
 
 ```bash
 Usage: percona-scheduler-admin [ options ]
-Options:
+
+
+You must include at least one option. Independent options do not require another
+option to run successfully. Dependent options require another option to run
+successfully. If you run a dependent option without the required option you see
+an error message and the option does not run.
+
+
+These options can be run without another option:
+
+  --adduser                          Adds the Percona XtraDB Cluster application user to the ProxySQL database
   --config-file=<config-file>        Read login credentials from a configuration file
                                      (command line options override any configuration file values)
-
-  --write-node=<IPADDRESS>:<PORT>    Specifies the node that is to be used for
-                                     writes for singlewrite mode.  If left unspecified,
-                                     the cluster node is then used as the write node.
-                                     This only applies when 'mode=singlewrite' is used.
-  --auto-assign-weights              When used with --update-cluster, this option shall auto assign
-                                     the weights if in 'singlewrite' mode.
-  --update-read-weight=<IP:PORT,WT>  When used with --update-cluster, this option shall assign the
-                                     specified read weight to the given node.
-  --update-write-weight=<IP:PORT,WT> When used with --update-cluster, this option shall assign the
-                                     specified write weight to the given node.
-  --remove-all-servers               When used with --update-cluster, this will remove all
-                                     servers belonging to the current cluster before
-                                     updating the list.
-  --server=<IPADDRESS>:<PORT>        Specifies the IP address and port for a single server. This can
-                                     be used with --syncusers or --sync-multi-cluster-users
-                                     to sync a single non-cluster server node.
-  --add-query-rule                   Create query rules for synced mysql user. This is applicable only
-                                     for singlewrite mode and works only with --syncusers
-                                     and --sync-multi-cluster-users options.
-  --force                            This option will skip existing configuration checks in mysql_servers,
-                                     mysql_users and mysql_galera_hostgroups tables. This option will
-                                     work with '--enable' and '--update-cluster'.
-                                     This will also cause certain checks to issue warnings instead
-                                     of an error.
+  --debug                            Enables additional debug logging.
+  --disable, -d                      Removes any Percona XtraDB Cluster configurations from ProxySQL
   --disable-updates                  Disable admin updates for ProxySQL cluster for the
                                      current operation. The default is to not change the
                                      admin variable settings.  If this option is specifed,
                                      these options will be set to false.
                                      (default: updates are not disabled)
-  --use-stdin-for-credentials        If set, then the MySQL client will use stdin to send credentials
-                                     to the client (instead of process substition).
-                                     (default: process subsitution is used)
-  --trace                            Enables shell-level tracing for this shell script
-  --debug                            Enables additional debug logging.
-  --help                             Displays this help text.
-
-These options are the possible operations for percona-scheduler-admin.
-One of the options below must be provided.
-  --adduser                          Adds the Percona XtraDB Cluster application user to the ProxySQL database
-  --disable, -d                      Remove any Percona XtraDB Cluster configurations from ProxySQL
   --enable, -e                       Auto-configure Percona XtraDB Cluster nodes into ProxySQL
-  --update-cluster                   Updates the cluster membership, adds new cluster nodes
-                                     to the configuration.
-  --update-mysql-version             Updates the mysql-server_version variable in ProxySQL with the version
-                                     from a node in the cluster.
-  --syncusers                        Sync user accounts currently configured in MySQL to ProxySQL
-                                     May be used with --enable.  --server may be used with this
-                                     to specify a single server to sync.
-                                     (deletes ProxySQL users not in MySQL)
-  --sync-multi-cluster-users         Sync user accounts currently configured in MySQL to ProxySQL
-                                     May be used with --enable.
-                                     May be used with --enable.  --server may be used with this
-                                     to specify a single server to sync.
-                                     (doesn't delete ProxySQL users not in MySQL)
+  --help                             Displays this help text.
   --is-enabled                       Checks if the current configuration is enabled in ProxySQL.
   --status                           Returns a status report on the current configuration.
+  --trace                            Enables shell-level tracing for this shell script
+  --update-cluster                   Updates the cluster membership, adds new cluster nodes
+                                     to the configuration.
+
+  --update-mysql-version             Updates the mysql-server_version variable in ProxySQL with the version
+                                     from a node in the cluster.
+  --use-stdin-for-credentials        If set, then the MySQL client uses stdin to send credentials
+                                     to the client (instead of process substition).
+                                     (default: process subsitution is used)
   --version, -v                      Prints the version info
+
+The following options require another option or a specific mode. Running these
+options by themselves or with an incorrect option causes an error.
+
+  --add-query-rule                   Creates query rules for synced mysql user. This is applicable only
+                                     for singlewrite mode and works only with '--syncusers'
+                                     and '--sync-multi-cluster-users' options.
+  --auto-assign-weights              When used with '--update-cluster', this option will auto assign
+                                     the weights if in 'singlewrite' mode.
+  --force                            Skips existing configuration checks in mysql_servers,
+                                     mysql_users and mysql_galera_hostgroups tables. This option will
+                                     work with '--enable' and '--update-cluster'.
+                                     This will also cause certain checks to issue warnings instead
+                                     of an error.
+  --remove-all-servers               When used with '--update-cluster', this will remove all
+                                     servers belonging to the current cluster before
+                                     updating the list.
+  --server=<IPADDRESS>:<PORT>        This option can be used with --syncusers or
+                                     --sync-multi-cluster-users to sync a single non-cluster server
+                                     node.
+  --syncusers                        Sync user accounts currently configured in MySQL to ProxySQL
+                                     May be used with '--enable'.  '--server' may be used with this
+                                     to specify a single server to sync.
+                                     NOTE: This option deletes the ProxySQL users not present in MySQL.
+
+  --sync-multi-cluster-users         Sync user accounts currently configured in MySQL to ProxySQL
+                                     May be used with '--enable'.  '--server' may be used with this
+                                     to specify a single server to sync.
+                                     NOTE: This option works in the same way as --syncusers but does not
+                                     delete ProxySQL users not present in MySQL. It's indicated to be
+                                     used when syncing proxysql instances that manage multiple clusters.
+
+  --update-read-weight=<IP:PORT,WT>  When used with '--update-cluster', this option will assign the
+                                     specified read weight to the given node.
+  --update-write-weight=<IP:PORT,WT> When used with '--update-cluster', this option will assign the
+                                     specified write weight to the given node.
+  --write-node=<IPADDRESS>:<PORT>    Specifies the node that is to be used for writes for singlewrite mode.
+                                     If left unspecified, the cluster node is then used as the write node.
+                                     This only applies when 'mode=singlewrite' is used.
+
 ```
 
 ### Prerequisites
@@ -1064,7 +1077,7 @@ It is recommended that you use --config-file to run the _percona-scheduler-admin
 
   Example:
   ```sql
-  CREATE USER `admin`@`192.%` IDENTIFIED WITH 'mysql_native_password' BY 'admin';
+  CREATE USER 'admin'@'192.%' IDENTIFIED WITH 'mysql_native_password' BY 'admin';
 
   GRANT ALL PRIVILEGES ON *.* TO 'admin'@'192.%' WITH GRANT OPTION;
   ```
