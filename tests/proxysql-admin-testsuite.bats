@@ -816,6 +816,37 @@ fi
 
 }
 
+# Test singlewrite with --write-node is a read-only node when --writers-are-readers=yes
+@test "test for --enable --write-node on a read-only node ($WSREP_CLUSTER_NAME)" {
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ singlewrite_read_only ]] && skip;
+
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --disable
+
+  # -----------------------------------------------------------
+  # change node3 to be a read-only node
+  echo "$LINENO : changing node3 to read-only" >&2
+  mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=1"
+  [ "$?" -eq 0 ]
+
+  # -----------------------------------------------------------
+  # This should fail, since a write-node cannot be read-only
+  echo "$LINENO : proxysql-admin --enable --writers-are-readers=yes --write-node=${HOST_IP}:${PORT_3}" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --writers-are-readers=yes --write-node=${HOST_IP}:${PORT_3} <<< 'n'
+  [ "$status" -eq 1 ]
+
+  # -----------------------------------------------------------
+  # This should pass, since --force option suppresses error
+  echo "$LINENO : proxysql-admin --enable --writers-are-readers=yes --write-node=${HOST_IP}:${PORT_3} --force" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --enable --writers-are-readers=yes --write-node=${HOST_IP}:${PORT_3} --force <<< 'n'
+  echo "$output" | grep WARNING >&2
+  [[ ${lines[4]} =~ ^WARNING.*The.specified.write.node.*is.read-only$ ]]
+  [ "$status" -eq 0 ]
+  # -----------------------------------------------------------
+  # revert node3 to be a read/write node
+  echo "$LINENO : changing node3 back to read-only=0" >&2
+  mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=0"
+  [ "$?" -eq 0 ]
+}
 
 # Test singlewrite with --write-node is a read-only node
 @test "test for --write-node on a read-only node ($WSREP_CLUSTER_NAME)" {

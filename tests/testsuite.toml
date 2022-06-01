@@ -84,7 +84,7 @@ daemonize = false
 daemonInterval = 2000
 performance = true
 
-#?? What does this do?
+# Not used currently
 OS = "na"
 
 #?? Make common lockfileTimeout -> lockFileTimeout

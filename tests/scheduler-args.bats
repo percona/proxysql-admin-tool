@@ -150,7 +150,6 @@ PROXYSQL_BASEDIR=$WORKDIR/proxysql-bin
     run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-write-weight="[::1]:4130av,20s00"
     echo "$output" >&2
     [ "$status" -eq 1 ]
-    echo ${lines[0]}
     [[ "${lines[0]}" =~ ERROR.*expected.address.in.format.* ]]
 
     run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-write-weight="[::1]:4130,20s00"
