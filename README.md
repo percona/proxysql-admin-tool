@@ -1283,8 +1283,6 @@ This option will check the Percona XtraDB Cluster to see if any new nodes have j
 
 If used with __--remove-all-servers__, then the server list for this configuration will be removed before running the update cluster function.
 
-A specific galera cluster can be updated by using the __--writer-hg__ option with __--update-cluster__.  Otherwise the cluster specified in the config file will be updated.
-
 ```bash
 $ percona-scheduler-admin --config-file=config.toml --write-node=192.168.56.34:3306 --update-cluster
 No new nodes detected.
