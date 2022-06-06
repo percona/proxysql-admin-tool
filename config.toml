@@ -86,7 +86,7 @@ debug = true
 
 # stdout: output is redirected to proxysql logs
 # file: output is written to the file pointed by logFile
-logTarget = "file" #stdout | file
+logTarget = "stdout" #stdout | file
 
 # Defines the log level to be used.
 # Allowed options are [error,warning,info,debug]
