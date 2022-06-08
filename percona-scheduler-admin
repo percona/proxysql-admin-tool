@@ -2647,6 +2647,7 @@ function parse_args() {
 
   readonly MAX_CONNECTIONS
 
+  readonly LOCK_FILE_PATH
   readonly AUTO_ASSIGN_WEIGHTS
   readonly UPDATE_READ_WEIGHT
   readonly UPDATE_WRITE_WEIGHT
@@ -3111,9 +3112,9 @@ function wait_for_scheduler_processing ()
 
       done
 
-      if [[ $i -eq $timeout ]]; then
-        echo -e "Warning: Timeout $timeout seconds exceeded when waiting for scheduler to process the nodes."
-        echo -e "Please check the error logs for more information."
+      if [[ $i -ge $timeout ]]; then
+          error "" "Error: Timeout exceeded ($timeout seconds) while waiting for the scheduler to process the nodes."
+          echo -e "Please check proxysql error logs for more information. Log will usually be found in /var/lib/proxysql/proxysql.log"
         exit 1
       fi
     fi

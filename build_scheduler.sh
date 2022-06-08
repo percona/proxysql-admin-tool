@@ -17,6 +17,8 @@
 # along with this program; if not, write to the Free Software Foundation, Inc.,
 # 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
+source ./proxysql-common
+
 if [ ! -d percona-scheduler ]; then
     git submodule update --init
 fi
@@ -24,17 +26,21 @@ fi
 cd percona-scheduler
 
 if [[ ! -e $(command -v go 2> /dev/null)  ]]; then
-  echo "go packages not found. Please install golang package."
+  error "" "go packages not found. Please install golang package."
   exit 1
 fi
 
-go build -a -ldflags "-X main.pxcSchedulerHandlerVersion=${PROXYSQL_ADMIN_VERSION}" -o pxc_scheduler_handler
+go mod tidy
+go build -v -a -ldflags "-X main.pxcSchedulerHandlerVersion=${PROXYSQL_ADMIN_VERSION}" -o pxc_scheduler_handler
 
 if [ $? -ne 0 ]; then
-  echo "go build process failed with errors. Exiting.."
+  error "" "go build process failed with errors. Exiting.."
   exit 1
 fi
 
 cd ..
 cp percona-scheduler/pxc_scheduler_handler .
-echo "Build was successful. The binary can be found in ./pxc_scheduler_handler"
+echo -e "Build was successful. The binary can be found in ./pxc_scheduler_handler"
+
+echo -e
+./pxc_scheduler_handler --version
