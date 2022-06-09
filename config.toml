@@ -153,5 +153,7 @@ useSSL=0
 #
 maxConnections=1000
 
-
+# --------------------------------
+# Defines how frequently (in milliseconds) the scheduler must be run
+#
 nodeCheckInterval=2000
