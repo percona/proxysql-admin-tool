@@ -105,12 +105,12 @@ PROXYSQL_BASEDIR=$WORKDIR/proxysql-bin
 }
 
 @test "run percona-scheduler-admin --write-node with missing port" {
-    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --write-node=1.1.1.1,2.2.2.2:44 --disable
+    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --write-node=1.1.1.1,2.2.2.2:44 --disable
     echo "$output" >&2
     [ "$status" -eq 1 ]
     [[ "${lines[0]}" =~ ERROR.*--write-node.*expects.* ]]
 
-    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --write-node=[1:1:1:1],[2:2:2:2]:44 --disable
+    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --write-node=[1:1:1:1],[2:2:2:2]:44 --disable
     echo "$output" >&2
     [ "$status" -eq 1 ]
     [[ "${lines[0]}" =~ ERROR.*--write-node.*expects.* ]]
@@ -129,17 +129,17 @@ PROXYSQL_BASEDIR=$WORKDIR/proxysql-bin
 
 # Mutually exclusive options
 @test "run percona-scheduler-admin --auto-assign-weights, write-node and --update-write-weight options" {
-    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --auto-assign-weights --write-node=1.1.1.1,2.2.2.2:44
+    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --auto-assign-weights --write-node=1.1.1.1,2.2.2.2:44
     echo "$output" >&2
     [ "$status" -eq 1 ]
     [[ "${lines[0]}" =~ ERROR.*options.are.mutually.exclusive.* ]]
 
-    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --write-node=2.2.2.2:44 --update-write-weight="[::1]:4130,2000"
+    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --write-node=2.2.2.2:44 --update-write-weight="[::1]:4130,2000"
     echo "$output" >&2
     [ "$status" -eq 1 ]
     [[ "${lines[0]}" =~ ERROR.*options.are.mutually.exclusive.* ]]
 
-    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-write-weight="[::1]:4130,2000" --auto-assign-weights
+    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-write-weight="[::1]:4130,2000" --auto-assign-weights
     echo "$output" >&2
     [ "$status" -eq 1 ]
     [[ "${lines[0]}" =~ ERROR.*options.are.mutually.exclusive.* ]]
@@ -147,12 +147,12 @@ PROXYSQL_BASEDIR=$WORKDIR/proxysql-bin
 
 # Malformed address in --update-write-weight
 @test "run percona-scheduler-admin --update-write-weight" {
-    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-write-weight="[::1]:4130av,20s00"
+    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-write-weight="[::1]:4130av,20s00"
     echo "$output" >&2
     [ "$status" -eq 1 ]
     [[ "${lines[0]}" =~ ERROR.*expected.address.in.format.* ]]
 
-    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-write-weight="[::1]:4130,20s00"
+    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-write-weight="[::1]:4130,20s00"
     echo "$output" >&2
     [ "$status" -eq 1 ]
     [[ "${lines[0]}" =~ ERROR.*Weight.in.--update-write-weight.requires.a.number.* ]]
