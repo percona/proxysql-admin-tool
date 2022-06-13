@@ -1113,8 +1113,8 @@ This script can perform the following functions
 
   __1) --enable / -e__
 
-  This option will create the entry for the Galera hostgroups and add
-  the Percona XtraDB Cluster nodes into ProxySQL.
+  This option will create the entries for Galera hostgroups and add
+  the Percona XtraDB Cluster nodes into ProxySQL's 'mysql_servers' table.
 
   It will also add two new users into the Percona XtraDB Cluster with the USAGE privilege;
   one is for monitoring the cluster nodes through ProxySQL, and another is for connecting
@@ -1309,6 +1309,7 @@ This option will check the Percona XtraDB Cluster to see if any new nodes have j
 
 If used with __--remove-all-servers__, then the server list for this configuration will be removed before running the update cluster function.
 
+If __--write-node__ is used with __--update-cluster__, then that node will be made the writer node (by giving it a larger weight), if the node is in the server list and is ONLINE.  This should only be used if the mode is _singlewrite_.
 ```bash
 $ percona-scheduler-admin --config-file=config.toml --write-node=192.168.56.34:3306 --update-cluster
 No new nodes detected.
@@ -1336,8 +1337,8 @@ Cluster membership updated in the ProxySQL database!
 
   __9) --is-enabled__
 
-  This option will check if a galera cluster  has any active entries
-  in the mysql_galera_hostgroups table in ProxySQL.
+  This option will check if the hostgroups in ProxySQL have been configured by
+  the percona-scheduler-admin.
 
   0 is returned if there is an entry corresponding to the writer hostgroup and
   is set to active in ProxySQL.
@@ -1571,6 +1572,33 @@ Cluster membership updated in the ProxySQL database!
 
 ```
 The weights corresponding to the node `192.168.56.33:3306` in the writer-config hostgroups has been updated to the new value `1111`. Note that only writer-config hostgroup has been updated since the node doesn't have a corresponding entry in the writer hostgroup.
+
+### Extra options
+-------------------
+
+__i) -- write-node__
+This option is used to choose which node will be the writer node when the mode is _singlewrite_.  This option can be used with __--enable__ and __--update-cluster__.
+
+A single IP address and port combination is expected.
+
+If --write-node is used, the writer node is given a weight of 1000000 (the default
+weight is 1000).
+
+__ii) --force__
+
+  This will skip existing configuration checks with __--enable__ option in mysql_servers, mysql_users and mysql_galera_hostgroups tables.
+  This will also cause certain checks to issue warnings instead of an error,   allowing the operation to proceed.
+
+__iii) --disable_updates__
+
+This option (when used with any command), will disable updating of the
+Percona Scheduler admin checksums (for the mysql query rules, mysql servers, and mysql users tables). The default is to not to change the admin checksum variable settings. If this option is specified, then the values of the admin-checksum_mysql_query_rules, admin-checksum_mysql_servers, and admin-checksum_mysql_users will be set to 'false'.
+
+__iv) --server__
+
+This option is used with __--syncusers__  or __--sync-multi-cluster-users__ to specify
+a single server to sync, rather than a PXC cluster. This server does not have to belong
+to a PXC cluster and can be a standalone MySQL node.
 
 
 ### Known Limitations
