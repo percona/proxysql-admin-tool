@@ -167,9 +167,9 @@ else
 fi
 
 # Ensure that the config file has the same options at start
-sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader=1|" testsuite.toml
-sudo sed -i "0,/^[ \t]*singlePrimary[ \t]*=.*$/s|^[ \t]*singlePrimary[ \t]*=.*$|singlePrimary=true|" testsuite.toml
-sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|maxNumWriters=1|" testsuite.toml
+sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader = 1|" testsuite.toml
+sudo sed -i "0,/^[ \t]*singlePrimary[ \t]*=.*$/s|^[ \t]*singlePrimary[ \t]*=.*$|singlePrimary = true|" testsuite.toml
+sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|maxNumWriters = 1|" testsuite.toml
 
 
 
@@ -852,24 +852,30 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 @test "test --update-cluster --write-node ($WSREP_CLUSTER_NAME)" {
   [[ -n $TEST_NAME && ! $TEST_NAME =~ update_cluster_basic ]] && skip;
 
+  # Reset before the test
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --remove-all-servers
+
   # Save the existing writer node
   local saved_hgw_port writer_node
   saved_hgw_port=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
 
   # Test with PORT_1
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --write-node="$HOST_IP:$PORT_1"
+  echo "$output" >&2
   writer_node=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
   [ "$writer_node" -eq "$PORT_1" ]
   [ "$status" -eq 0 ]
 
   # Test with PORT_2
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --write-node="$HOST_IP:$PORT_2"
+  echo "$output" >&2
   writer_node=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
   [ "$writer_node" -eq "$PORT_2" ]
   [ "$status" -eq 0 ]
 
   # Test with PORT_3
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --write-node="$HOST_IP:$PORT_3"
+  echo "$output" >&2
   writer_node=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
   [ "$writer_node" -eq "$PORT_3" ]
   [ "$status" -eq 0 ]
@@ -1023,5 +1029,79 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [ $writer_998_count -eq 1 ]
 
   # Reset weights
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --remove-all-servers
+}
+
+# Test --enable with --write-node
+@test "test --enable --write-node ($WSREP_CLUSTER_NAME)" {
+
+
+  # Test with PORT_1
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable --write-node="$HOST_IP:$PORT_1"
+  writer_node=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  writer_weight=$(proxysql_exec "select weight from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+
+  [ $writer_weight -eq 1000000 ]
+  [ "$writer_node" -eq "$PORT_1" ]
+  [ "$status" -eq 0 ]
+
+  # Test with PORT_2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable --write-node="$HOST_IP:$PORT_2"
+  writer_node=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  writer_weight=$(proxysql_exec "select weight from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+
+  [ $writer_weight -eq 1000000 ]
+  [ "$writer_node" -eq "$PORT_2" ]
+  [ "$status" -eq 0 ]
+
+  # Test with PORT_3
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable --write-node="$HOST_IP:$PORT_3"
+  writer_node=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+  writer_weight=$(proxysql_exec "select weight from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
+
+  [ $writer_weight -eq 1000000 ]
+  [ "$writer_node" -eq "$PORT_3" ]
+  [ "$status" -eq 0 ]
+
+  # Reset
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --remove-all-servers
+}
+
+# Test singlewrite with --write-node is a read-only node
+@test "test for --enable --write-node on a read-only node ($WSREP_CLUSTER_NAME)" {
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ singlewrite_read_only ]] && skip;
+
+  # Disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --disable
+
+  # -----------------------------------------------------------
+  # change node3 to be a read-only node
+  echo "$LINENO : changing node3 to read-only" >&2
+  mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=1;"
+  [ "$?" -eq 0 ]
+
+  # -----------------------------------------------------------
+  # This should fail, since a write-node cannot be read-only
+  echo "$LINENO : percona-scheduler-admin --enable --write-node=${HOST_IP}:${PORT_3}" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable --write-node=${HOST_IP}:${PORT_3}
+  [ "$status" -eq 1 ]
+
+  # -----------------------------------------------------------
+  # This should pass, since --force option suppresses error
+  echo "$LINENO : percona-scheduler-admin --enable --write-node=${HOST_IP}:${PORT_3} --force" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable --write-node=${HOST_IP}:${PORT_3} --force
+  [[ ${lines[10]} =~ ^WARNING.*The.specified.write.node.*is.read-only.$ ]]
+  [ "$status" -eq 0 ]
+
+  # -----------------------------------------------------------
+  # revert node3 to be a read/write node
+  echo "$LINENO : changing node3 back to read-only=0" >&2
+  mysql_exec "$HOST_IP" "$PORT_3" "SET global read_only=0"
+  [ "$?" -eq 0 ]
+
+  # Reset
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --remove-all-servers
 }

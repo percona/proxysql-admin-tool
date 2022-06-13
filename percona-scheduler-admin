@@ -1036,7 +1036,8 @@ function enable_proxysql() {
   debug "$LINENO" "enable_proxysql ()"
 
   # Checking proxysql binary location
-  if [[ ! $(check_binary "proxysql") ]]; then
+  check_binary "proxysql"
+  if [[ $? -ne 0 ]]; then
     error "$LINENO" "The proxysql binary was not found."\
                   "\n-- Please install the ProxySQL package."
     exit 1
@@ -1337,14 +1338,52 @@ function enable_proxysql() {
     # Must have at least one node with read-only = 0
 
     if [[ -n $WRITE_NODE ]]; then
+      local ws_address ws_ip ws_port
+      ws_address=$(separate_ip_port_from_address "$WRITE_NODE")
+      ws_ip=$(echo "$ws_address" | cut -d' ' -f1)
+      ws_port=$(echo "$ws_address" | cut -d' ' -f2)
+
+      # Check if the node exists.
+      local host_info
+      host_info=$(proxysql_exec "$LINENO" \
+              "SELECT COUNT(*)
+                 FROM mysql_servers
+                 WHERE hostgroup_id IN ($WRITER_HOSTGROUP_ID) AND
+                   hostname='$ws_ip' AND
+                   port=$ws_port")
+      check_cmd $? "$LINENO" "Could not retrieve hostgroup and server information from ProxySQL"\
+                         "\n-- Please check the ProxySQL connection parameters and status."
+
+      if [ $host_info -eq 0 ]; then
+        error "$LINENO" "Failed to perform --write-node: Could not find the node belonging to the cluster with address $WRITE_NODE"
+        exit 1
+      fi
+
+      local is_read_only
+      is_read_only=$(exec_sql "$LINENO" "$CLUSTER_USERNAME" "$CLUSTER_PASSWORD" "$ws_ip" "$ws_port" \
+        "select @@global.read_only")
+      if [[ $? -eq 0 && $is_read_only -eq 1 ]]; then
+        writer_ws_ip=$ws_ip
+        writer_ws_port=$ws_port
+        writer_ws_address=$(combine_ip_port_into_address "$writer_ws_ip" "$writer_ws_port")
+
+        if [[ $FORCE -eq 1 ]]; then
+          warning "$LINENO" "The specified write node ($WRITE_NODE) is read-only."
+        else
+          error "$LINENO" "The specified write node ($WRITE_NODE) is read-only" \
+                        "\n-- and cannot be used as a writer node."
+          exit 1
+        fi
+      fi
+
       # Update the write_node to have a higher priority
       proxysql_exec "$LINENO" \
         "UPDATE mysql_servers
-          SET weight = 1000
+          SET weight = 1000000
           WHERE
-            hostname = '$writer_ws_ip' AND
-            port = $writer_ws_port AND
-            hostgroup_id = $WRITER_HOSTGROUP_ID;"
+            hostname = '$ws_ip' AND
+            port = $ws_port AND
+            hostgroup_id IN ($WRITER_HOSTGROUP_ID,$WRITER_CONFIG_HOSTGROUP_ID);"
       check_cmd $? "$LINENO" "Failed to update the writer-node for singlewrite mode" \
                            "\n-- Please check the ProxySQL connection parameters and status."
     fi
@@ -2157,7 +2196,8 @@ function parse_args() {
   #
   # Check that we can find my_print_defaults
   #
-  if [[ ! $(check_binary my_print_defaults) ]]; then
+  check_binary "my_print_defaults"
+  if [[ $? -ne 0 ]]; then
     error "$LINENO" "my_print_defaults was not found, please install the mysql client package."
     exit 1
   fi
@@ -3115,6 +3155,8 @@ function wait_for_scheduler_processing ()
       if [[ $i -ge $timeout ]]; then
           error "" "Error: Timeout exceeded ($timeout seconds) while waiting for the scheduler to process the nodes."
           echo -e "Please check proxysql error logs for more information. Log will usually be found in /var/lib/proxysql/proxysql.log"
+          echo -e ""
+          echo -e "Note: The pxc_scheduler_handler is kept running for debugging purpose. Please fix the error and re-run the script with \"--update-cluster --remove-all-servers\" to setup proxysql from beginning."
         exit 1
       fi
     fi
@@ -3141,18 +3183,15 @@ function check_binary() {
   # Checks if the binary is available.
   _full_path=$( command -v "$_binary" )
   commandStatus=$?
-  echo "Checking binary $_binary"
+  debug "Checking binary $_binary"
   if [ $commandStatus -ne 0 ]; then
-    echo "Unable to find binary '$_binary'."
+    return 1
   else
     # Checks if the binary has "execute" permission.
     [ -x "$_full_path" ] && return 0
-
-    # It is not the case, if NOT in 'BSC_MODE_CHECK_CONFIG' mode, it is a fatal error.
-    echo "Binary '$_binary' is found but it does not have *execute* permission."
   fi
 
-  # Otherwise, simple returns an error code.
+  # Otherwise, return an error code.
   return 1
 }
 
@@ -3161,8 +3200,9 @@ function check_binary() {
 #
 # Check that we can find the mysql client utility
 #
-if [[ ! $(check_binary "mysql") ]] ;then
-  error "$LINENO" "The mysql client was not found, please install the mysql client package."
+  check_binary "mysql"
+  if [[ $? -ne 0 ]]; then
+  error "$LINENO" "The mysql client was not found, please install the mysql package."
   exit 1
 fi
 
