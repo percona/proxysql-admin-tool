@@ -437,5 +437,13 @@ if [[ $DUMP_ALL -eq 1 || $DUMP_FILES -eq 1 ]]; then
         echo "/etc/proxysql-admin.cnf not found or not readble by you!" 
       fi
       echo ""
+      if [[ -r "/etc/config.toml" ]]; then
+        echo "............ DUMPING PERCONA SCHEDULER ADMIN CNF FILE ............"
+        cat /etc/config.toml 2>&1
+        echo "............ END OF DUMPING PERCONA SCHEDULER ADMIN CNF FILE ............"
+      else
+        echo "/etc/config.toml not found or not readble by you!"
+      fi
+      echo ""
     fi
 fi

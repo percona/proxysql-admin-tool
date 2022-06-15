@@ -593,6 +593,13 @@ if [[ ! -r $WORKDIR/proxysql-admin ]]; then
 fi
 echo "....Found proxysql-admin in $WORKDIR/"
 
+echo "Looking for percona-scheduler-admin..."
+if [[ ! -r $WORKDIR/percona-scheduler-admin ]]; then
+  echo "ERROR! Could not find percona-scheduler-admin in $WORKDIR/"
+  exit 1
+fi
+echo "....Found percona-scheduler-admin in $WORKDIR/"
+
 echo "Looking for proxysql-admin.cnf..."
 if [[ ! -r $PROXYSQL_BASE/etc/proxysql-admin.cnf ]]; then
   echo ERROR! Cannot find $PROXYSQL_BASE/etc/proxysql-admin.cnf
@@ -647,6 +654,13 @@ if [[ ! -e $PXC_BASEDIR/bin/mysql ]] ;then
   exit 1
 fi
 echo "....Found the mysql client in $PXC_BASEDIR/bin"
+
+echo "Looking for my_print_defaults client..."
+if [[ ! -e $PXC_BASEDIR/bin/my_print_defaults ]] ;then
+  echo "ERROR! Could not find the my_print_defaults client"
+  exit 1
+fi
+echo "....Found the my_print_defaults in $PXC_BASEDIR/bin"
 
 echo "Starting ProxySQL..."
 rm -rf $WORKDIR/proxysql_db; mkdir $WORKDIR/proxysql_db
@@ -801,7 +815,7 @@ if [[ $RUN_TEST -eq 1 ]]; then
   echo ""
   echo "================================================================"
   echo "proxysql-admin generic bats test log"
-  sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES \
+  sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES PATH=$PATH \
         bats $SCRIPT_DIR/generic-test.bats
   echo "================================================================"
   echo ""
@@ -809,7 +823,7 @@ if [[ $RUN_TEST -eq 1 ]]; then
   echo ""
   echo "================================================================"
   echo "percona-scheduler-admin args test log"
-  sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES \
+  sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES PATH=$PATH \
         bats $SCRIPT_DIR/scheduler-args.bats
   echo "================================================================"
   echo ""
@@ -819,7 +833,7 @@ if [[ $RUN_TEST -eq 1 ]]; then
       echo "cluster_one : $test_file"
       SECONDS=0
 
-      sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES \
+      sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES PATH=$PATH \
             bats $SCRIPT_DIR/$test_file
       rc=$?
       if (( $SECONDS > 60 )) ; then
@@ -922,7 +936,7 @@ EOF
       echo "cluster_two : $test_file"
       SECONDS=0
 
-      sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES \
+      sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES PATH=$PATH \
             bats $SCRIPT_DIR/$test_file
       rc=$?
 
@@ -974,7 +988,7 @@ if [[ $RUN_TEST -eq 1 ]]; then
   sudo sed -i "0,/^[ \t]*export READER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READER_HOSTGROUP_ID[ \t]*=.*$|export READER_HOSTGROUP_ID=\"11\"|" /etc/proxysql-admin.cnf
   sudo sed -i "0,/^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$|export BACKUP_WRITER_HOSTGROUP_ID=\"12\"|" /etc/proxysql-admin.cnf
   sudo sed -i "0,/^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$|export OFFLINE_HOSTGROUP_ID=\"13\"|" /etc/proxysql-admin.cnf
-  sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES \
+  sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES PATH=$PATH\
         bats $SCRIPT_DIR/disable_proxysql.bats
 
   if [[ $USE_CLUSTER_TWO -eq 1 ]]; then
@@ -985,7 +999,7 @@ if [[ $RUN_TEST -eq 1 ]]; then
     sudo sed -i "0,/^[ \t]*export READER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READER_HOSTGROUP_ID[ \t]*=.*$|export READER_HOSTGROUP_ID=\"21\"|" /etc/proxysql-admin.cnf
     sudo sed -i "0,/^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$|export BACKUP_WRITER_HOSTGROUP_ID=\"22\"|" /etc/proxysql-admin.cnf
     sudo sed -i "0,/^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$|export OFFLINE_HOSTGROUP_ID=\"23\"|" /etc/proxysql-admin.cnf
-    sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES \
+    sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES PATH=$PATH \
           bats $SCRIPT_DIR/disable_proxysql.bats
   fi
   echo "================================================================"
@@ -994,7 +1008,7 @@ if [[ $RUN_TEST -eq 1 ]]; then
     echo "cluster_one : $test_file"
     SECONDS=0
 
-    sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES \
+    sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES PATH=$PATH \
           bats $SCRIPT_DIR/$test_file
     rc=$?
     if (( $SECONDS > 60 )) ; then
@@ -1026,7 +1040,7 @@ if [[ $RUN_TEST -eq 1 ]]; then
       echo "cluster_two : $test_file"
       SECONDS=0
 
-      sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES \
+      sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION TEST_NAME=$TEST_NAMES PATH=$PATH \
             bats $SCRIPT_DIR/$test_file
       rc=$?
 
