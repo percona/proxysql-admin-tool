@@ -111,18 +111,25 @@ else
   exit 1
 fi
 
+echo "Looking for Percona Scheduler Handler";
+if [ -f $PROXYSQL_ADMIN_BASEDIR/pxc_scheduler_handler ]; then
+  echo "...Percona Scheduler binary found at $PROXYSQL_ADMIN_BASEDIR/pxc_scheduler_handler"
+else
+  echo "...Not found. Building percona scheduler"
+  pushd $PROXYSQL_ADMIN_BASEDIR > /dev/null
+  bash build_scheduler.sh > /dev/null 2>&1
+  popd > /dev/null
+fi
+
 echo "Creating Symbolic links"
 ln -s $PROXYSQL $WORKDIR/proxysql-2.0/usr/bin
 ln -s $PROXYSQL_ADMIN_BASEDIR/proxysql-admin.cnf $WORKDIR/proxysql-2.0/etc
-for file in proxysql-admin proxysql-common proxysql-admin-common percona-scheduler-admin proxysql-login-file
+for file in proxysql-admin proxysql-common proxysql-admin-common percona-scheduler-admin proxysql-login-file pxc_scheduler_handler
 do
   ln -s $PROXYSQL_ADMIN_BASEDIR/$file $WORKDIR
 done;
 
-if [ -f $PROXYSQL_ADMIN_BASEDIR/percona-scheduler/pxc_scheduler_handler ]; then
-  echo "...Percona Scheduler script found at $PROXYSQL_ADMIN_BASEDIR/percona-scheduler. Copying the script to workdir"
-  ln -s $PROXYSQL_ADMIN_BASEDIR/percona-scheduler/pxc_scheduler_handler $WORKDIR/pxc_scheduler_handler
-fi
+
 echo "...Symbolic links created successfully"
 
 
