@@ -88,8 +88,8 @@ Usage example:
     --use-stdin-for-credentials
                             : If set, then the MySQL client will use stdin to send
                               credentials to the client (instead of process
-                              substition).
-                              (default: process subsitution is used)
+                              substitution).
+                              (default: process substitution is used)
 
   The default is to display all tables and files.
 
@@ -179,11 +179,7 @@ function parse_args() {
     if ! getopt --test; then
         go_out="$(getopt --options=hv --longoptions=runtime,main,stats,monitor,files,table:,with-stats-reset,login-file:,login-password:,login-password-file:,use-stdin-for-credentials,version,help \
         --name="$(basename "$0")" -- "$@")"
-        if [[ $? -ne 0 ]]; then
-            # no place to send output
-            echo "Script error: getopt() failed" >&2
-            exit 1
-        fi
+        check_cmd $? "$LINENO" "Script error: getopt() failed with arguments: $*"
         eval set -- "$go_out"
     fi
 
@@ -283,18 +279,6 @@ function parse_args() {
     fi
 
     if [[ $CREDENTIALS_FROM_CLIENT_CONFIG -eq 0 ]]; then
-        # If we can't use the default, get the credentials
-        # from proxysql-admin.cnf
-        if [[ ! -r /etc/proxysql-admin.cnf ]]; then
-            echo "Cannot find /etc/proxysql-admin.cnf."
-            exit 1
-        else
-            source /etc/proxysql-admin.cnf
-            USER=$PROXYSQL_USERNAME
-            PASSWORD=$PROXYSQL_PASSWORD
-            HOST=$PROXYSQL_HOSTNAME
-            PORT=$PROXYSQL_PORT
-        fi
 
         # Load the data if the login-file has been set
         # Run this before the command-line parsing, so that the command-line
@@ -329,21 +313,35 @@ function parse_args() {
             [[ -n $PROXYSQL_PASSWORD ]] && PASSWORD=$PROXYSQL_PASSWORD;
             [[ -n $PROXYSQL_HOSTNAME ]] && HOST=$PROXYSQL_HOSTNAME;
             [[ -n $PROXYSQL_PORT ]] && PORT=$PROXYSQL_PORT;
-        fi
 
-        # Now override any values with the command-line args
-        if [[ $# -gt 0 && $# -le 4 ]]; then
-            [[ -n ${1+} ]] && USER=$1
-            [[ -n ${2+} ]] && PASSWORD=$2
-            [[ -n ${3+} ]] && HOST=$3
-            [[ -n ${4+} ]] && PORT=$4
-        elif [[ $# -ge 5 ]]; then
-            error "$LINENO" "Incorrect usage"
+        elif [[ $# -eq 0 ]]; then
+            # When no arguments are passed try to read from /etc/proxysql-admin.cnf
+            if [[ ! -r /etc/proxysql-admin.cnf ]]; then
+                error $LINENO "Cannot find /etc/proxysql-admin.cnf to read the credentials." \
+                    "\nYou can either consider creating the cnf file or pass the credentials through command-line in the format <USER> <PASSWORD> <HOST> <PORT>"
+                exit 1
+            else
+                source /etc/proxysql-admin.cnf
+                USER=$PROXYSQL_USERNAME
+                PASSWORD=$PROXYSQL_PASSWORD
+                HOST=$PROXYSQL_HOSTNAME
+                PORT=$PROXYSQL_PORT
+            fi
+            
+        elif [[ $# -ne 4 ]]; then
+            error "$LINENO" "Incorrect usage: Please use the format <USER> <PASSWORD> <HOST> <PORT>"
             usage
             exit 1
+        else
+            [ -n ${1+} ] && USER=$1
+            [ -n ${2+} ] && PASSWORD=$2
+            [ -n ${3+} ] && HOST=$3
+            [ -n ${4+} ] && PORT=$4
         fi
 
+
         if [[ -z $USER || -z $PASSWORD || -z $HOST || -z $PORT ]]; then
+
             error "$LINENO" "One of the user, password, host, or port parameterd is missing."
             exit 1
         fi

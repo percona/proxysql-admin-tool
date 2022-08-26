@@ -825,7 +825,49 @@ Simple script to dump ProxySQL config and stats
 __Usage:__
 
 ```
-proxysql-status admin admin 127.0.0.1 6032
+Usage example:
+  $ proxysql-status [options] [<USER> <PASSWORD> <HOST> <PORT>]
+
+  Options:
+    --files                 : display contents of proxysql-admin related files
+    --main                  : display main tables (both on-disk and runtime)
+    --monitor               : display monitor tables
+    --runtime               : display runtime-related data
+                              (implies --main)
+    --stats                 : display stats tables
+    --table=<table_name>    : display only tables that contain the table name
+                              (note: this is a case-sensitive match)
+    --with-stats-reset      : display _reset tables, by default _reset tables
+                              will not be queried.
+
+    --login-file=<login-file-path>
+                            : Read login credentials from an encrypted file.
+                              If the --login-password or --login-password-file
+                              options are not specified, then the user
+                              will be prompted for the password.
+                              (command line options override any login file values)
+    --login-password=<password>
+                            : The key used to decrypt the encrypted login-file.
+                              This cannot be used with --login-password-file.
+    --login-password-file=<path>
+                            : Read the key from a file using the <path>.
+                              This cannot be used with --login-password
+    --use-stdin-for-credentials
+                            : If set, then the MySQL client will use stdin to send
+                              credentials to the client (instead of process
+                              substitution).
+                              (default: process substitution is used)
+
+  The default is to display all tables and files.
+
+  If no credentials are specified (on the command line or via a login-file) then:
+    1. The default MySQL client credentials are used (usually found
+       in ~/.my.cnf), if they connect to a ProxySQL instance).
+    2. If the default MySQL client credentials do not exist, or do not connect
+       to a ProxySQL instance, then the credentials in /etc/proxysql-admin.cnf
+       are used.
+
+Example: proxysql-status admin admin 127.0.0.1 6032
 ```
 
 
