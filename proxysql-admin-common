@@ -745,6 +745,7 @@ function proxysql_admin_user_check(){
                             "select variable_value
                              from global_variables
                              where variable_name like 'admin-%_credentials'" |
+			      sed 's/;/\n/g'|
                               cut -d':' -f1 |
                               grep -v variable_value))
   if [[ " ${proxysql_admin_users[@]} " =~ [[:space:]]${userchk}[[:space:]] ]]; then
