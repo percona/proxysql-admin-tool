@@ -410,6 +410,8 @@ function get_mysql_version()
     echo "10.5"
   elif echo "$version_string" | grep -qe "[[:space:]]10\.6\."; then
     echo "10.6"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.11\."; then
+    echo "10.11"
   else
     echo "$version_string"
     return 1
