@@ -184,7 +184,8 @@ fi
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers --add-query-rule
   echo "$output" >&2
   [ "$status" -eq  0 ]
-  [[ "${lines[6]}" =~ "Added query rule for user: test_query_rule" ]]
+
+  [[ "${lines[2]}" =~ "Added query rule for user: test_query_rule" ]]
 
   run_write_hg_query_rule_user=$(proxysql_exec "select 1 from runtime_mysql_query_rules where username='test_query_rule' and match_digest='^SELECT.*FOR UPDATE'" | awk '{print $0}')
   echo "$LINENO : Query rule count for user 'test_query_rule' with writer hostgroup found:$run_write_hg_query_rule_user expect:1"  >&2
@@ -237,6 +238,96 @@ fi
 
   echo "cluster_user_count:$cluster_user_count  proxysql_user_count:$proxysql_user_count" >&2
   [ "$cluster_user_count" -eq "$proxysql_user_count" ]
+}
+
+@test "run proxysql-admin --syncusers --server ($WSREP_CLUSTER_NAME) (many users)" {
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ syncusers_big ]] && skip;
+
+  local mysql_version=$(cluster_exec "select @@version")
+  local pass_field
+  if [[ $mysql_version =~ ^5.6 ]]; then
+    pass_field="password"
+  else
+    pass_field="authentication_string"
+  fi
+  cluster_user_count=$(cluster_exec "select count(distinct user) from mysql.user where ${pass_field} != '' and user not in ('admin') and user not like 'mysql.%'" -Ns)
+
+  # HACK: this mismatch occurs because we are running the tests for cluster_two
+  # right after the test for cluster_one (multi-cluster scenario), so the
+  # user counts will be off (because user cluster_one will still be in proxysql users).
+  if [[ $WSREP_CLUSTER_NAME == "cluster_two" ]]; then
+    proxysql_user_count=$(proxysql_exec "select count(distinct username) from runtime_mysql_users where username not in ('cluster_one')" | awk '{print $0}')
+  else
+    proxysql_user_count=$(proxysql_exec "select count(distinct username) from runtime_mysql_users" | awk '{print $0}')
+  fi
+
+  # Verify that the user is not in ProxySQL
+  proxysql_count=$(proxysql_exec "select count(distinct username) from mysql_users where username='${server_user}'")
+  [[ $proxysql_count -eq 0 ]]
+
+  # Create 1000 users on PXC
+  echo "Creating 1000 mysql users"
+  for i in $(seq -w 1 1000)
+  do
+    mysql_exec "$HOST_IP" "$PORT_3" "CREATE USER 'a - u0$i'@'%' IDENTIFIED WITH mysql_native_password BY 'Secret1!';"
+  done
+
+  # Give the cluster some time for this to replicate
+  sleep 3
+
+  # Check to see if the user has replicated to a different node
+  mysql_user_count=$(mysql_exec "$HOST_IP" "$PORT_1" "select count(*) from mysql.user where user like 'a - %'")
+  echo "mysql_count: $mysql_user_count"
+  [[ $mysql_user_count -eq 1000 ]]
+
+  start_time=$(date +%s)
+
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers
+
+  end_time=$(date +%s)
+
+  time_taken=$((end_time - start_time))
+
+  # Expected time to process 1000 users is about 25 seconds.
+  # For this test, lets assume that it takes less than a minute.
+  [[ $time_taken -le 60 ]]
+
+  echo "$output" >&2
+  [ "$status" -eq  0 ]
+
+  # Verify that the user has been added to ProxySQL
+  proxysql_count=$(proxysql_exec "select count(distinct username) from mysql_users where username like 'a - %'")
+  [[ $proxysql_count -eq 1000 ]]
+
+  # Cleanup by removing the user on the async node
+  # DROP 1000 users on PXC
+  for i in $(seq -w 1 1000)
+  do
+    mysql_exec "$HOST_IP" "$PORT_3" "DROP USER 'a - u0$i'@'%';"
+  done
+
+  # Give the cluster some time for this to replicate
+  sleep 3
+
+  # Check to see if the user has replicated to a different node
+  mysql_user_count=$(mysql_exec "$HOST_IP" "$PORT_1" "select count(*) from mysql.user where user like 'a - %'")
+  [[ $mysql_user_count -eq 0 ]]
+
+  start_time=$(date +%s)
+
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers
+
+  end_time=$(date +%s)
+
+  time_taken=$((end_time - start_time))
+
+  # Expected time to process 1000 users is about 25 seconds.
+  # For this test, lets assume that it takes less than a minute.
+  [[ $time_taken -le 60 ]]
+
+  # Verify that the user has been removed from ProxySQL
+  proxysql_count=$(proxysql_exec "select count(distinct username) from mysql_users where username like 'a - %'")
+  [[ $proxysql_count -eq 0 ]]
 }
 
 
