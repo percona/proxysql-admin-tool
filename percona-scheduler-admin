@@ -18,6 +18,8 @@
 # along with this program; if not, write to the Free Software Foundation, Inc.,
 # 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
+# shellcheck disable=SC2046,SC2181,SC2086,SC1091
+
 #-------------------------------------------------------------------------------
 #
 # Step 1 : Bash internal configuration
@@ -92,10 +94,7 @@ declare    MODE="singlewrite"
 declare -i NODE_CHECK_INTERVAL=-1
 
 declare -i WRITER_HOSTGROUP_ID=-1
-declare -i WRITER_HOSTGROUP_COMMAND_LINE=0
 declare -i READER_HOSTGROUP_ID=-1
-declare -i BACKUP_WRITER_HOSTGROUP_ID=-1
-declare -i OFFLINE_HOSTGROUP_ID=-1
 
 declare -i WRITER_CONFIG_HOSTGROUP_ID=-1
 declare -i READER_CONFIG_HOSTGROUP_ID=-1
@@ -151,15 +150,6 @@ declare    MAX_CONNECTIONS="1000"
 declare -i WRITERS_ARE_READERS_OPTION=-1
 
 declare -i REMOVE_ALL_SERVERS=0
-
-#
-# Set these values if a parameter is needed by the operation
-# (For example, --disable only needs --writer-hg)
-#
-declare   NEEDS_WRITER_HOSTGROUP=0
-declare   NEEDS_READER_HOSTGROUP=0
-declare   NEEDS_BACKUP_WRITER_HOSTGROUP=0
-declare   NEEDS_OFFLINE_HOSTGROUP=0
 
 #
 # If set to 1, then calls to MySQL/ProxySQL via the MySQL client
@@ -272,7 +262,7 @@ function version()
 {
     local path=$0
     printf "%s Version: %s\n" "${path##*/}" "${PROXYSQL_ADMIN_VERSION}"
-    printf "$($SCHEDULER_BINARY --version)\n"
+    printf "%s\n" "$($SCHEDULER_BINARY --version)"
 }
 
 
@@ -327,11 +317,11 @@ function read_from_config_file()
         # This is a required value
         error "$LINENO" "Cannot find a required value : '${option}' in section '${section}'" \
                       "\n-- in the config file:${config_path}"
-        echo ${retval}
+        echo "${retval}"
         return 1
       fi
   fi
-  echo ${retval}
+  echo "${retval}"
   return 0
 }
 
@@ -654,12 +644,12 @@ function user_input_check() {
   password=$(eval "echo \$${user_category}_PASSWORD")
 
   if [[ -z $username ]]; then
-    read -r -p "Enter ${user_description}name : " ${user_category}_USERNAME
+    read -r -p "Enter ${user_description}name : " "${user_category}"_USERNAME
     username=$(eval "echo \$${user_category}_USERNAME")
     while [[ -z ${username} ]]
     do
       echo -n "No input entered, Enter ${user_description} name: "
-      read -r ${user_category}_USERNAME
+      read -r "${user_category}"_USERNAME
       username=$(eval "echo \$${user_category}_USERNAME")
     done
   else
@@ -669,11 +659,11 @@ function user_input_check() {
   fi
   if [[ -z $password ]]; then
     if [[ $QUICK_DEMO -eq 0 ]]; then
-      read -r -s -p  "Enter ${user_description} password: " ${user_category}_PASSWORD
+      read -r -s -p  "Enter ${user_description} password: " "${user_category}"_PASSWORD
       password=$(eval "echo \$${user_category}_PASSWORD")
       while [[ -z $password ]]
       do
-        read -r -s -p  "No input entered, Enter ${user_description} password: " ${user_category}_PASSWORD
+        read -r -s -p  "No input entered, Enter ${user_description} password: " "${user_category}"_PASSWORD
         password=$(eval "echo \$${user_category}_PASSWORD")
       done
     fi
@@ -850,12 +840,18 @@ function update_weight() {
   fi
 
   # Extract node details and validate inputs
-  local address=$(echo $update_weight | cut -d, -f1)
-  local weight=$(echo $update_weight | cut -d, -f2)
+  local address
+  local weight
+  local node_address
+  local node_ip
+  local node_port
 
-  local node_address=$(separate_ip_port_from_address "$address")
-  local node_ip=$(echo "$node_address" | cut -d' ' -f1)
-  local node_port=$(echo "$node_address" | cut -d' ' -f2)
+  address=$(echo "$update_weight" | cut -d, -f1)
+  weight=$(echo "$update_weight" | cut -d, -f2)
+
+  node_address=$(separate_ip_port_from_address "$address")
+  node_ip=$(echo "$node_address" | cut -d' ' -f1)
+  node_port=$(echo "$node_address" | cut -d' ' -f2)
 
   host_info=$(proxysql_exec "$LINENO" \
           "SELECT COUNT(*)
@@ -866,12 +862,10 @@ function update_weight() {
   check_cmd $? "$LINENO" "Could not retrieve hostgroup and server information from ProxySQL"\
                          "\n-- Please check the ProxySQL connection parameters and status."
 
-  if [ $host_info -eq 0 ]; then
+  if [ "$host_info" -eq 0 ]; then
     error "$LINENO" "Failed to execute $operation: Could not find the node belonging to the cluster with address $address"
     exit 1
   fi
-
-  local hgs
 
   # We are here means we are good to update the weight.
   proxysql_exec "$LINENO" \
@@ -974,7 +968,7 @@ function adjust_weights () {
       # Extract the hostname and port from the rows
       # Creates a string of "host:port" separated by spaces
       local counter=1
-      while read line; do
+      while read -r line; do
         if [[ -z $line ]]; then
           continue
         fi
@@ -994,7 +988,7 @@ function adjust_weights () {
             status NOT IN ('OFFLINE_HARD','OFFLINE_SOFT')"
         check_cmd $? "$LINENO" "Failed to query ProxySQL for the user."\
                      "\n-- Please check the ProxySQL connection parameters and status."
-        counter=$(($counter+1))
+        counter=$((counter+1))
 
       done< <(printf "%s\n" "$backup_writers")
 
@@ -1017,7 +1011,7 @@ function adjust_weights () {
 # Auto configure Percona XtraDB Cluster nodes into ProxySQL
 #
 # Globals:
-#   READER_HOSTGROUP_ID, WRITER_HOSTGROUP_ID, BACKUP_WRITER_HOSTGROUP_ID, OFFLINE_HOSTGROUP_ID
+#   READER_HOSTGROUP_ID, WRITER_HOSTGROUP_ID
 #   CLUSTER_PORT
 #   USER_HOST_RANGE
 #   MONITOR_USERNAME, MONITOR_PASSWORD
@@ -1191,6 +1185,7 @@ function enable_proxysql() {
                         "\n-- Please check that '$CLUSTER_USERNAME'@'$CLUSTER_HOSTNAME' has the proper permissions to create the montioring user"
 
   local sql_cmd
+  #shellcheck disable=SC2016
   sql_cmd='GRANT SELECT ON `performance_schema`.* TO '
   sql_cmd+="'$SAFE_MONITOR_USERNAME'@'$USER_HOST_RANGE'; FLUSH PRIVILEGES"
   mysql_exec "$LINENO" "${sql_cmd}"
@@ -1221,7 +1216,7 @@ function enable_proxysql() {
     else
       echo ""
       echo -e "The monitoring user is already present in Percona XtraDB Cluster.\n"
-      read -p "Would you like to enter a new password [y/n] ? " check_param
+      read -r -p "Would you like to enter a new password [y/n] ? " check_param
     fi
     case $check_param in
       y|Y)
@@ -1354,7 +1349,7 @@ function enable_proxysql() {
       check_cmd $? "$LINENO" "Could not retrieve hostgroup and server information from ProxySQL"\
                          "\n-- Please check the ProxySQL connection parameters and status."
 
-      if [ $host_info -eq 0 ]; then
+      if [ "$host_info" -eq 0 ]; then
         error "$LINENO" "Failed to perform --write-node: Could not find the node belonging to the cluster with address $WRITE_NODE"
         exit 1
       fi
@@ -1461,6 +1456,7 @@ function enable_proxysql() {
     fi
 
     # Setup parameters for singlewrite
+    # shellcheck disable=SC2034 # currently unused
     MAX_WRITERS=1
   fi
 
@@ -1600,7 +1596,7 @@ function find_cluster_node()
   local host_info
   local all_hostgroups
 
-  all_hostgroups=$(get_all_hostgroups_from_writer_hostgroup $write_hg)
+  all_hostgroups=$(get_all_hostgroups_from_writer_hostgroup "$write_hg")
   if [[ -z $all_hostgroups ]]; then
     error "$LINENO" "Could not find a cluster (with writer_hostgroup:$write_hg) to update"
     exit 1
@@ -1618,7 +1614,7 @@ function find_cluster_node()
   fi
 
   # Check each node to see if it is Primary
-  while read line; do
+  while read -r line; do
     [[ -z $line ]] && continue
 
     local ip_addr port
@@ -1767,7 +1763,7 @@ function update_cluster()
     if [[ -n $host_info ]]; then
       # Extract the hostname and port from the rows
       # Creates a string of "host:port" separated by spaces
-      while read line; do
+      while read -r line; do
         if [[ -z $line ]]; then
           continue
         fi
@@ -1926,7 +1922,7 @@ function update_cluster()
                              "\n-- Please check the ProxySQL connection parameters and status."
 
         # readd as a writer node
-        add_servers_to_proxysql $writer_ws_address
+        add_servers_to_proxysql "$writer_ws_address"
         force_to_runtime=1
 
         # Update the write_node to have a higher priority
@@ -1945,13 +1941,13 @@ function update_cluster()
 
   # Check if --update-write-weight has been specified
   if [[ -n $UPDATE_WRITE_WEIGHT ]]; then
-    update_weight "WRITE" $UPDATE_WRITE_WEIGHT
+    update_weight "WRITE" "$UPDATE_WRITE_WEIGHT"
     force_to_runtime=1
   fi
 
   # Check if --update-read-weight has been specified
   if [[ -n $UPDATE_READ_WEIGHT ]]; then
-    update_weight "READ" $UPDATE_READ_WEIGHT
+    update_weight "READ" "$UPDATE_READ_WEIGHT"
     force_to_runtime=1
   fi
 
@@ -2033,7 +2029,6 @@ function check_if_enabled()
 #
 # Globals:
 #   WRITER_HOSTGROUP_ID
-#   WRITER_HOSTGROUP_COMMAND_LINE
 #
 # Arguments:
 #   Parameter 1 : the writer hostgroup id
@@ -2044,7 +2039,7 @@ function report_status()
   local all_hostgroups=""
   local data
 
-  all_hostgroups=$(get_all_hostgroups_from_writer_hostgroup $write_hg)
+  all_hostgroups=$(get_all_hostgroups_from_writer_hostgroup "$write_hg")
   check_cmd "$?" "$LINENO" "Cannot retrieve hostgroup information from ProxySQL" \
                          "\n-- Please check the ProxySQL configuration and status."
 
@@ -2247,19 +2242,19 @@ function parse_args() {
   local config_range maint_range
   config_range=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "pxccluster" "configHgRange" "-1" 1)
   [[ $? -ne 0 ]] && exit 1
-  WRITER_CONFIG_HOSTGROUP_ID=$(($config_range + $WRITER_HOSTGROUP_ID))
-  READER_CONFIG_HOSTGROUP_ID=$(($config_range + $READER_HOSTGROUP_ID))
+  WRITER_CONFIG_HOSTGROUP_ID=$((config_range + WRITER_HOSTGROUP_ID))
+  READER_CONFIG_HOSTGROUP_ID=$((config_range + READER_HOSTGROUP_ID))
 
   maint_range=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "pxccluster" "maintenanceHgRange" "-1" 1)
   [[ $? -ne 0 ]] && exit 1
-  WRITER_MAINT_HOSTGROUP_ID=$((maint_range + $WRITER_HOSTGROUP_ID))
-  READER_MAINT_HOSTGROUP_ID=$((maint_range + $READER_HOSTGROUP_ID))
+  WRITER_MAINT_HOSTGROUP_ID=$((maint_range + WRITER_HOSTGROUP_ID))
+  READER_MAINT_HOSTGROUP_ID=$((maint_range + READER_HOSTGROUP_ID))
 
   # Check for LockFilePath
   LOCK_FILE_PATH=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "proxysql" "lockfilepath" "" 1)
   [[ $? -ne 0 ]] && exit 1
 
-  if [[ ! -d $(cd "$(dirname ${LOCK_FILE_PATH})" && pwd)/$(basename ${LOCK_FILE_PATH}) ]]; then
+  if [[ ! -d $(cd "$(dirname "${LOCK_FILE_PATH}")" && pwd)/$(basename "${LOCK_FILE_PATH}") ]]; then
     error "" "lockfilepath is set to an invalid location ${LOCK_FILE_PATH}. Make sure the directory exists."
     exit 1
   fi
@@ -2271,7 +2266,7 @@ function parse_args() {
     exit 1
   fi
   local diff_range
-  diff_range=$(( $maint_range - $config_range ))
+  diff_range=$(( maint_range - config_range ))
   # The hostgroup must be within the range, otherwise there may
   # be an overlap and conflict
   if [[ $WRITER_HOSTGROUP_ID -ge $diff_range || $READER_HOSTGROUP_ID -ge $diff_range ]]; then
@@ -2331,6 +2326,7 @@ function parse_args() {
   if [[ $writers_are_readers -eq 1 ]]; then
     WRITERS_ARE_READERS_OPTION=1
   else
+    # shellcheck disable=SC2034 # currently unused
     WRITERS_ARE_READERS_OPTION=0
   fi
 
@@ -2384,8 +2380,6 @@ function parse_args() {
       -e | --enable )
         shift
         ENABLE=1
-        NEEDS_WRITER_HOSTGROUP=1
-        NEEDS_READER_HOSTGROUP=1
         ;;
       --auto-assign-weights )
         shift
@@ -2402,33 +2396,26 @@ function parse_args() {
       --adduser )
         shift
         ADDUSER=1
-        NEEDS_WRITER_HOSTGROUP=1
         ;;
       --syncusers )
         shift
         SYNCUSERS=1
-        NEEDS_WRITER_HOSTGROUP=1
         ;;
       --sync-multi-cluster-users )
         shift
         SYNCMULTICLUSTERUSERS=1
-        NEEDS_WRITER_HOSTGROUP=1
         ;;
       --add-query-rule )
         shift
         ADD_QUERY_RULE=1
-        NEEDS_WRITER_HOSTGROUP=1
         ;;
       -d | --disable )
         shift
         DISABLE=1
-        NEEDS_WRITER_HOSTGROUP=1
-        NEEDS_READER_HOSTGROUP=1
         ;;
       --update-cluster )
         shift
         UPDATE_CLUSTER=1
-        NEEDS_WRITER_HOSTGROUP=1
         ;;
       --update-mysql-version )
         shift
@@ -2437,7 +2424,6 @@ function parse_args() {
       --is-enabled )
         shift
         CHECK_IF_ENABLED=1
-        NEEDS_WRITER_HOSTGROUP=1
         ;;
       --status )
         shift
@@ -2589,7 +2575,7 @@ function parse_args() {
 
     SSL_CERTIFICATE_PATH=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "pxccluster" "sslCertificatePath" "" 1)
     # Check if the sslCertificatePath exists.
-    if [ -z ${SSL_CERTIFICATE_PATH} ]; then
+    if [ -z "${SSL_CERTIFICATE_PATH}" ]; then
       error "$LINENO" "useSSL is set but sslCertificatePath is set to an empty path."
       exit 1
     fi
@@ -2599,21 +2585,22 @@ function parse_args() {
       exit 1
     fi
 
-    local ssl_ca=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "pxccluster" "sslCa" "" 1)
-    local ssl_key=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "pxccluster" "sslKey" "" 1)
-    local ssl_client=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "pxccluster" "sslClient" "" 1)
+    local ssl_ca ssl_key ssl_client
+    ssl_ca=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "pxccluster" "sslCa" "" 1)
+    ssl_key=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "pxccluster" "sslKey" "" 1)
+    ssl_client=$(read_from_config_file "$LINENO" "$CONFIG_FILE" "pxccluster" "sslClient" "" 1)
 
-    if [ ! -f ${SSL_CERTIFICATE_PATH}/$ssl_ca ]; then
+    if [ ! -f "${SSL_CERTIFICATE_PATH}"/"$ssl_ca" ]; then
       error "$LINENO" "Could not find SSL CA in ${SSL_CERTIFICATE_PATH}/$ssl_ca"
       exit 1
     fi
 
-    if [ ! -f ${SSL_CERTIFICATE_PATH}/$ssl_key ]; then
+    if [ ! -f "${SSL_CERTIFICATE_PATH}"/"$ssl_key" ]; then
       error "$LINENO" "Could not find SSL Key in ${SSL_CERTIFICATE_PATH}/$ssl_key"
       exit 1
     fi
 
-    if [ ! -f ${SSL_CERTIFICATE_PATH}/$ssl_client ]; then
+    if [ ! -f "${SSL_CERTIFICATE_PATH}"/"$ssl_client" ]; then
       error "$LINENO" "Could not find SSL Client cert in ${SSL_CERTIFICATE_PATH}/$ssl_client"
       exit 1
     fi
@@ -2650,11 +2637,11 @@ function parse_args() {
   fi
 
   if [[ -n $UPDATE_READ_WEIGHT ]]; then
-    validate_update_weights "READ" $UPDATE_READ_WEIGHT
+    validate_update_weights "READ" "$UPDATE_READ_WEIGHT"
   fi
 
   if [[ -n $UPDATE_WRITE_WEIGHT ]]; then
-    validate_update_weights "WRITE" $UPDATE_WRITE_WEIGHT
+    validate_update_weights "WRITE" "$UPDATE_WRITE_WEIGHT"
   fi
 
   #
@@ -2674,6 +2661,7 @@ function parse_args() {
   readonly ADDUSER
   readonly SYNCUSERS
   readonly SYNCMULTICLUSTERUSERS
+  # shellcheck disable=SC2034 # defined in proxysql-admin-common
   readonly ADD_QUERY_RULE
   readonly QUICK_DEMO
   readonly UPDATE_CLUSTER
@@ -2682,7 +2670,6 @@ function parse_args() {
   readonly REPORT_STATUS
   readonly REMOVE_ALL_SERVERS
 
-  readonly WITH_CHECK_MONITOR_USER
   readonly WITH_CLUSTER_APP_USER
 
   readonly MAX_CONNECTIONS
@@ -2707,19 +2694,20 @@ function validate_update_weights() {
   fi
 
   # The update option requires exact 2 arguments
-  arg_count=$(echo $new_weight_info | tr ',' '\n' | wc -l)
+  arg_count=$(echo "$new_weight_info" | tr ',' '\n' | wc -l)
   if [[ $arg_count -lt 2 || $arg_count -gt 2 ]]; then
     error "" "$update_operation option requires exactly two arguments in format \"<IP_ADDR:PORT>,NEW_WEIGHT\". Found $new_weight_info"
     exit 1
   fi
 
   # Extract node details and validate inputs
-  local address=$(echo $new_weight_info | cut -d, -f1)
-  local weight=$(echo $new_weight_info | cut -d, -f2)
+  local address weight node_address node_ip node_port
+  address=$(echo "$new_weight_info" | cut -d, -f1)
+  weight=$(echo "$new_weight_info" | cut -d, -f2)
 
-  local node_address=$(separate_ip_port_from_address "$address")
-  local node_ip=$(echo "$node_address" | cut -d' ' -f1)
-  local node_port=$(echo "$node_address" | cut -d' ' -f2)
+  node_address=$(separate_ip_port_from_address "$address")
+  node_ip=$(echo "$node_address" | cut -d' ' -f1)
+  node_port=$(echo "$node_address" | cut -d' ' -f2)
 
   # Check that we have a port and that it only contains digits
   if [[ -z $node_port || ! $node_port =~ ^[[:digit:]]*$ ]]; then
@@ -2768,7 +2756,7 @@ function main() {
 
   if [[ $UPDATE_CLUSTER -eq 1 ]]; then
 
-    check_if_enabled $WRITER_HOSTGROUP_ID
+    check_if_enabled "$WRITER_HOSTGROUP_ID"
     errcode=$?
     if [[ $ENABLE -eq 1 ]]; then
       if [[ $errcode -eq 1 ]]; then
@@ -2851,7 +2839,7 @@ function main() {
   elif [[ $CHECK_IF_ENABLED -eq 1 ]]; then
     local errcode
 
-    check_if_enabled $WRITER_HOSTGROUP_ID
+    check_if_enabled "$WRITER_HOSTGROUP_ID"
     errcode=$?
     if [[ $errcode -eq 1 ]]; then
       error "$LINENO" "The current configuration has not been enabled"
@@ -2866,7 +2854,7 @@ function main() {
 
   elif [[ $REPORT_STATUS -eq 1 ]]; then
 
-    report_status $WRITER_HOSTGROUP_ID
+    report_status "$WRITER_HOSTGROUP_ID"
 
   elif [[ $UPDATE_MYSQL_VERSION -eq 1 ]]; then
 
@@ -3137,8 +3125,8 @@ function wait_for_scheduler_processing ()
 {
     # Wait for 30 seconds
     local timeout=30
-    if is_mode_singlewrite $WRITER_HOSTGROUP_ID; then
-      for i in `seq 1 $timeout`;
+    if is_mode_singlewrite "$WRITER_HOSTGROUP_ID"; then
+      for i in $(seq 1 $timeout);
       do
         sleep 1
         # Check if there is only 1 writer
@@ -3216,7 +3204,7 @@ fi
 #
 # Check that we can find the scheduler
 #
-SCHEDULER_BINARY="$(dirname ${BASH_SOURCE[0]})/pxc_scheduler_handler"
+SCHEDULER_BINARY="$(dirname "${BASH_SOURCE[0]}")/pxc_scheduler_handler"
 SCHEDULER_BINARY=$(cd "$(dirname "${SCHEDULER_BINARY}")" && pwd)/$(basename "${SCHEDULER_BINARY}")
 if [[ ! -x $SCHEDULER_BINARY ]]; then
   error "$LINENO" "Cannot find pxc_scheduler_handler or either the file does not have execute permission."\

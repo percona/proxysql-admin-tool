@@ -165,6 +165,7 @@ function check_permission() {
     description="$4"
   fi
 
+  # shellcheck disable=SC1009,SC1073,SC1072
   if [ ! $permission "$path_to_check" ] ; then
     if [[ $permission == "-r" ]]; then
       error "$lineno" "You do not have READ permission for: $path_to_check"

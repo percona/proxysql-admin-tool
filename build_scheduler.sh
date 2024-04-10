@@ -17,13 +17,15 @@
 # along with this program; if not, write to the Free Software Foundation, Inc.,
 # 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
-source ./proxysql-common
+# shellcheck disable=SC1094,SC2181,SC1091
+
+source ./proxysql-common || exit
 
 if [ ! -d percona-scheduler ]; then
     git submodule update --init
 fi
 
-cd percona-scheduler
+pushd percona-scheduler || exit
 
 if [[ ! -e $(command -v go 2> /dev/null)  ]]; then
   error "" "go packages not found. Please install golang package."
@@ -38,7 +40,8 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-cd ..
+popd || exit
+
 cp percona-scheduler/pxc_scheduler_handler .
 echo -e "Build was successful. The binary can be found in ./pxc_scheduler_handler"
 
