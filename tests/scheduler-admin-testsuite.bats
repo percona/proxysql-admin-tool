@@ -289,7 +289,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --syncusers --add-query-rule
   echo "$output" >&2
   [ "$status" -eq  0 ]
-  [[ "${lines[6]}" =~ "Added query rule for user: test_query_rule" || "${lines[8]}" =~ "Added query rule for user: test_query_rule" ]]
+  [[ "${lines[2]}" =~ "Added query rule for user: test_query_rule" || "${lines[3]}" =~ "Added query rule for user: test_query_rule" ]]
 
   run_write_hg_query_rule_user=$(proxysql_exec "select 1 from runtime_mysql_query_rules where username='test_query_rule' and match_digest='^SELECT.*FOR UPDATE'" | awk '{print $0}')
   echo "$LINENO : Query rule count for user 'test_query_rule' with writer hostgroup found:$run_write_hg_query_rule_user expect:1"  >&2

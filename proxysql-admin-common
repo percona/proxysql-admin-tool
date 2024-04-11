@@ -471,6 +471,48 @@ function adduser(){
   proxysql_load_to_runtime_save_to_disk "MYSQL USERS" "$LINENO" "1"
 }
 
+# Check to see if the cluster is in mysql_galera_hostgroups
+#
+# Globals:
+#   None
+#
+# Arguments:
+#   Parameter 1 : the writer hostgroup id
+#
+function cluster_in_proxysql_check() {
+  local write_hg=$1
+
+  # As scheduler does not use the mysql_galera_hostgroups table,
+  # skip this check when scheduler is active
+  local is_scheduler_active
+  is_scheduler_active=$(proxysql_exec "$LINENO" \
+                         "SELECT active
+                          FROM runtime_scheduler
+                          WHERE comment like '% hgW:${write_hg}%'")
+
+
+  if [[ $is_scheduler_active -eq 1 ]]; then
+     return
+  fi
+
+  # Check to see if mysql_galera_hostgroups already has an
+  # entry for the worker hostgroup
+  local hostgroup_in_use
+  hostgroup_in_use=$(proxysql_exec "$LINENO" \
+                      "SELECT count(*)
+                       FROM mysql_galera_hostgroups
+                       WHERE
+                          writer_hostgroup = $write_hg")
+  check_cmd $? "$LINENO" "Galera hostgroup retrieval failed."\
+                       "\n-- Please check the ProxySQL connection parameters and status."
+
+  # If there are no hostgroups with this writer hostgroup id
+  # then return failure
+  if [[ $hostgroup_in_use -eq 0 ]]; then
+    error "$LINENO" "The cluster (with writer hostgroup:$WRITER_HOSTGROUP_ID) has not been configured in ProxySQL"
+    exit 1
+  fi
+}
 
 # Synchronizes the users between ProxySQL and PXC
 #
@@ -517,6 +559,8 @@ function syncusers() {
     echo -e "\nSyncing user accounts from server(${CLUSTER_HOSTNAME}:${CLUSTER_PORT}) to ProxySQL"
 
   else
+    cluster_in_proxysql_check "${WRITER_HOSTGROUP_ID}"
+
     local cluster_node
 
     # Get current MySQL users, filter out header row and mysql.sys user
@@ -565,7 +609,7 @@ function syncusers() {
   check_cmd $? "$LINENO" "Failed to load the user list from the server."\
                        "\n-- Please check the server connection parameters and status."
 
-  #Checking whether user is part of proxysql admin user list
+  # Checking whether user is part of proxysql admin user list
   # Get current ProxySQL users and filter out header row
   proxysql_users=$(get_proxysql_users)
 
@@ -574,131 +618,158 @@ function syncusers() {
   # Escape all backslashes here, because the read will evaluate
   # the escaped chars
   mysql_users=${mysql_users//\\/\\\\}
-  while read line; do
-    if [[ -z $line ]]; then
+
+  # Declare associative arrays
+  declare -A mysql_users_full_hash    # Hash of MySQL users
+  declare -A proxysql_users_full_hash # Hash of ProxySQL users
+  local username password
+
+  # Populate MySQL users hash
+  while read mysql_user; do
+    if [[ -z $mysql_user ]]; then
       continue
     fi
 
-    mysql_user=$line
-    debug "$LINENO" "Processing MySQL user:${mysql_user}"
+    # Add MySQL user to hash
+    username=$(echo "$mysql_user" | cut -f1)
+    password=$(echo "$mysql_user" | cut -f2)
+    mysql_users_full_hash["${username}"]="$password"
 
-    local match=0
-    proxysql_users=${proxysql_users//\\/\\\\}
-    while read pline; do
-      if [[ -z $pline ]]; then
+  done < <(printf "%s\n" "${mysql_users}")
+
+  # Populate ProxySQL users hash
+  while read proxysql_user; do
+    if [[ -z $proxysql_user ]]; then
+      continue
+    fi
+
+    # Extract ProxySQL username
+    username=$(echo "$proxysql_user" | cut -f1)
+    password=$(echo "$proxysql_user" | cut -f2)
+
+    # Add ProxySQL user to hash
+    proxysql_users_full_hash["${username}"]="$password"
+
+  done < <(printf "%s\n" "${proxysql_users}")
+
+  unset username
+  unset password
+
+  # Disable nounset to be able to search in the associative array
+  set +o nounset
+
+  # Check MySQL users against ProxySQL
+  for user in "${!mysql_users_full_hash[@]}"; do
+
+    username=${user}
+    password="${mysql_users_full_hash[${username}]}"
+    debug "$LINENO" "Processing MySQL user: '${username}'"
+
+    # Check if the user exists in ProxySQL
+    if [[ -n ${proxysql_users_full_hash[${username}]} ]]; then
+
+      # Perform an exact match for the user and password
+      if [[ "${proxysql_users_full_hash[${username}]}" == "${mysql_users_full_hash[${username}]}" ]]; then
+        debug "$LINENO" "MySQL user: '${username}' already exists in ProxySQL, continuing"
+        # User already exists in ProxySQL, we may skip this user
         continue
-      fi
-      if [ "$pline" == "$mysql_user" ];then
-        match=1
-        break
-      fi
-    done< <(printf "%s\n" "${proxysql_users}")
 
-    if [[ $match -eq 0 ]]; then
-      local user password
-      user=$(echo "$mysql_user" | cut -f1)
-      password=$(echo "$mysql_user" | cut -f2)
-
-      # escape SQL input
-      # Since we're using single quotes within the SQL statement, only need
-      # to escape the single quotes for SQL
-      password=${password//\'/\'\'}
-
-      # Check if same username exists with a different password
-      # delete the user to recreate.
-      while read pline; do
-        if [[ -z $pline ]]; then
-          continue
-        fi
-        local puser=$(echo "$pline" | cut -f1)
-        if [[ "$puser" == "$user" ]]; then
-          echo "Removing existing user from ProxySQL: $user"
-          proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE username='${user}' and default_hostgroup=$WRITER_HOSTGROUP_ID"
-          check_cmd $? "$LINENO" "Failed to delete the user ($user) from ProxySQL database."\
-                               "\n-- Please check the ProxySQL connection parameters and status."
-          proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE username='${user}' and destination_hostgroup in($WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID)"
-          check_cmd $? "$LINENO" "Failed to delete the query rule for user ($user) from ProxySQL database."\
-                               "\n-- Please check the ProxySQL connection parameters and status."
-          changes_made=1
-          break
-        fi
-      done< <(printf "%s\n" "${proxysql_users}")
-
-      local is_proxysql_admin_user
-      is_proxysql_admin_user=$(proxysql_admin_user_check "$user")
-      if [[ $is_proxysql_admin_user -eq 1 ]]; then
-        echo -e "\nNote : '$user' is in proxysql admin user list, this user cannot be added to ProxySQL"\
-                "\n-- (For more info, see https://github.com/sysown/proxysql/issues/709)"
       else
-        check_user=$(proxysql_exec "$LINENO" "SELECT username from mysql_users where username='${user}'")
-        if [[ -z $check_user ]]; then
-          echo "Adding user to ProxySQL: $user"
-          proxysql_exec "$LINENO" \
-            "INSERT INTO mysql_users
-              (username, password, active, default_hostgroup)
-             VALUES
-              ('${user}', '${password}', 1, $WRITER_HOSTGROUP_ID)"
-          check_cmd $? "$LINENO" "Failed to add the user ($user) from PXC to ProxySQL database."\
-                               "\n-- Please check the ProxySQL connection parameters and status."
-          if [[ $ADD_QUERY_RULE -eq 1 ]];then
-            add_query_rule "${user}"
-          fi
-          changes_made=1
-        else
-          echo "Cannot add the user (${user}). The user (${user}) already exists in ProxySQL database with different hostgroup."
-          check_user=""
-        fi
+
+        # If the same user exists in ProxySQL, but with a different password,
+        # then remove all such users from ProxySQL
+
+        echo "Removing existing user from ProxySQL: ${username}"
+        proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE username='${username}' and default_hostgroup=$WRITER_HOSTGROUP_ID"
+        check_cmd $? "$LINENO" "Failed to delete the user (${username}) from ProxySQL database."\
+                             "\n-- Please check the ProxySQL connection parameters and status."
+        proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE username='${username}' and destination_hostgroup in($WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID)"
+        check_cmd $? "$LINENO" "Failed to delete the query rule for user (${username}) from ProxySQL database."\
+                             "\n-- Please check the ProxySQL connection parameters and status."
+        changes_made=1
       fi
     fi
-  done< <(printf "%s\n" "${mysql_users}")
 
+    # Check for ProxySQL admin user
+    local is_proxysql_admin_user
+    is_proxysql_admin_user=$(proxysql_admin_user_check "${username}")
+    if [[ $is_proxysql_admin_user -eq 1 ]]; then
+      echo -e "\nNote : '${username}' is in proxysql admin user list, this user cannot be added to ProxySQL"\
+              "\n-- (For more info, see https://github.com/sysown/proxysql/issues/709)"
+    else
+      # Verify that the user does not exist in ProxySQL
+      check_user=$(proxysql_exec "$LINENO" "SELECT username from mysql_users where username='${username}'")
+      if [[ -z $check_user ]]; then
+        # It is confirmed that the user does not exist in ProxySQL, let's add it
+        echo "Adding user to ProxySQL: ${username}"
+        proxysql_exec "$LINENO" \
+          "INSERT INTO mysql_users
+           (username, password, active, default_hostgroup)
+           VALUES
+            ('${username}', '${password}', 1, $WRITER_HOSTGROUP_ID)"
+        check_cmd $? "$LINENO" "Failed to add the user (${username}) from PXC to ProxySQL database."\
+                             "\n-- Please check the ProxySQL connection parameters and status."
+        if [[ $ADD_QUERY_RULE -eq 1 ]];then
+          add_query_rule "${username}"
+        fi
+        changes_made=1
+      else
+        echo "Cannot add the user (${username}). The user (${username}) already exists in ProxySQL database with different hostgroup."
+        check_user=""
+      fi
+    fi
+  done # End of for loop
+
+  # Remove users from ProxySQL that do not exist in MySQL
   if [[ $SYNCUSERS -eq 1 ]]; then
-    # TEST FOR USERS THAT EXIST IN PROXYSQL BUT NOT IN MYSQL HERE AND REMOVE
-    # Again get all users
+
+    # Get all proxysql users
     proxysql_users=$(get_proxysql_users)
 
-    while read pline; do
-      if [[ -z $pline ]]; then
+    # Unset the hash
+    declare -A proxysql_users_full_hash
+
+    # Populate ProxySQL users hash
+    while read proxysql_user; do
+      if [[ -z $proxysql_user ]]; then
         continue
       fi
-      proxysql_user=$pline
-      debug "$LINENO" "Processing ProxySQL user:${proxysql_user}"
 
-      local match=0
-      while read -r line; do
-        if [[ -z $line ]]; then
-          continue
-        fi
-        local proxysql_user_name mysql_user_name
-        proxysql_user_name=$(echo "${proxysql_user}" | cut -f1)
-        mysql_user_name=$(echo "${line}" | cut -f1)
-        debug "$LINENO" "Comparing proxysql user:${proxysql_user_name} to mysql user:${mysql_user_name}"
-        if [ "$proxysql_user_name" == "$mysql_user_name" ];then
-          match=1
-          break
-        fi
-      done< <(printf "%s\n", "$mysql_users")
+      # Extract ProxySQL username
+      username=$(echo "$proxysql_user" | cut -f1)
+      password=$(echo "$proxysql_user" | cut -f2)
 
-      if [ "$match" -eq 0 ];then
+      # Add ProxySQL user to hash
+      proxysql_users_full_hash["${username}"]="$password"
+
+    done < <(printf "%s\n" "${proxysql_users}")
+
+    # Check ProxySQL users against MySQL
+    for username in "${!proxysql_users_full_hash[@]}"; do
+      debug "$LINENO" "Processing ProxySQL user(for removal):${username}"
+
+      if [[ -z ${mysql_users_full_hash["${username}"]} ]]; then
         # Delete the ProxySQL user
-        local user
-        user=$(echo "$proxysql_user" | cut -f1)
-        echo -e "\nRemoving (non-MySQL) user from ProxySQL: $user"
-        proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE username='${user}' and default_hostgroup=$WRITER_HOSTGROUP_ID"
-        check_cmd $? "$LINENO" "Failed to delete the user ($user) from ProxySQL database."\
+        echo -e "\nRemoving (non-MySQL) user from ProxySQL: ${username}"
+        proxysql_exec "$LINENO" "DELETE FROM mysql_users WHERE username='${username}' and default_hostgroup=$WRITER_HOSTGROUP_ID"
+        check_cmd $? "$LINENO" "Failed to delete the user (${username}) from ProxySQL database."\
                              "\n-- Please check the ProxySQL connection parameters and status."
-        proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE username='${user}' and destination_hostgroup in($WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID)"
-        check_cmd $? "$LINENO" "Failed to delete the query rule for user ($user) from ProxySQL database."\
+        proxysql_exec "$LINENO" "DELETE FROM mysql_query_rules WHERE username='${username}' and destination_hostgroup in($WRITER_HOSTGROUP_ID,$READER_HOSTGROUP_ID)"
+        check_cmd $? "$LINENO" "Failed to delete the query rule for user (${username}) from ProxySQL database."\
                                "\n-- Please check the ProxySQL connection parameters and status."
         changes_made=1
       fi
-    done< <(printf "%s\n" "$proxysql_users")
+    done
   fi
 
+  # Save the configuration
   if [[ $changes_made -eq 1 ]]; then
     proxysql_load_to_runtime_save_to_disk "MYSQL USERS" $LINENO
     proxysql_load_to_runtime_save_to_disk "MYSQL QUERY RULES" $LINENO
   fi
+
+  # Re-enable nounset
+  set -o nounset
 }
 
 # Returns a list of users from the ProxySQL database
@@ -722,7 +793,6 @@ function get_proxysql_users() {
                       uniq )
   printf "%s" "$proxysql_users"
 }
-
 
 # Checks if a user is a ProxySQL admin user
 #

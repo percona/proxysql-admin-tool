@@ -84,9 +84,9 @@ WORKDIR=$1
 
 # Fetch PXC versions
 LATEST_VERSION=`git ls-remote --refs --sort='version:refname' --tags https://github.com/percona/percona-xtradb-cluster | \
-           grep 'Percona-XtraDB-Cluster-' | tail -n1 | cut -d '/' -f3 | cut -d '-' -f4`
+           grep 'Percona-XtraDB-Cluster-8.0' | tail -n1 | cut -d '/' -f3 | cut -d '-' -f4`
 VERSION_SUFFIX=`git ls-remote --refs --sort='version:refname' --tags https://github.com/percona/percona-xtradb-cluster | \
-           grep 'Percona-XtraDB-Cluster-' | tail -n1 | cut -d '/' -f3 | cut -d '-' -f5`
+           grep 'Percona-XtraDB-Cluster-8.0' | tail -n1 | cut -d '/' -f3 | cut -d '-' -f5`
 
 if [ -d $WORKDIR ]; then
   echo "Directory with the provided name already exist."
