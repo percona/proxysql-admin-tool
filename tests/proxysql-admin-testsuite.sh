@@ -37,6 +37,10 @@ declare REPL_PASSWORD="pass1234"
 # Set this to 1 to run the tests
 declare RUN_TEST=1
 
+# Options to skip killing old mysqld and proxysql processes
+declare KILL_OLD_MYSQLD=1
+declare KILL_OLD_PROXYSQL=1
+
 # Set this to 1 to include creating and running the tests
 # for cluster 2
 declare USE_CLUSTER_TWO=1
@@ -87,6 +91,8 @@ Options:
                       left up-and-running (useful for quickly starting
                       a test environment). This requires a manual running
                       of the proxysql-admin script.
+  --no-kill-mysqld    Dont kill previous mysqld servers
+  --no-kill-proxysql  Dont kill previous proxysql servers
   --cluster-one-only  Only starts up (and runs the tests) for cluster_one.
                       May be used with --no-test to startup only one cluster.
   --ipv4              Run the tests using IPv4 addresses (default)
@@ -135,6 +141,12 @@ function parse_args() {
           ;;
         --test)
           TEST_NAMES=$value
+          ;;
+        --no-kill-mysqld)
+          KILL_OLD_MYSQLD=0
+          ;;
+        --no-kill-proxysql)
+          KILL_OLD_PROXYSQL=0
           ;;
         *)
           echo "ERROR: unknown parameter \"$param\""
@@ -559,11 +571,15 @@ fi
 declare ROOT_FS=$WORKDIR
 mkdir -p $WORKDIR/logs
 
-echo "Shutting down currently running mysqld instances"
-sudo pkill -9 -x mysqld
+if [[ $KILL_OLD_MYSQLD -eq 1 ]]; then
+  echo "Shutting down currently running mysqld instances"
+  sudo pkill -9 -x mysqld
+fi
 
-echo "Shutting down currently running proxysql instances"
-sudo pkill -9 -x proxysql
+if [[ $KILL_OLD_PROXYSQL -eq 1 ]]; then
+  echo "Shutting down currently running proxysql instances"
+  sudo pkill -9 -x proxysql
+fi
 
 #
 # Check file locations before doing anything

@@ -185,7 +185,16 @@ fi
   echo "$output" >&2
   [ "$status" -eq  0 ]
 
-  [[ "${lines[2]}" =~ "Added query rule for user: test_query_rule" ]]
+  local len=${#lines[@]}
+  local pattern_found=0
+
+  for i in $(seq 0 $((len - 1))); do
+    if [[ "${lines[$i]}" =~ "Added query rule for user: test_query_rule" ]]; then
+      pattern_found=1
+    fi
+  done
+
+  [[ $pattern_found -eq 1 ]]
 
   run_write_hg_query_rule_user=$(proxysql_exec "select 1 from runtime_mysql_query_rules where username='test_query_rule' and match_digest='^SELECT.*FOR UPDATE'" | awk '{print $0}')
   echo "$LINENO : Query rule count for user 'test_query_rule' with writer hostgroup found:$run_write_hg_query_rule_user expect:1"  >&2
