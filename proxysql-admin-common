@@ -663,6 +663,11 @@ function syncusers() {
 
     username=${user}
     password="${mysql_users_full_hash[${username}]}"
+
+    # Since we're using single quotes within the SQL statement, only need
+    # to escape the single quotes for SQL
+    password=${password//\'/\'\'}
+
     debug "$LINENO" "Processing MySQL user: '${username}'"
 
     # Check if the user exists in ProxySQL
