@@ -19,6 +19,9 @@
 # 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
 #-------------------------------------------------------------------------------
+
+# shellcheck disable=SC2046,SC2181,SC1091
+
 #
 # Step 1 : Bash internal configuration
 #
@@ -27,8 +30,8 @@ set -o nounset    # no undefined variables
 set -o pipefail   # internal pipe failures cause an exit
 
 # Include the common functions
-. $(dirname ${BASH_SOURCE[0]})/proxysql-common
-. $(dirname ${BASH_SOURCE[0]})/proxysql-admin-common
+. $(dirname "${BASH_SOURCE[0]}")/proxysql-common
+. $(dirname "${BASH_SOURCE[0]}")/proxysql-admin-common
 
 
 #-------------------------------------------------------------------------------
@@ -41,6 +44,7 @@ set -o pipefail   # internal pipe failures cause an exit
 #
 
 # default timeout is 10 seconds
+# shellcheck disable=SC2034
 declare  -i TIMEOUT=10
 
 #
@@ -473,12 +477,12 @@ function user_input_check() {
   password=$(eval "echo \$${user_category}_PASSWORD")
 
   if [[ -z $username ]]; then
-    read -r -p "Enter ${user_description}name : " ${user_category}_USERNAME
+    read -r -p "Enter ${user_description}name : " "${user_category}"_USERNAME
     username=$(eval "echo \$${user_category}_USERNAME")
     while [[ -z ${username} ]]
     do
       echo -n "No input entered, Enter ${user_description} name: "
-      read -r ${user_category}_USERNAME
+      read -r "${user_category}"_USERNAME
       username=$(eval "echo \$${user_category}_USERNAME")
     done
   else
@@ -488,11 +492,11 @@ function user_input_check() {
   fi
   if [[ -z $password ]]; then
     if [[ $QUICK_DEMO -eq 0 ]]; then
-      read -r -s -p  "Enter ${user_description} password: " ${user_category}_PASSWORD
+      read -r -s -p  "Enter ${user_description} password: " "${user_category}"_PASSWORD
       password=$(eval "echo \$${user_category}_PASSWORD")
       while [[ -z $password ]]
       do
-        read -r -s -p  "No input entered, Enter ${user_description} password: " ${user_category}_PASSWORD
+        read -r -s -p  "No input entered, Enter ${user_description} password: " "${user_category}"_PASSWORD
         password=$(eval "echo \$${user_category}_PASSWORD")
       done
     fi
@@ -924,7 +928,7 @@ function enable_proxysql() {
     else
       echo ""
       echo -e "The monitoring user is already present in Percona XtraDB Cluster.\n"
-      read -p "Would you like to enter a new password [y/n] ? " check_param
+      read -r -p "Would you like to enter a new password [y/n] ? " check_param
     fi
     case $check_param in
       y|Y)
@@ -1281,7 +1285,7 @@ function find_cluster_node()
   local host_info
   local all_hostgroups
 
-  all_hostgroups=$(get_all_hostgroups_from_writer_hostgroup $write_hg)
+  all_hostgroups=$(get_all_hostgroups_from_writer_hostgroup "$write_hg")
   if [[ -z $all_hostgroups ]]; then
     error "$LINENO" "Could not find a cluster (with writer_hostgroup:$write_hg) to update"
     exit 1
@@ -1299,7 +1303,7 @@ function find_cluster_node()
   fi
 
   # Check each node to see if it is Primary
-  while read line; do
+  while read -r line; do
     [[ -z $line ]] && continue
 
     local ip_addr port
@@ -1396,7 +1400,6 @@ function update_cluster()
   local host_info
   local current_hosts=""
   local ip_addr port
-  local cluster_host cluster_port
   local all_hostgroups
   local cluster_addresses=""
   local data
@@ -1454,7 +1457,7 @@ function update_cluster()
     if [[ -n $host_info ]]; then
       # Extract the hostname and port from the rows
       # Creates a string of "host:port" separated by spaces
-      while read line; do
+      while read -r line; do
         if [[ -z $line ]]; then
           continue
         fi
@@ -1603,7 +1606,7 @@ function update_cluster()
                              "\n-- Please check the ProxySQL connection parameters and status."
 
         # readd as a writer node
-        add_servers_to_proxysql $writer_ws_address
+        add_servers_to_proxysql "$writer_ws_address"
         force_to_runtime=1
 
         # Clear any other previous write-node
@@ -1635,7 +1638,7 @@ function update_cluster()
     echo "Waiting for ProxySQL to process the new nodes..."
     if is_mode_singlewrite $WRITER_HOSTGROUP_ID; then
       sleep 5
-      for i in `seq 1 10`;
+      for i in $(seq 1 10);
       do
         # Check if there is only 1 writer
         data=$(proxysql_exec "$LINENO" \
@@ -1735,7 +1738,7 @@ function report_status()
   local read_hg backup_hg offline_hg
 
   if [[ $WRITER_HOSTGROUP_COMMAND_LINE -eq 1 ]]; then
-    all_hostgroups=$(get_all_hostgroups_from_writer_hostgroup $write_hg)
+    all_hostgroups=$(get_all_hostgroups_from_writer_hostgroup "$write_hg")
     if [[ -z $all_hostgroups ]]; then
       error "$LINENO" "Could not find a cluster (with writer_hostgroup:$write_hg)"
       exit 1
@@ -1954,6 +1957,7 @@ function parse_args() {
         exit 0
         ;;
       --debug)
+        # shellcheck disable=SC2034
         DEBUG=1
         shift
         ;;
@@ -1988,6 +1992,8 @@ function parse_args() {
     else
         check_permission -r "$LINENO" "$CONFIG_FILE"
         debug "$LINENO" "Loading $CONFIG_FILE"
+
+        # shellcheck disable=SC1090
         source "$CONFIG_FILE"
     fi
   fi
@@ -2290,6 +2296,7 @@ function parse_args() {
         shift
         ;;
       --use-stdin-for-credentials )
+        # shellcheck disable=SC2034
         USE_STDIN_FOR_CREDENTIALS=1
         shift
         ;;
@@ -2522,6 +2529,7 @@ function parse_args() {
 
     readonly MONITOR_USERNAME
     readonly CLUSTER_APP_USERNAME
+    #shellcheck disable=SC2034
     readonly CLUSTER_APP_PASSWORD
   fi
 
@@ -2530,6 +2538,7 @@ function parse_args() {
   # (proxysql and PXC cluster) should have been set.
   #
   readonly PROXYSQL_USERNAME
+  # shellcheck disable=SC2034 # defined in proxysql-admin-common
   readonly PROXYSQL_PASSWORD
   readonly PROXYSQL_PORT
   readonly PROXYSQL_HOSTNAME
@@ -2542,6 +2551,7 @@ function parse_args() {
   readonly ADDUSER
   readonly SYNCUSERS
   readonly SYNCMULTICLUSTERUSERS
+  # shellcheck disable=SC2034 # defined in proxysql-admin-common
   readonly ADD_QUERY_RULE
   readonly QUICK_DEMO
   readonly UPDATE_CLUSTER
@@ -2550,7 +2560,6 @@ function parse_args() {
   readonly REPORT_STATUS
   readonly REMOVE_ALL_SERVERS
 
-  readonly WITH_CHECK_MONITOR_USER
   readonly WITH_CLUSTER_APP_USER
 
   readonly MAX_CONNECTIONS
@@ -2603,7 +2612,7 @@ function main() {
         exit 0
       fi
     else
-      cluster_in_proxysql_check $WRITER_HOSTGROUP_ID
+      cluster_in_proxysql_check "$WRITER_HOSTGROUP_ID"
     fi
 
     update_cluster
@@ -2660,14 +2669,14 @@ function main() {
 
   elif [[ $ADDUSER -eq 1 ]]; then  
 
-    cluster_in_proxysql_check $WRITER_HOSTGROUP_ID
+    cluster_in_proxysql_check "$WRITER_HOSTGROUP_ID"
     adduser
     echo -e "\nAdded PXC application user to the ProxySQL database!"
 
   elif [[ $SYNCUSERS -eq 1 ]] || [[ $SYNCMULTICLUSTERUSERS -eq 1 ]]; then
 
     if [[ -z $SINGLE_SERVER ]]; then
-      cluster_in_proxysql_check $WRITER_HOSTGROUP_ID
+      cluster_in_proxysql_check "$WRITER_HOSTGROUP_ID"
     fi
 
     syncusers
@@ -2676,7 +2685,7 @@ function main() {
   elif [[ $CHECK_IF_ENABLED -eq 1 ]]; then
     local errcode
 
-    check_if_enabled $WRITER_HOSTGROUP_ID
+    check_if_enabled "$WRITER_HOSTGROUP_ID"
     errcode=$?
     if [[ $errcode -eq 1 ]]; then
       error "$LINENO" "The current configuration has not been enabled"
@@ -2691,11 +2700,11 @@ function main() {
 
   elif [[ $REPORT_STATUS -eq 1 ]]; then
 
-    report_status $WRITER_HOSTGROUP_ID
+    report_status "$WRITER_HOSTGROUP_ID"
 
   elif [[ $UPDATE_MYSQL_VERSION -eq 1 ]]; then
 
-    cluster_in_proxysql_check $WRITER_HOSTGROUP_ID
+    cluster_in_proxysql_check "$WRITER_HOSTGROUP_ID"
     update_mysql_version
 
   else

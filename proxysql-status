@@ -18,8 +18,10 @@
 # along with this program; if not, write to the Free Software Foundation, Inc.,
 # 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
+# shellcheck disable=SC2046,SC2181,SC1091
+
 # Include the common functions
-. $(dirname ${BASH_SOURCE[0]})/proxysql-common
+. $(dirname "${BASH_SOURCE[0]}")/proxysql-common
 
 # Global variables
 declare USER=""
@@ -142,6 +144,7 @@ function mysql_exec() {
   local defaults=""
   local default_auth=""
 
+  # shellcheck disable=SC2086
   if [[ $CREDENTIALS_FROM_CLIENT_CONFIG -eq 0 ]]; then
     defaults=$(printf '[client]\nuser=%s\npassword="%s"\nhost=%s\nport=%s\n%s' \
       "${USER}" \
@@ -172,7 +175,6 @@ function mysql_exec() {
 
 function parse_args() {
     local go_out=""
-    local positional_args=""
 
    # TODO: kennt, what happens if we don't have a functional getopt()?
     # Check if we have a functional getopt(1)
@@ -189,7 +191,6 @@ function parse_args() {
         case "$arg" in
             -- )
                 shift
-                positional_args="$@"
                 break;;
             --runtime )
                 shift
@@ -263,9 +264,6 @@ function parse_args() {
         esac
     done
 
-    # Reset the args
-    eval set -- "$positional_args"
-
     if [[ $# -eq 0 && -z $LOGIN_FILE ]]; then
         # If no credentials have been provided, try the default
         # mysql client credentials
@@ -333,10 +331,10 @@ function parse_args() {
             usage
             exit 1
         else
-            [ -n ${1+} ] && USER=$1
-            [ -n ${2+} ] && PASSWORD=$2
-            [ -n ${3+} ] && HOST=$3
-            [ -n ${4+} ] && PORT=$4
+            [[ -n ${1+} ]] && USER=$1
+            [[ -n ${2+} ]] && PASSWORD=$2
+            [[ -n ${3+} ]] && HOST=$3
+            [[ -n ${4+} ]] && PORT=$4
         fi
 
 

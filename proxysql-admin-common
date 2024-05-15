@@ -18,6 +18,8 @@
 # along with this program; if not, write to the Free Software Foundation, Inc.,
 # 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
+# shellcheck disable=SC2181
+
 #-------------------------------------------------------------------------------
 #
 # Step 1 : Bash internal configuration
@@ -94,6 +96,7 @@ function exec_sql() {
     "${default_auth}"
   )
 
+  # shellcheck disable=SC2086
   if [[ $USE_STDIN_FOR_CREDENTIALS -eq 1 ]]; then
     retoutput=$(printf "%s" "${defaults}" | mysql --defaults-file=/dev/stdin --protocol=tcp --unbuffered --batch --silent ${args} -e "$query")
     retvalue=$?
@@ -358,7 +361,7 @@ function update_mysql_version()
   mysql_version_string=$(mysql_exec "$LINENO" "SELECT VERSION();" | tail -1 | cut -d'-' -f1 )
   check_cmd $? "$LINENO"  "Failed to select the mysql version info from Cluster node."\
                           "\n-- Please check the PXC connection parameters and status."
-  if [[ $proxysql_mysql_version_string != $mysql_version_string ]]; then
+  if [[ $proxysql_mysql_version_string != "$mysql_version_string" ]]; then
     proxysql_exec "$LINENO" \
     "UPDATE global_variables
       SET variable_value='$mysql_version_string'
@@ -625,7 +628,7 @@ function syncusers() {
   local username password
 
   # Populate MySQL users hash
-  while read mysql_user; do
+  while read -r mysql_user; do
     if [[ -z $mysql_user ]]; then
       continue
     fi
@@ -638,7 +641,7 @@ function syncusers() {
   done < <(printf "%s\n" "${mysql_users}")
 
   # Populate ProxySQL users hash
-  while read proxysql_user; do
+  while read -r proxysql_user; do
     if [[ -z $proxysql_user ]]; then
       continue
     fi
@@ -735,7 +738,7 @@ function syncusers() {
     declare -A proxysql_users_full_hash
 
     # Populate ProxySQL users hash
-    while read proxysql_user; do
+    while read -r proxysql_user; do
       if [[ -z $proxysql_user ]]; then
         continue
       fi
@@ -816,13 +819,14 @@ function proxysql_admin_user_check(){
   local proxysql_admin_users
   local is_proxysql_admin_user
 
-  proxysql_admin_users=($(proxysql_exec "$LINENO" \
+  mapfile -t proxysql_admin_users < <(proxysql_exec "$LINENO" \
                             "select variable_value
                              from global_variables
                              where variable_name like 'admin-%_credentials'" |
-			      sed 's/;/\n/g'|
+                              sed 's/;/\n/g'|
                               cut -d':' -f1 |
-                              grep -v variable_value))
+                              grep -v variable_value)
+  # shellcheck disable=SC2199
   if [[ " ${proxysql_admin_users[@]} " =~ [[:space:]]${userchk}[[:space:]] ]]; then
     is_proxysql_admin_user=1
   else
