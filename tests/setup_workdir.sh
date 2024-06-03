@@ -10,11 +10,12 @@
 help() {
 cat << EOF
 Usage:
-  ./setup_workdir.sh /path/where/the/workdir/should/be/created
+  ./setup_workdir.sh /path/where/the/workdir/should/be/created skip_download
   eg.
-  1) ./setup_workdir.sh ~/workdir1
-  2) ./setup_workdir.sh /tmp/workdir2
+  1) ./setup_workdir.sh ~/workdir1 1 => skips the download of PXC
+  2) ./setup_workdir.sh /tmp/workdir2 0
   3) ./setup_workdir.sh workdir3
+
 
 Note: The script will exit if there exists a directory by the same name
 EOF
