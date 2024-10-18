@@ -605,7 +605,7 @@ function syncusers() {
   esac
 
   # Filter out the internal system users
-  mysql_users=$(mysql_exec "$LINENO" "SELECT User,${password_field} FROM mysql.user where ${password_field}!=''" "" "hide_output" |
+  mysql_users=$(mysql_exec "$LINENO" "SELECT User,HEX(${password_field}) FROM mysql.user where ${password_field}!=''" "" "hide_output" |
                   grep -E -v "^(mysql.sys|mysql.session|mysql.infoschema|mysql.pxc)" |
                   sort |
                   uniq )
@@ -714,7 +714,7 @@ function syncusers() {
           "INSERT INTO mysql_users
            (username, password, active, default_hostgroup)
            VALUES
-            ('${username}', '${password}', 1, $WRITER_HOSTGROUP_ID)"
+            ('${username}', UNHEX('${password}'), 1, $WRITER_HOSTGROUP_ID)"
         check_cmd $? "$LINENO" "Failed to add the user (${username}) from PXC to ProxySQL database."\
                              "\n-- Please check the ProxySQL connection parameters and status."
         if [[ $ADD_QUERY_RULE -eq 1 ]];then
@@ -791,7 +791,7 @@ function syncusers() {
 function get_proxysql_users() {
   local proxysql_users
   proxysql_users=$(proxysql_exec "$LINENO" \
-                    "SELECT username,password
+                    "SELECT username,HEX(password)
                       FROM mysql_users
                       WHERE password!='' AND default_hostgroup=$WRITER_HOSTGROUP_ID" "" "hide_output")
   check_cmd $? "$LINENO" "Failed to load user list from ProxySQL database."\
