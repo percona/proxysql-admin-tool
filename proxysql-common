@@ -397,6 +397,8 @@ function get_mysql_version()
     echo "5.7"
   elif echo "$version_string" | grep -qe "[[:space:]]8\.0\."; then
     echo "8.0"
+  elif echo "$version_string" | grep -qe "[[:space:]]8\.4\."; then
+    echo "8.4"
   elif echo "$version_string" | grep -qe "[[:space:]]10\.0\."; then
     echo "10.0"
   elif echo "$version_string" | grep -qe "[[:space:]]10\.1\."; then

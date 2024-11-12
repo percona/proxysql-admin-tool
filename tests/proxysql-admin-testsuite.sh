@@ -30,7 +30,7 @@ declare SUSER=root
 declare SPASS=
 declare OS_USER=$(whoami)
 
-# Used by the async slaves
+# Used by the async replicas
 declare REPL_USER="repl_user"
 declare REPL_PASSWORD="pass1234"
 
@@ -186,6 +186,8 @@ function get_mysql_version() {
     echo "5.7"
   elif echo "$mysqld_version" | grep -qe "[[:space:]]8\.0\."; then
     echo "8.0"
+  elif echo "$mysqld_version" | grep -qe "[[:space:]]8\.4\."; then
+    echo "8.4"
   elif echo "$version_string" | grep -qe "[[:space:]]10\.1\."; then
     echo "10.1"
   elif echo "$version_string" | grep -qe "[[:space:]]10\.2\."; then
@@ -307,12 +309,10 @@ function start_pxc_node(){
   echo "core-file" >> my.cnf
   echo "log-output=none" >> my.cnf
   echo "server-id=1" >> my.cnf
-  echo "skip-slave-start" >> my.cnf
-  echo "master-info-repository=TABLE" >> my.cnf
-  echo "relay-log-info-repository=TABLE" >> my.cnf
+  echo "skip-replica-start" >> my.cnf
   echo "gtid-mode=ON" >> my.cnf
   echo "enforce-gtid-consistency" >> my.cnf
-  echo "log-slave-updates" >> my.cnf
+  echo "log-replica-updates" >> my.cnf
   echo "log-bin" >> my.cnf
   echo "user=$OS_USER" >> my.cnf
   if compare_versions "5.6" "<" "$MYSQL_VERSION"; then
@@ -330,6 +330,10 @@ function start_pxc_node(){
   else
     echo "log-error-verbosity=3" >> my.cnf
     echo "wsrep_sst_method=xtrabackup-v2" >> my.cnf
+  fi
+  # Add 8.4+ options here
+  if compare_versions "$MYSQL_VERSION" ">=" "8.4"; then
+    echo "mysql-native-password=ON" >> my.cnf
   fi
 
   echo "[sst]" >> my.cnf
@@ -449,17 +453,15 @@ function start_async_slave() {
   echo "innodb_file_per_table" >> my-slave.cnf
   echo "innodb_autoinc_lock_mode=2" >> my-slave.cnf
   if compare_versions "$MYSQL_VERSION" "<" "8.0"; then
-    echo "innodb_locks_unsafe_for_binlog=1" >> my.cnf
+    echo "innodb_locks_unsafe_for_binlog=1" >> my-slave.cnf
   fi
   echo "core-file" >> my-slave.cnf
   echo "log-output=none" >> my-slave.cnf
   echo "server-id=$baseport" >> my-slave.cnf
-  echo "skip-slave-start" >> my-slave.cnf
-  echo "master-info-repository=TABLE" >> my-slave.cnf
-  echo "relay-log-info-repository=TABLE" >> my-slave.cnf
+  echo "skip-replica-start" >> my-slave.cnf
   echo "gtid-mode=ON" >> my-slave.cnf
   echo "enforce-gtid-consistency" >> my-slave.cnf
-  echo "log-slave-updates" >> my-slave.cnf
+  echo "log-replica-updates" >> my-slave.cnf
   echo "log-bin" >> my-slave.cnf
   echo "user=$OS_USER" >> my-slave.cnf
   if [[ $USE_IPVERSION == "v6" ]]; then
@@ -469,6 +471,10 @@ function start_async_slave() {
   # Add 8.0+ options here
   if compare_versions "$MYSQL_VERSION" ">=" "8.0"; then
     echo "log-error-verbosity=3" >> my-slave.cnf
+  fi
+  # Add 8.4+ options here
+  if compare_versions "$MYSQL_VERSION" ">=" "8.4"; then
+    echo "mysql-native-password=ON" >> my-slave.cnf
   fi
 
   # This is a requirement for proxysql-admin
@@ -723,6 +729,8 @@ elif [[ $MYSQL_VERSION == "5.7" ]]; then
   MID="${PXC_BASEDIR}/bin/mysqld --no-defaults --initialize-insecure --basedir=${PXC_BASEDIR}"
 elif [[ $MYSQL_VERSION == "8.0" ]]; then
   MID="${PXC_BASEDIR}/bin/mysqld --no-defaults --initialize-insecure --basedir=${PXC_BASEDIR}"
+elif [[ $MYSQL_VERSION == "8.4" ]]; then
+  MID="${PXC_BASEDIR}/bin/mysqld --no-defaults --initialize-insecure --basedir=${PXC_BASEDIR}"
 else
   echo "Unknown/unexpected MySQL version: $MYSQL_VERSION"
   exit 1
@@ -754,7 +762,7 @@ GRANT ALL ON *.* TO admin@'%' IDENTIFIED BY 'admin' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
 EOF
 elif [[ $MYSQL_VERSION > "8.0" || $MYSQL_VERSION == "8.0" ]]; then
-  # For 8.0 separate out the user creation from the grant
+  # For 8.0+ separate out the user creation from the grant
   ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock <<EOF
 CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH mysql_native_password BY 'admin';
 GRANT ALL ON *.* TO admin@'%' WITH GRANT OPTION;
@@ -785,11 +793,11 @@ CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4110, MASTER_USER='${R
 FLUSH PRIVILEGES;
 EOF
 elif [[ $MYSQL_VERSION > "8.0" || $MYSQL_VERSION == "8.0" ]]; then
-  # For 8.0 separate out the user creation from the grant
+  # For 8.0+ separate out the user creation from the grant
   ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one_slave.sock <<EOF
 CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH mysql_native_password BY 'admin';
 GRANT ALL ON *.* TO admin@'%' WITH GRANT OPTION;
-CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4110, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1 FOR CHANNEL 'master-a';
+CHANGE REPLICATION SOURCE TO SOURCE_HOST='$LOCALHOST_IP', SOURCE_PORT=4110, SOURCE_USER='${REPL_USER}', SOURCE_PASSWORD='${REPL_PASSWORD}', SOURCE_AUTO_POSITION=1 FOR CHANNEL 'source-a';
 FLUSH PRIVILEGES;
 EOF
 fi
@@ -933,7 +941,7 @@ EOF
     ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two_slave.sock <<EOF
 CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH mysql_native_password BY 'admin';
 GRANT ALL ON *.* TO admin@'%' WITH GRANT OPTION;
-CHANGE MASTER TO MASTER_HOST='$LOCALHOST_IP', MASTER_PORT=4210, MASTER_USER='${REPL_USER}', MASTER_PASSWORD='${REPL_PASSWORD}', MASTER_AUTO_POSITION=1 FOR CHANNEL 'master-a';
+CHANGE REPLICATION SOURCE TO SOURCE_HOST='$LOCALHOST_IP', SOURCE_PORT=4210, SOURCE_USER='${REPL_USER}', SOURCE_PASSWORD='${REPL_PASSWORD}', SOURCE_AUTO_POSITION=1 FOR CHANNEL 'source-a';
 FLUSH PRIVILEGES;
 EOF
   fi
