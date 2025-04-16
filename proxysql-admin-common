@@ -591,7 +591,7 @@ function syncusers() {
     5.5 | 5.6)
       password_field="Password"
       ;;
-    5.7 | 8.0)
+    5.7 | 8.0 | 8.4)
       password_field="authentication_string"
       ;;
     10.0 | 10.1 | 10.2 | 10.3 | 10.4 | 10.5 | 10.6 | 10.11)

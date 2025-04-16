@@ -47,7 +47,7 @@ fi
 #
 # Script parameters/constants
 #
-readonly    PROXYSQL_ADMIN_VERSION="2.7.1"
+readonly    PROXYSQL_ADMIN_VERSION="2.7.1-1"
 
 # The minimum required openssl version
 readonly    REQUIRED_OPENSSL_VERSION="1.1.1"
@@ -397,6 +397,8 @@ function get_mysql_version()
     echo "5.7"
   elif echo "$version_string" | grep -qe "[[:space:]]8\.0\."; then
     echo "8.0"
+  elif echo "$version_string" | grep -qe "[[:space:]]8\.4\."; then
+    echo "8.4"
   elif echo "$version_string" | grep -qe "[[:space:]]10\.0\."; then
     echo "10.0"
   elif echo "$version_string" | grep -qe "[[:space:]]10\.1\."; then
