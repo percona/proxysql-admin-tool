@@ -153,9 +153,9 @@ echo "...Copying done"
 if [[ ! $SKIP_DOWNLOAD -eq 1 ]];then
   echo "Fetching the PXC tarball packages"
   if [[ $VERSION == "8.0" ]]; then
-    wget -O $WORKDIR/Percona-XtraDB-Cluster_${LATEST_VERSION}_Linux.x86_64.glibc2.35-minimal.tar.gz https://www.percona.com/downloads/Percona-XtraDB-Cluster-LATEST/Percona-XtraDB-Cluster-${LATEST_VERSION}/binary/tarball/Percona-XtraDB-Cluster_${LATEST_VERSION}-${VERSION_SUFFIX}_Linux.x86_64.glibc2.35-minimal.tar.gz
+    wget -O $WORKDIR/Percona-XtraDB-Cluster_${LATEST_VERSION}_Linux.x86_64.glibc2.35-minimal.tar.gz http://downloads.percona.com/downloads/Percona-XtraDB-Cluster-80/Percona-XtraDB-Cluster-${LATEST_VERSION}/binary/tarball/Percona-XtraDB-Cluster_${LATEST_VERSION}-${VERSION_SUFFIX}_Linux.x86_64.glibc2.35-minimal.tar.gz
   elif [[ $VERSION == "8.4" ]]; then
-    wget -O $WORKDIR/Percona-XtraDB-Cluster-${LATEST_VERSION}_Linux.x86_64.glibc2.35-minimal.tar.gz https://downloads.percona.com/downloads/Percona-XtraDB-Cluster-84/Percona-XtraDB-Cluster-8.4.0/binary/tarball/Percona-XtraDB-Cluster_8.4.0-1.1_Linux.x86_64.glibc2.35-minimal.tar.gz
+    wget -O $WORKDIR/Percona-XtraDB-Cluster_${LATEST_VERSION}_Linux.x86_64.glibc2.35-minimal.tar.gz http://downloads.percona.com/downloads/Percona-XtraDB-Cluster-84/Percona-XtraDB-Cluster-${LATEST_VERSION}/binary/tarball/Percona-XtraDB-Cluster_${LATEST_VERSION}-${VERSION_SUFFIX}_Linux.x86_64.glibc2.35-minimal.tar.gz
   fi
   echo "...Successful"
 fi
