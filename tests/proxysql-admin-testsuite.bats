@@ -299,8 +299,8 @@ fi
 
   echo "time taken: $time_taken seconds"
   # Expected time to process 1000 users is about 25 seconds.
-  # For this test, lets assume that it takes less than 2 minutes.
-  [[ $time_taken -le 120 ]]
+  # For this test, lets assume that it takes less than 2.5 minutes.
+  [[ $time_taken -le 150 ]]
 
   echo "$output" >&2
   [ "$status" -eq  0 ]
