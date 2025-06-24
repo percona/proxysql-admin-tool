@@ -47,10 +47,10 @@ fi
 #
 # Script parameters/constants
 #
-readonly    PROXYSQL_ADMIN_VERSION="2.7.3"
+readonly    PROXYSQL_ADMIN_VERSION="3.0.1"
 
 # The minimum required openssl version
-readonly    REQUIRED_OPENSSL_VERSION="1.1.1"
+readonly    REQUIRED_OPENSSL_VERSION="3.0.0"
 
 # The name of the openssl binary packaged with proxysql-admin
 readonly    PROXYSQL_ADMIN_OPENSSL_NAME="proxysql-admin-openssl"

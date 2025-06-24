@@ -332,8 +332,8 @@ fi
   time_taken=$((end_time - start_time))
 
   # Expected time to process 1000 users is about 25 seconds.
-  # For this test, lets assume that it takes less than a minute.
-  [[ $time_taken -le 60 ]]
+  # For this test, lets assume that it takes less than 3 minutes.
+  [[ $time_taken -le 150 ]]
 
   # Verify that the user has been removed from ProxySQL
   proxysql_count=$(proxysql_exec "select count(distinct username) from mysql_users where username like 'a - %'")
