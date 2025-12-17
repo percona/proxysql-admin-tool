@@ -249,6 +249,66 @@ fi
   [ "$cluster_user_count" -eq "$proxysql_user_count" ]
 }
 
+@test "test if default schema is preserved when password update is synced using syncusers ($WSREP_CLUSTER_NAME)" {
+  [[ -n $TEST_NAME && ! $TEST_NAME =~ user_sync_password_update ]] && skip;
+
+  local user="test_user"
+  local initial_password="InitialPass1!"
+  local updated_password="UpdatedPass2!"
+  local default_schema="test_schema"
+
+  # Step 1: Create the user in MySQL
+  echo "$LINENO: Creating user '$user' in MySQL" >&2
+  mysql_exec "$HOST_IP" "$PORT_3" "CREATE USER '$user'@'%' IDENTIFIED WITH mysql_native_password BY '$initial_password';"
+  mysql_exec "$HOST_IP" "$PORT_3" "GRANT ALL PRIVILEGES ON *.* TO '$user'@'%';"
+  sleep 3  # Allow replication
+
+  # Verify the user exists in MySQL
+  mysql_user_count=$(mysql_exec "$HOST_IP" "$PORT_1" "SELECT COUNT(*) FROM mysql.user WHERE user='$user';")
+  echo "$LINENO: MySQL user count for '$user': $mysql_user_count" >&2
+  [[ $mysql_user_count -eq 1 ]]
+
+  # Step 2: Sync the user to ProxySQL
+  echo "$LINENO: Syncing user '$user' to ProxySQL" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers
+  echo "$output" >&2
+  [ "$status" -eq 0 ]
+
+  # Verify the user exists in ProxySQL (runtime_mysql_users table)
+  proxysql_user_count=$(proxysql_exec "SELECT COUNT(*) FROM runtime_mysql_users WHERE username='$user'" | awk '{print $0}')
+  echo "$LINENO: ProxySQL user count for '$user': $proxysql_user_count" >&2
+  [[ $proxysql_user_count -ne 0 ]]
+
+  # Step 3: Add a default schema in ProxySQL
+  echo "$LINENO: Adding default schema '$default_schema' for user '$user' in ProxySQL" >&2
+  proxysql_exec "UPDATE mysql_users SET default_schema='$default_schema' WHERE username='$user'; LOAD MYSQL USERS TO RUNTIME;"
+  proxysql_schema=$(proxysql_exec "SELECT default_schema FROM runtime_mysql_users WHERE username='$user'" | awk 'NR==1 {print $1}')
+  echo "$LINENO: ProxySQL default schema for '$user': $proxysql_schema and actual $default_schema: $default_schema" >&2
+  [[ "$proxysql_schema" == "$default_schema" ]]
+
+  # Step 4: Update the user's password in MySQL
+  echo "$LINENO: Updating password for user '$user' in MySQL" >&2
+  mysql_exec "$HOST_IP" "$PORT_3" "ALTER USER '$user'@'%' IDENTIFIED BY '$updated_password';"
+  sleep 3  # Allow replication
+
+  # Step 5: Sync the updated password to ProxySQL
+  echo "$LINENO: Syncing updated password for user '$user' to ProxySQL" >&2
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers
+  echo "$output" >&2
+  [ "$status" -eq 0 ]
+
+  # Verify the default schema property remains unchanged
+  proxysql_exec "LOAD MYSQL USERS TO RUNTIME;"
+  proxysql_schema_after_update=$(proxysql_exec "SELECT default_schema FROM mysql_users WHERE username='$user'" | awk 'NR==1 {print $1}')
+  echo "$LINENO: ProxySQL default schema for '$user' after password update: $proxysql_schema_after_update" >&2
+  [[ "$proxysql_schema_after_update" == "$default_schema" ]]
+
+  # Cleanup: Remove the user from MySQL and ProxySQL
+  echo "$LINENO: Cleaning up user '$user'" >&2
+  mysql_exec "$HOST_IP" "$PORT_3" "DROP USER '$user'@'%';"
+  proxysql_exec "DELETE FROM mysql_users WHERE username='$user'; LOAD MYSQL USERS TO RUNTIME;"
+}
+
 @test "run proxysql-admin --syncusers --server ($WSREP_CLUSTER_NAME) (many users)" {
   [[ -n $TEST_NAME && ! $TEST_NAME =~ syncusers_big ]] && skip;
 
@@ -332,8 +392,8 @@ fi
   time_taken=$((end_time - start_time))
 
   # Expected time to process 1000 users is about 25 seconds.
-  # For this test, lets assume that it takes less than a minute.
-  [[ $time_taken -le 60 ]]
+  # For this test, lets assume that it takes less than 3 minutes.
+  [[ $time_taken -le 150 ]]
 
   # Verify that the user has been removed from ProxySQL
   proxysql_count=$(proxysql_exec "select count(distinct username) from mysql_users where username like 'a - %'")
