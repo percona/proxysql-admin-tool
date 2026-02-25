@@ -47,7 +47,7 @@ fi
 #
 # Script parameters/constants
 #
-readonly    PROXYSQL_ADMIN_VERSION="3.0.1"
+readonly    PROXYSQL_ADMIN_VERSION="3.0.5"
 
 # The minimum required openssl version
 readonly    REQUIRED_OPENSSL_VERSION="3.0.0"
