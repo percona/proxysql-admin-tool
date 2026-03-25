@@ -688,13 +688,6 @@ echo "....Found the my_print_defaults in $PXC_BASEDIR/bin"
 
 echo "Starting ProxySQL..."
 rm -rf $WORKDIR/proxysql_db; mkdir $WORKDIR/proxysql_db
-if [[ ! -r /etc/proxysql.cnf ]]; then
-  echo "ERROR! This user($(whoami)) needs read permissions on /etc/proxysql.cnf"
-  echo "something like: 'sudo chmod +r /etc/proxysl.cnf' needs to be run"
-  echo "proxysql is started as this user and reads the cnf file"
-  echo "This is for TEST purposes and should not be done in PRODUCTION."
-  exit 1
-fi
 
 if [[ ! -x $PROXYSQL_BASE/usr/bin/proxysql ]]; then
   echo "ERROR! Could not find proxysql executable : $PROXYSQL_BASE/usr/bin/proxysql"
@@ -703,9 +696,9 @@ fi
 
 echo "Removing the previous proxysql logs"
 rm -f $WORKDIR/proxysql_db/proxysql.log
-$PROXYSQL_BASE/usr/bin/proxysql -D $WORKDIR/proxysql_db $PROXYSQL_EXTRA_OPTIONS --foreground > $WORKDIR/proxysql_db/proxysql.log 2>&1 &
-echo "....ProxySQL started. Redirecting the logs to $WORKDIR/proxysql_db/proxysql.log"
-
+export PROXYSQL_DATADIR="$WORKDIR/proxysql_db"
+$PROXYSQL_BASE/usr/bin/proxysql -D $PROXYSQL_DATADIR $PROXYSQL_EXTRA_OPTIONS --foreground > $PROXYSQL_DATADIR/proxysql.log 2>&1 &
+echo "....ProxySQL started. Redirecting the logs to $PROXYSQL_DATADIR/proxysql.log"
 
 echo "Creating link: $WORKDIR/pxc-bin --> $PXC_BASEDIR"
 rm -f $WORKDIR/pxc-bin
@@ -810,7 +803,7 @@ if [[ ! -r $PROXYSQL_BASE/etc/proxysql-admin.cnf ]]; then
 fi
 sudo cp $PROXYSQL_BASE/etc/proxysql-admin.cnf /etc/proxysql-admin.cnf
 sudo chown $OS_USER:$OS_USER /etc/proxysql-admin.cnf
-sudo sed -i "s|\/var\/lib\/proxysql|$PROXYSQL_BASE|" /etc/proxysql-admin.cnf
+sudo sed -i "s|\/var\/lib\/proxysql|$PROXYSQL_DATADIR|" /etc/proxysql-admin.cnf
 
 if [[ ! -e $(sudo which bats 2> /dev/null) ]] ;then
   pushd $ROOT_FS
