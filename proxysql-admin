@@ -1995,6 +1995,21 @@ function parse_args() {
 
         # shellcheck disable=SC1090
         source "$CONFIG_FILE"
+        check_cmd $? "$LINENO" "Failed to source config file: $CONFIG_FILE"
+    fi
+  else
+    debug "$LINENO" "Skipping loading of config file since --quick-demo is set"
+
+    # quick-demo: only load PROXYSQL_DATADIR from config
+    local datadir_line datadir_value
+    datadir_line=$(grep -E '^[[:space:]]*export[[:space:]]+PROXYSQL_DATADIR=' "$CONFIG_FILE" | tail -n1 || true)
+    if [[ -n "$datadir_line" ]]; then
+      datadir_value=${datadir_line#*=}
+      datadir_value=${datadir_value%\"}
+      datadir_value=${datadir_value#\"}
+      datadir_value=${datadir_value%\'}
+      datadir_value=${datadir_value#\'}
+      PROXYSQL_DATADIR="$datadir_value"
     fi
   fi
 

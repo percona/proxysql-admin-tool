@@ -200,27 +200,27 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
   # reader count
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader count:$node_count expected:1" >&2
+  echo "$LINENO : reader count:$node_count expected:3" >&2
   [ "$node_count" -eq 3 ]
 
   # writer config
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_CONFIG_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : writer config count:$node_count expected:1" >&2
+  echo "$LINENO : writer config count:$node_count expected:3" >&2
   [ "$node_count" -eq 3 ]
 
   # reader config
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_CONFIG_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader config count:$node_count expected:1" >&2
+  echo "$LINENO : reader config count:$node_count expected:3" >&2
   [ "$node_count" -eq 3 ]
 
   # writer maint
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_MAINT_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : writer maint count:$node_count expected:1" >&2
+  echo "$LINENO : writer maint count:$node_count expected:0" >&2
   [ "$node_count" -eq 0 ]
 
   # reader maint
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_MAINT_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader maint count:$node_count expected:1" >&2
+  echo "$LINENO : reader maint count:$node_count expected:0" >&2
   [ "$node_count" -eq 0 ]
 
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --is-enabled <<< 'n'
@@ -422,6 +422,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   # Cleaning existing configuration to test --force option as normal run
   dump_runtime_nodes $LINENO "before disable"
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  [ "$status" -eq 0 ]
 
   dump_runtime_nodes $LINENO "before enable --force"
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml  --enable --force <<< n
@@ -441,27 +442,27 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
   # reader count
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader count:$node_count expected:2" >&2
+  echo "$LINENO : reader count:$node_count expected:3" >&2
   [ "$node_count" -eq 3 ]
 
   # writer config
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_CONFIG_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : writer config count:$node_count expected:1" >&2
+  echo "$LINENO : writer config count:$node_count expected:3" >&2
   [ "$node_count" -eq 3 ]
 
   # reader config
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_CONFIG_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader config count:$node_count expected:1" >&2
+  echo "$LINENO : reader config count:$node_count expected:3" >&2
   [ "$node_count" -eq 3 ]
 
   # writer maint
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_MAINT_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : writer maint count:$node_count expected:1" >&2
+  echo "$LINENO : writer maint count:$node_count expected:0" >&2
   [ "$node_count" -eq 0 ]
 
   # reader maint
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_MAINT_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader maint count:$node_count expected:1" >&2
+  echo "$LINENO : reader maint count:$node_count expected:0" >&2
   [ "$node_count" -eq 0 ]
 
   # Run 'percona-scheduler-admin --enable --force' without removing existing configuration
@@ -482,27 +483,27 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
   # reader count
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader count:$node_count expected:2" >&2
+  echo "$LINENO : reader count:$node_count expected:3" >&2
   [ "$node_count" -eq 3 ]
 
   # writer config
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_CONFIG_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : writer config count:$node_count expected:1" >&2
+  echo "$LINENO : writer config count:$node_count expected:3" >&2
   [ "$node_count" -eq 3 ]
 
   # reader config
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_CONFIG_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader config count:$node_count expected:1" >&2
+  echo "$LINENO : reader config count:$node_count expected:3" >&2
   [ "$node_count" -eq 3 ]
 
   # writer maint
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_MAINT_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : writer maint count:$node_count expected:1" >&2
+  echo "$LINENO : writer maint count:$node_count expected:0" >&2
   [ "$node_count" -eq 0 ]
 
   # reader maint
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_MAINT_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader maint count:$node_count expected:1" >&2
+  echo "$LINENO : reader maint count:$node_count expected:0" >&2
   [ "$node_count" -eq 0 ]
 
   # Check percona-scheduler-admin run status without --force option
@@ -529,27 +530,27 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
   # reader count
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader count:$node_count expected:2" >&2
+  echo "$LINENO : reader count:$node_count expected:3" >&2
   [ "$node_count" -eq 3 ]
   
   # writer config
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_CONFIG_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : writer config count:$node_count expected:1" >&2
+  echo "$LINENO : writer config count:$node_count expected:3" >&2
   [ "$node_count" -eq 3 ]
 
   # reader config
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_CONFIG_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader config count:$node_count expected:1" >&2
+  echo "$LINENO : reader config count:$node_count expected:3" >&2
   [ "$node_count" -eq 3 ]
 
   # writer maint
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_MAINT_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : writer maint count:$node_count expected:1" >&2
+  echo "$LINENO : writer maint count:$node_count expected:0" >&2
   [ "$node_count" -eq 0 ]
 
   # reader maint
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_MAINT_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader maint count:$node_count expected:1" >&2
+  echo "$LINENO : reader maint count:$node_count expected:0" >&2
   [ "$node_count" -eq 0 ]
 
 }
@@ -559,6 +560,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [[ -n $TEST_NAME && ! $TEST_NAME =~ writers_are_readers_basic ]] && skip;
 
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  [ "$status" -eq 0 ]
 
   # -----------------------------------------------------------
   # Use default value for --writers-are-readers (default is 1 or yes)
@@ -575,7 +577,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
   # reader count
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader count:$node_count expected:2" >&2
+  echo "$LINENO : reader count:$node_count expected:3" >&2
   [ "$node_count" -eq 3 ]
 
 
@@ -600,15 +602,19 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
   # reader count
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader count:$node_count expected:3" >&2
+  echo "$LINENO : reader count:$node_count expected:2" >&2
   [ "$node_count" -eq 2 ]
 
 
   # restore the system
-  sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader=1|" testsuite.toml
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  [ "$status" -eq 0 ]
+
+  sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader=1|" testsuite.toml
+
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable <<< 'n'
   [ "$status" -eq 0 ]
+
   sleep 5
 
 }
@@ -618,6 +624,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [[ -n $TEST_NAME && ! $TEST_NAME =~ writes_are_readers_read_only ]] && skip;
 
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  [ "$status" -eq 0 ]
 
   # -----------------------------------------------------------
   # change node3 to be a read-only node
@@ -665,7 +672,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
   # reader count
   proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader count:$proxysql_cluster_count expected:3" >&2
+  echo "$LINENO : reader count:$proxysql_cluster_count expected:2" >&2
   [ "$proxysql_cluster_count" -eq 2 ]
 
 
@@ -676,8 +683,11 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [ "$?" -eq 0 ]
 
   # restore the system
-  sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader=1|" testsuite.toml
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  [ "$status" -eq 0 ]
+
+  sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader=1|" testsuite.toml
+
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable <<< 'n'
   [ "$status" -eq 0 ]
   sleep 5
@@ -691,6 +701,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [[ -n $TEST_NAME && ! $TEST_NAME =~ loadbal_basic ]] && skip;
 
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  [ "$status" -eq 0 ]
 
   sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader=0|" testsuite.toml
   sudo sed -i "0,/^[ \t]*singlePrimary[ \t]*=.*$/s|^[ \t]*singlePrimary[ \t]*=.*$|singlePrimary=false|" testsuite.toml
@@ -708,14 +719,17 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
   # reader count
   proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader count:$proxysql_cluster_count expected:0" >&2
+  echo "$LINENO : reader count:$proxysql_cluster_count expected:3" >&2
   [ "$proxysql_cluster_count" -eq 3 ]
 
   # Reset the system
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  [ "$status" -eq 0 ]
+
   sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader=1|" testsuite.toml
   sudo sed -i "0,/^[ \t]*singlePrimary[ \t]*=.*$/s|^[ \t]*singlePrimary[ \t]*=.*$|singlePrimary=true|" testsuite.toml
   sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|maxNumWriters=1|" testsuite.toml
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable <<< 'n'
   [ "$status" -eq 0 ]
   sleep 5
@@ -727,6 +741,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [[ -n $TEST_NAME && ! $TEST_NAME =~ update_cluster_basic ]] && skip;
 
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  [ "$status" -eq 0 ]
 
   # Stop node3
   # store startup values
@@ -756,7 +771,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
   # reader count
   proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader count:$proxysql_cluster_count expected:1" >&2
+  echo "$LINENO : reader count:$proxysql_cluster_count expected:2" >&2
   [ "$proxysql_cluster_count" -eq 2 ]
 
   # Start node3
@@ -785,7 +800,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
   # reader count
   proxysql_cluster_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader count:$proxysql_cluster_count expected:2" >&2
+  echo "$LINENO : reader count:$proxysql_cluster_count expected:3" >&2
   [ "$proxysql_cluster_count" -eq 3 ]
 
 }
@@ -795,6 +810,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [[ -n $TEST_NAME && ! $TEST_NAME =~ update_cluster_enable ]] && skip;
 
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  [ "$status" -eq 0 ]
 
   # Stop node3
   # store startup values
@@ -828,7 +844,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
   # reader count
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader count:$node_count expected:1" >&2
+  echo "$LINENO : reader count:$node_count expected:2" >&2
   [ "$node_count" -eq 2 ]
 
   # Start node3
@@ -853,7 +869,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
   # reader count
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader count:$node_count expected:2" >&2
+  echo "$LINENO : reader count:$node_count expected:3" >&2
   [ "$node_count" -eq 3 ]
   
 }
@@ -938,27 +954,27 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
   # reader count
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader count:$node_count expected:1" >&2
+  echo "$LINENO : reader count:$node_count expected:3" >&2
   [ "$node_count" -eq 3 ]
 
   # writer config
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_CONFIG_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : writer config count:$node_count expected:1" >&2
+  echo "$LINENO : writer config count:$node_count expected:3" >&2
   [ "$node_count" -eq 3 ]
 
   # reader config
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_CONFIG_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader config count:$node_count expected:1" >&2
+  echo "$LINENO : reader config count:$node_count expected:3" >&2
   [ "$node_count" -eq 3 ]
 
   # writer maint
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_MAINT_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : writer maint count:$node_count expected:1" >&2
+  echo "$LINENO : writer maint count:$node_count expected:0" >&2
   [ "$node_count" -eq 0 ]
 
   # reader maint
   node_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $READER_MAINT_HOSTGROUP_ID " | awk '{print $0}')
-  echo "$LINENO : reader maint count:$node_count expected:1" >&2
+  echo "$LINENO : reader maint count:$node_count expected:0" >&2
   [ "$node_count" -eq 0 ]
 
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --is-enabled <<< 'n'
@@ -1048,31 +1064,37 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
   # Test with PORT_1
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  [ "$status" -eq 0 ]
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable --write-node="$HOST_IP:$PORT_1"
+  [ "$status" -eq 0 ]
   writer_node=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
   writer_weight=$(proxysql_exec "select weight from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
 
-  [ $writer_weight -eq 1000000 ]
+  [ "$writer_weight" -eq 1000000 ]
   [ "$writer_node" -eq "$PORT_1" ]
   [ "$status" -eq 0 ]
 
   # Test with PORT_2
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  [ "$status" -eq 0 ]
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable --write-node="$HOST_IP:$PORT_2"
+  [ "$status" -eq 0 ]
   writer_node=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
   writer_weight=$(proxysql_exec "select weight from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
 
-  [ $writer_weight -eq 1000000 ]
+  [ "$writer_weight" -eq 1000000 ]
   [ "$writer_node" -eq "$PORT_2" ]
   [ "$status" -eq 0 ]
 
   # Test with PORT_3
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  [ "$status" -eq 0 ]
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable --write-node="$HOST_IP:$PORT_3"
+  [ "$status" -eq 0 ]
   writer_node=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
   writer_weight=$(proxysql_exec "select weight from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
 
-  [ $writer_weight -eq 1000000 ]
+  [ "$writer_weight" -eq 1000000 ]
   [ "$writer_node" -eq "$PORT_3" ]
   [ "$status" -eq 0 ]
 
@@ -1085,7 +1107,8 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [[ -n $TEST_NAME && ! $TEST_NAME =~ singlewrite_read_only ]] && skip;
 
   # Disable
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  [ "$status" -eq 0 ]
 
   # -----------------------------------------------------------
   # change node3 to be a read-only node
