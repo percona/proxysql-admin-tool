@@ -7,6 +7,10 @@
 PXC_BASEDIR=$WORKDIR/pxc-bin
 PROXYSQL_BASEDIR=$WORKDIR/proxysql-bin
 
+# Source proxysql-admin.cnf for AUTH_PLUGIN and other shared settings
+source /etc/proxysql-admin.cnf
+AUTH_PLUGIN="${AUTH_PLUGIN:-caching_sha2_password}"
+
 # Declare some GLOBALS
 # These are used to return data from get_node_data()
 declare HOSTS=()
@@ -167,14 +171,14 @@ else
 fi
 
 # Ensure that the config file has the same options at start
-sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader = 1|" testsuite.toml
-sudo sed -i "0,/^[ \t]*singlePrimary[ \t]*=.*$/s|^[ \t]*singlePrimary[ \t]*=.*$|singlePrimary = true|" testsuite.toml
-sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|maxNumWriters = 1|" testsuite.toml
+sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader = 1|" $WORKDIR/testsuite.toml
+sudo sed -i "0,/^[ \t]*singlePrimary[ \t]*=.*$/s|^[ \t]*singlePrimary[ \t]*=.*$|singlePrimary = true|" $WORKDIR/testsuite.toml
+sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|maxNumWriters = 1|" $WORKDIR/testsuite.toml
 
 
 
 @test "run percona-scheduler-admin -d ($WSREP_CLUSTER_NAME)" {
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml -d
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml -d
   echo "$output" >&2
   [ "$status" -eq  0 ]
 }
@@ -182,7 +186,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
 @test "run percona-scheduler-admin -e ($WSREP_CLUSTER_NAME)" {
 
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml -e  <<< 'n'
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml -e  <<< 'n'
   echo "$output" >&2
   [ "$status" -eq  0 ]
 
@@ -223,7 +227,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   echo "$LINENO : reader maint count:$node_count expected:0" >&2
   [ "$node_count" -eq 0 ]
 
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --is-enabled <<< 'n'
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --is-enabled <<< 'n'
   echo "$output" >&2
   [ "$status" -eq  0 ]
 }
@@ -239,7 +243,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [[ -n $proxysql_mysql_version ]]
 
   if [[ $mysql_version != $proxysql_mysql_version ]]; then
-    run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-mysql-version
+    run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --update-mysql-version
     echo "$output" >&2
     [ "$status" -eq  0 ]
 
@@ -248,7 +252,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
     echo "$LINENO: mysql_version:$mysql_version  proxysql_mysql_version:$proxysql_mysql_version" >&2
     [ "$mysql_version" = "$proxysql_mysql_version" ]
   else
-    run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-mysql-version
+    run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --update-mysql-version
     echo "$output" >&2
     [ "$status" -eq  0 ]
   fi
@@ -258,7 +262,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [[ -n $TEST_NAME && ! $TEST_NAME =~ adduser ]] && skip;
   DEBUG_SQL_QUERY=1
 
-  printf "proxysql_test_user1\ntest_user\ny" | sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --adduser --debug >&2
+  printf "proxysql_test_user1\ntest_user\ny" | sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --adduser --debug >&2
   [[ $? -eq 0 ]]
 
   run_check_user_command=$(proxysql_exec "select 1 from runtime_mysql_users where username='proxysql_test_user1'" | head -1 | awk '{print $0}')
@@ -277,7 +281,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   echo "$LINENO : Check query rule count for user(test_query_rule) found:$run_query_rule expect:0"  >&2
   [[ "$run_query_rule" -eq 0 ]]
 
-  mysql_exec "$HOST_IP" "$PORT_3" "create user test_query_rule@'%' identified by 'test';"
+  mysql_exec "$HOST_IP" "$PORT_3" "CREATE USER test_query_rule@'%' IDENTIFIED WITH ${AUTH_PLUGIN} BY 'test';"
   # Give the cluster some time for this to replicate
   sleep 3
 
@@ -286,7 +290,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   echo "$LINENO" "cluster count for user test_query_rule found:${mysql_user_count}  expect:1" >&2
   [[ $mysql_user_count -eq 1 ]]
 
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --syncusers --add-query-rule
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --syncusers --add-query-rule
   echo "$output" >&2
   [ "$status" -eq  0 ]
 
@@ -310,7 +314,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   
   # Dropping user 'test_query_rule' from MySQL server to test the query rule delete operation 
   mysql_exec "$HOST_IP" "$PORT_3" "drop user test_query_rule@'%';"
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --syncusers --add-query-rule
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --syncusers --add-query-rule
   echo "$output" >&2
   [ "$status" -eq  0 ]
   run_check_user=$(proxysql_exec "select 1 from runtime_mysql_users where username='test_query_rule'" | awk '{print $0}')
@@ -369,9 +373,9 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [[ $proxysql_count -eq 0 ]]
 
   # Create a user on the async node
-  mysql_exec "$HOST_IP" "$ASYNC_PORT" "CREATE USER '${server_user}'@'%' IDENTIFIED WITH mysql_native_password BY 'passwd';"
+  mysql_exec "$HOST_IP" "$ASYNC_PORT" "CREATE USER '${server_user}'@'%' IDENTIFIED WITH ${AUTH_PLUGIN} BY 'passwd';"
 
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --syncusers --server=${HOST_IP}:${ASYNC_PORT}
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --syncusers --server=${HOST_IP}:${ASYNC_PORT}
   echo "$output" >&2
   [ "$status" -eq  0 ]
 
@@ -398,9 +402,9 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [[ $proxysql_count -eq 0 ]]
 
   # Create a user on the async node
-  mysql_exec "$HOST_IP" "$ASYNC_PORT" "CREATE USER '${server_user}'@'%' IDENTIFIED WITH mysql_native_password BY 'passwd';"
+  mysql_exec "$HOST_IP" "$ASYNC_PORT" "CREATE USER '${server_user}'@'%' IDENTIFIED WITH ${AUTH_PLUGIN} BY 'passwd';"
 
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --sync-multi-cluster-users --server=${HOST_IP}:${ASYNC_PORT}
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --sync-multi-cluster-users --server=${HOST_IP}:${ASYNC_PORT}
   echo "$output" >&2
   [ "$status" -eq  0 ]
 
@@ -421,11 +425,11 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
   # Cleaning existing configuration to test --force option as normal run
   dump_runtime_nodes $LINENO "before disable"
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --disable
   [ "$status" -eq 0 ]
 
   dump_runtime_nodes $LINENO "before enable --force"
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml  --enable --force <<< n
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml  --enable --force <<< n
   echo "$output" >&2
   [ "$status" -eq 0 ]
   sleep 10
@@ -467,7 +471,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
   # Run 'percona-scheduler-admin --enable --force' without removing existing configuration
   echo "$LINENO : running --enable --force (without removing existing config)"  >&2
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml  --enable --force <<< n
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml  --enable --force <<< n
   echo "$output" >&2
   [ "$status" -eq 0 ]
   sleep 10
@@ -508,14 +512,14 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
   # Check percona-scheduler-admin run status without --force option
   echo "$LINENO : running --disable"  >&2
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml  --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml  --disable
   [ "$status" -eq 0 ]
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml  --enable <<< n
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml  --enable <<< n
   echo "$output" >&2
   [ "$status" -eq 0 ]
 
   # Check percona-scheduler-admin run status with following options
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml  --enable --update-cluster --force  <<< n
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml  --enable --update-cluster --force  <<< n
   echo "$output" >&2
   [ "$status" -eq 0 ]
   sleep 10
@@ -559,13 +563,13 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 @test "test for --writers-are-readers ($WSREP_CLUSTER_NAME)" {
   [[ -n $TEST_NAME && ! $TEST_NAME =~ writers_are_readers_basic ]] && skip;
 
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --disable
   [ "$status" -eq 0 ]
 
   # -----------------------------------------------------------
   # Use default value for --writers-are-readers (default is 1 or yes)
   echo "$LINENO : percona-scheduler-admin --enable" >&2
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable <<< 'n'
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --enable <<< 'n'
   [ "$status" -eq 0 ]
   sleep 10
   dump_runtime_nodes $LINENO "after enable"
@@ -584,13 +588,13 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   # -----------------------------------------------------------
   # Now run with --writers-are-readers=no
   echo "$LINENO : percona-scheduler-admin --disable" >&2
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --disable
   [ "$status" -eq 0 ]
 
-  sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader=0|" testsuite.toml
+  sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader=0|" $WORKDIR/testsuite.toml
 
   echo "$LINENO : percona-scheduler-admin --enable --writers-are-readers=no" >&2
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable <<< 'n'
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --enable <<< 'n'
   [ "$status" -eq 0 ]
   sleep 5
   dump_runtime_nodes $LINENO "after enable (writers-are-readers=no)"
@@ -607,12 +611,12 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
 
   # restore the system
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --disable
   [ "$status" -eq 0 ]
 
-  sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader=1|" testsuite.toml
+  sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader=1|" $WORKDIR/testsuite.toml
 
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable <<< 'n'
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --enable <<< 'n'
   [ "$status" -eq 0 ]
 
   sleep 5
@@ -623,7 +627,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 @test "test for --writers-are-readers with a read-only node ($WSREP_CLUSTER_NAME)" {
   [[ -n $TEST_NAME && ! $TEST_NAME =~ writes_are_readers_read_only ]] && skip;
 
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --disable
   [ "$status" -eq 0 ]
 
   # -----------------------------------------------------------
@@ -637,7 +641,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   # This will fail because read-only nodes are not allowed in configurations
   # that use --writers-are-ready=yes (which is the default)
   echo "$LINENO : percona-scheduler-admin --enable" >&2
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable <<< 'n'
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --enable <<< 'n'
   [ "$status" -eq 0 ]
   sleep 10
 
@@ -655,13 +659,13 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   # -----------------------------------------------------------
   # Now run with --writers-are-readers=no
   echo "$LINENO : percona-scheduler-admin --disable" >&2
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --disable
   [ "$status" -eq 0 ]
 
 
   echo "$LINENO : percona-scheduler-admin --enable --writers-are-readers=no" >&2
-  sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader=0|" testsuite.toml
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable <<< 'n'
+  sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader=0|" $WORKDIR/testsuite.toml
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --enable <<< 'n'
   [ "$status" -eq 0 ]
   sleep 10
 
@@ -683,12 +687,12 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [ "$?" -eq 0 ]
 
   # restore the system
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --disable
   [ "$status" -eq 0 ]
 
-  sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader=1|" testsuite.toml
+  sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader=1|" $WORKDIR/testsuite.toml
 
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable <<< 'n'
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --enable <<< 'n'
   [ "$status" -eq 0 ]
   sleep 5
 
@@ -700,15 +704,15 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 @test "test for --mode=loadbal ($WSREP_CLUSTER_NAME)" {
   [[ -n $TEST_NAME && ! $TEST_NAME =~ loadbal_basic ]] && skip;
 
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --disable
   [ "$status" -eq 0 ]
 
-  sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader=0|" testsuite.toml
-  sudo sed -i "0,/^[ \t]*singlePrimary[ \t]*=.*$/s|^[ \t]*singlePrimary[ \t]*=.*$|singlePrimary=false|" testsuite.toml
-  sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|maxNumWriters=9999|" testsuite.toml
+  sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader=0|" $WORKDIR/testsuite.toml
+  sudo sed -i "0,/^[ \t]*singlePrimary[ \t]*=.*$/s|^[ \t]*singlePrimary[ \t]*=.*$|singlePrimary=false|" $WORKDIR/testsuite.toml
+  sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|maxNumWriters=9999|" $WORKDIR/testsuite.toml
 
   echo "$LINENO : percona-scheduler-admin --enable --mode=loadbal" >&2
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable <<< 'n'
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --enable <<< 'n'
   [ "$status" -eq 0 ]
   sleep 10
 
@@ -723,14 +727,14 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [ "$proxysql_cluster_count" -eq 3 ]
 
   # Reset the system
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --disable
   [ "$status" -eq 0 ]
 
-  sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader=1|" testsuite.toml
-  sudo sed -i "0,/^[ \t]*singlePrimary[ \t]*=.*$/s|^[ \t]*singlePrimary[ \t]*=.*$|singlePrimary=true|" testsuite.toml
-  sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|maxNumWriters=1|" testsuite.toml
+  sudo sed -i "0,/^[ \t]*writerIsAlsoReader[ \t]*=.*$/s|^[ \t]*writerIsAlsoReader[ \t]*=.*$|writerIsAlsoReader=1|" $WORKDIR/testsuite.toml
+  sudo sed -i "0,/^[ \t]*singlePrimary[ \t]*=.*$/s|^[ \t]*singlePrimary[ \t]*=.*$|singlePrimary=true|" $WORKDIR/testsuite.toml
+  sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|maxNumWriters=1|" $WORKDIR/testsuite.toml
 
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable <<< 'n'
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --enable <<< 'n'
   [ "$status" -eq 0 ]
   sleep 5
 }
@@ -740,7 +744,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 @test "test --update-cluster ($WSREP_CLUSTER_NAME)" {
   [[ -n $TEST_NAME && ! $TEST_NAME =~ update_cluster_basic ]] && skip;
 
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --disable
   [ "$status" -eq 0 ]
 
   # Stop node3
@@ -758,7 +762,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   # Startup proxysql
   # -----------------------------------------------------------
   echo "$LINENO : percona-scheduler-admin --enable" >&2
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable  <<< 'n'
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --enable  <<< 'n'
   echo "$output" >& 2
   [ "$status" -eq 0 ]
   sleep 10
@@ -784,7 +788,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   dump_runtime_nodes "$LINENO" "after cluster update (runtime)"
 
   # Run --update-cluster
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --update-cluster
   echo "$LINENO : percona-scheduler-admin --update-cluster" >&2
   echo "$output" >& 2
   [ "$status" -eq 0 ]
@@ -809,7 +813,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 @test "test --enable --update-cluster ($WSREP_CLUSTER_NAME)" {
   [[ -n $TEST_NAME && ! $TEST_NAME =~ update_cluster_enable ]] && skip;
 
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --disable
   [ "$status" -eq 0 ]
 
   # Stop node3
@@ -830,7 +834,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   # Startup proxysql
   # -----------------------------------------------------------
   echo "$LINENO : percona-scheduler-admin --enable --update-cluster" >&2
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable --update-cluster <<< 'n'
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --enable --update-cluster <<< 'n'
   echo "$output" >& 2
   [ "$status" -eq 0 ]
   sleep 10
@@ -855,7 +859,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   sleep 10
 
   # Run --update-cluster
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable --update-cluster
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --enable --update-cluster
   echo "$LINENO : percona-scheduler-admin --update-cluster" >&2
   echo "$output" >& 2
   [ "$status" -eq 0 ]
@@ -879,35 +883,35 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [[ -n $TEST_NAME && ! $TEST_NAME =~ update_cluster_basic ]] && skip;
 
   # Reset before the test
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --remove-all-servers
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --update-cluster --remove-all-servers
 
   # Save the existing writer node
   local saved_hgw_port writer_node
   saved_hgw_port=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
 
   # Test with PORT_1
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --write-node="$HOST_IP:$PORT_1"
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --update-cluster --write-node="$HOST_IP:$PORT_1"
   echo "$output" >&2
   writer_node=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
   [ "$writer_node" -eq "$PORT_1" ]
   [ "$status" -eq 0 ]
 
   # Test with PORT_2
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --write-node="$HOST_IP:$PORT_2"
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --update-cluster --write-node="$HOST_IP:$PORT_2"
   echo "$output" >&2
   writer_node=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
   [ "$writer_node" -eq "$PORT_2" ]
   [ "$status" -eq 0 ]
 
   # Test with PORT_3
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --write-node="$HOST_IP:$PORT_3"
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --update-cluster --write-node="$HOST_IP:$PORT_3"
   echo "$output" >&2
   writer_node=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
   [ "$writer_node" -eq "$PORT_3" ]
   [ "$status" -eq 0 ]
 
   # Reset to saved_hgw_port
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --write-node="$HOST_IP:$saved_hgw_port"
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --update-cluster --write-node="$HOST_IP:$saved_hgw_port"
   writer_node=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
   [ "$writer_node" -eq "$saved_hgw_port" ]
   [ "$status" -eq 0 ]
@@ -916,7 +920,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
 @test "test upgrade from proxy-admin script ($WSREP_CLUSTER_NAME)" {
 
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml -d  <<< 'n'
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml -d  <<< 'n'
   echo "$output" >&2
   [ "$status" -eq  0 ]
   local saved_hgw saved_hgr
@@ -936,7 +940,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
   WRITER_HOSTGROUP_ID=$saved_hgw
   READER_HOSTGROUP_ID=$saved_hgr
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml -e  <<< 'n'
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml -e  <<< 'n'
   echo "$output" >&2
   [ "$status" -eq  0 ]
 
@@ -977,7 +981,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   echo "$LINENO : reader maint count:$node_count expected:0" >&2
   [ "$node_count" -eq 0 ]
 
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --is-enabled <<< 'n'
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --is-enabled <<< 'n'
   echo "$output" >&2
   [ "$status" -eq  0 ]
 }
@@ -987,7 +991,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [[ -n $TEST_NAME && ! $TEST_NAME =~ update_cluster_basic ]] && skip;
 
   # Update node weight using --update-weight option
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --update-read-weight="$HOST_IP:$PORT_1,1234"
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --update-cluster --update-read-weight="$HOST_IP:$PORT_1,1234"
 
   # Validate
   node_weight=$(proxysql_exec "select weight from runtime_mysql_servers where hostname='$HOST_IP' AND port=$PORT_1 AND hostgroup_id = $READER_HOSTGROUP_ID " | awk '{print $0}')
@@ -999,7 +1003,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
   # Update node weight using --update-write-weight option
   writer_port=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --update-write-weight="$HOST_IP:$writer_port,2340"
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --update-cluster --update-write-weight="$HOST_IP:$writer_port,2340"
 
   # Validate
   node_weight=$(proxysql_exec "select weight from runtime_mysql_servers where hostname='$HOST_IP' AND port=$writer_port AND hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
@@ -1010,7 +1014,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [ "$status" -eq 0 ]
 
   # Reset weights
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --remove-all-servers
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --update-cluster --remove-all-servers
 }
 
 # Test --update-cluster with --auto-assign-weights
@@ -1018,7 +1022,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [[ -n $TEST_NAME && ! $TEST_NAME =~ update_cluster_basic ]] && skip;
 
   # Update node weight using --update-weight option
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --auto-assign-weights
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --update-cluster --auto-assign-weights
 
   # There should be only one writer.
   writer_count=$(proxysql_exec "select count(*) from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
@@ -1055,7 +1059,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [ $writer_998_count -eq 1 ]
 
   # Reset weights
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --remove-all-servers
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --update-cluster --remove-all-servers
 }
 
 # Test --enable with --write-node
@@ -1063,9 +1067,9 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
 
 
   # Test with PORT_1
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --disable
   [ "$status" -eq 0 ]
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable --write-node="$HOST_IP:$PORT_1"
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --enable --write-node="$HOST_IP:$PORT_1"
   [ "$status" -eq 0 ]
   writer_node=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
   writer_weight=$(proxysql_exec "select weight from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
@@ -1075,9 +1079,9 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [ "$status" -eq 0 ]
 
   # Test with PORT_2
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --disable
   [ "$status" -eq 0 ]
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable --write-node="$HOST_IP:$PORT_2"
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --enable --write-node="$HOST_IP:$PORT_2"
   [ "$status" -eq 0 ]
   writer_node=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
   writer_weight=$(proxysql_exec "select weight from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
@@ -1087,9 +1091,9 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [ "$status" -eq 0 ]
 
   # Test with PORT_3
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --disable
   [ "$status" -eq 0 ]
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable --write-node="$HOST_IP:$PORT_3"
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --enable --write-node="$HOST_IP:$PORT_3"
   [ "$status" -eq 0 ]
   writer_node=$(proxysql_exec "select port from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
   writer_weight=$(proxysql_exec "select weight from runtime_mysql_servers where hostgroup_id = $WRITER_HOSTGROUP_ID " | awk '{print $0}')
@@ -1099,7 +1103,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [ "$status" -eq 0 ]
 
   # Reset
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --remove-all-servers
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --update-cluster --remove-all-servers
 }
 
 # Test singlewrite with --write-node is a read-only node
@@ -1107,7 +1111,7 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [[ -n $TEST_NAME && ! $TEST_NAME =~ singlewrite_read_only ]] && skip;
 
   # Disable
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --disable
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --disable
   [ "$status" -eq 0 ]
 
   # -----------------------------------------------------------
@@ -1119,13 +1123,13 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   # -----------------------------------------------------------
   # This should fail, since a write-node cannot be read-only
   echo "$LINENO : percona-scheduler-admin --enable --write-node=${HOST_IP}:${PORT_3}" >&2
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable --write-node=${HOST_IP}:${PORT_3}
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --enable --write-node=${HOST_IP}:${PORT_3}
   [ "$status" -eq 1 ]
 
   # -----------------------------------------------------------
   # This should pass, since --force option suppresses error
   echo "$LINENO : percona-scheduler-admin --enable --write-node=${HOST_IP}:${PORT_3} --force" >&2
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --enable --write-node=${HOST_IP}:${PORT_3} --force
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --enable --write-node=${HOST_IP}:${PORT_3} --force
   [[ ${lines[10]} =~ ^WARNING.*The.specified.write.node.*is.read-only.$ ]]
   [ "$status" -eq 0 ]
 
@@ -1136,5 +1140,5 @@ sudo sed -i "0,/^[ \t]*maxNumWriters[ \t]*=.*$/s|^[ \t]*maxNumWriters[ \t]*=.*$|
   [ "$?" -eq 0 ]
 
   # Reset
-  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-cluster --remove-all-servers
+  run sudo PATH=$WORKDIR:$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --update-cluster --remove-all-servers
 }

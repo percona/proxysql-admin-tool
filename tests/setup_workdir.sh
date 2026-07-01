@@ -89,7 +89,6 @@ VERSION="8.4"
 
 # Fetch PXC versions
 if [[ $VERSION == "8.0" ]]; then
-
     LATEST_VERSION=$(git ls-remote --refs --sort='version:refname' --tags https://github.com/percona/percona-xtradb-cluster | \
     grep 'Percona-XtraDB-Cluster-8.0' | tail -n1 | cut -d '/' -f3 | cut -d '-' -f4)
     VERSION_SUFFIX=$(git ls-remote --refs --sort='version:refname' --tags https://github.com/percona/percona-xtradb-cluster | \
@@ -99,6 +98,11 @@ elif [[ $VERSION == "8.4" ]]; then
     grep 'Percona-XtraDB-Cluster-8.4' | tail -n1 | cut -d '/' -f3 | cut -d '-' -f4)
     VERSION_SUFFIX=$(git ls-remote --refs --sort='version:refname' --tags https://github.com/percona/percona-xtradb-cluster | \
     grep 'Percona-XtraDB-Cluster-8.4' | tail -n1 | cut -d '/' -f3 | cut -d '-' -f5)
+elif [[ $VERSION == "9.6" ]]; then
+    LATEST_VERSION=$(git ls-remote --refs --sort='version:refname' --tags https://github.com/percona/percona-xtradb-cluster | \
+    grep 'Percona-XtraDB-Cluster-9.6' | tail -n1 | cut -d '/' -f3 | cut -d '-' -f4)
+    VERSION_SUFFIX=$(git ls-remote --refs --sort='version:refname' --tags https://github.com/percona/percona-xtradb-cluster | \
+    grep 'Percona-XtraDB-Cluster-9.6' | tail -n1 | cut -d '/' -f3 | cut -d '-' -f5)
 fi
 
 if [ -d "$WORKDIR" ]; then
@@ -156,6 +160,10 @@ if [[ ! $SKIP_DOWNLOAD -eq 1 ]];then
     wget -O $WORKDIR/Percona-XtraDB-Cluster_${LATEST_VERSION}_Linux.x86_64.glibc2.35-minimal.tar.gz http://downloads.percona.com/downloads/Percona-XtraDB-Cluster-80/Percona-XtraDB-Cluster-${LATEST_VERSION}/binary/tarball/Percona-XtraDB-Cluster_${LATEST_VERSION}-${VERSION_SUFFIX}_Linux.x86_64.glibc2.35-minimal.tar.gz
   elif [[ $VERSION == "8.4" ]]; then
     wget -O $WORKDIR/Percona-XtraDB-Cluster_${LATEST_VERSION}_Linux.x86_64.glibc2.35-minimal.tar.gz http://downloads.percona.com/downloads/Percona-XtraDB-Cluster-84/Percona-XtraDB-Cluster-${LATEST_VERSION}/binary/tarball/Percona-XtraDB-Cluster_${LATEST_VERSION}-${VERSION_SUFFIX}_Linux.x86_64.glibc2.35-minimal.tar.gz
+  elif [[ $VERSION == "9.6" ]]; then
+    wget -O $WORKDIR/Percona-XtraDB-Cluster_${LATEST_VERSION}_Linux.x86_64.glibc2.35-minimal.tar.gz http://downloads.percona.com/downloads/TESTING/pxc-9.6.0/Percona-XtraDB-Cluster_9.6.0-1.1_Linux.x86_64.glibc2.35-minimal.tar.gz
+  elif [[ $VERSION == "9.7" ]]; then
+    echo "Skipping download"
   fi
   echo "...Successful"
 fi

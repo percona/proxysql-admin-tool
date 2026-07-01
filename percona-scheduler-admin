@@ -358,7 +358,7 @@ function exec_sql() {
   local more_options=""
   local retvalue
   local retoutput
-  local default_auth=""
+  local auth_option=""
   local defaults=""
 
   if [[ $# -ge 7 ]]; then
@@ -370,10 +370,7 @@ function exec_sql() {
   fi
 
   debug "$lineno" "exec_sql : $user@$hostname:$port ==> $query"
-
-  if [[ $MYSQL_CLIENT_VERSION == "8.0" ]]; then
-    default_auth="default-auth=mysql_native_password"
-  fi
+  auth_option="default-auth=${AUTH_PLUGIN}"
 
   defaults=$(printf '[client]\nuser=%s\npassword="%s"\nhost=%s\nport=%s\nconnect-timeout=%s\n%s' \
     "${user}" \
@@ -381,7 +378,7 @@ function exec_sql() {
     "${hostname}" \
     "${port}" \
     "${TIMEOUT}" \
-    "${default_auth}"
+    "${auth_option}"
   )
 
   if [[ $USE_STDIN_FOR_CREDENTIALS -eq 1 ]]; then
@@ -692,7 +689,7 @@ function user_input_check() {
                            "\n-- Please check the ProxySQL connection parameters and status."
 
       if [[ -z "$precheck_user" ]]; then
-        mysql_exec "$LINENO" "CREATE USER '$safe_username'@'$USER_HOST_RANGE' IDENTIFIED WITH mysql_native_password BY '$safe_password';"
+        mysql_exec "$LINENO" "CREATE USER '$safe_username'@'$USER_HOST_RANGE' IDENTIFIED WITH ${AUTH_PLUGIN} BY '$safe_password';"
         check_cmd $? "$LINENO" "Failed to add the PXC application user to PXC: $username" \
                              "\n-- Please check if '$CLUSTER_USERNAME'@'$CLUSTER_HOSTNAME' has the proper permissions to create the montioring user"
 
@@ -1174,7 +1171,7 @@ function enable_proxysql() {
                        "\n-- Please check the PXC cluster connection parameters and status."
   if [[ -z "$check_user" ]]; then
     # No monitor user found in MySQL, create the monitor user
-    mysql_exec "$LINENO" "CREATE USER '$SAFE_MONITOR_USERNAME'@'$USER_HOST_RANGE' IDENTIFIED WITH mysql_native_password BY '$SAFE_MONITOR_PASSWORD';"
+    mysql_exec "$LINENO" "CREATE USER '$SAFE_MONITOR_USERNAME'@'$USER_HOST_RANGE' IDENTIFIED WITH ${AUTH_PLUGIN} BY '$SAFE_MONITOR_PASSWORD';"
     check_cmd $? "$LINENO"  "Failed to create the ProxySQL monitoring user."\
                           "\n-- Please check that '$CLUSTER_USERNAME'@'$CLUSTER_HOSTNAME' has the proper permissions to create the montioring user"
   fi

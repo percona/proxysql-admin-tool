@@ -50,67 +50,67 @@ PROXYSQL_BASEDIR=$WORKDIR/proxysql-bin
 }
 
 @test "run percona-scheduler-admin --proxysql-username without parameters" {
-    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --proxysql-username
+    run sudo $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --proxysql-username
     echo "$output" >&2
     [ "$status" -eq 1 ]
 }
 
 @test "run percona-scheduler-admin --proxysql-port without parameters" {
-    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --proxysql-port
+    run sudo $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --proxysql-port
     echo "$output" >&2
     [ "$status" -eq 1 ]
 }
 
 @test "run percona-scheduler-admin --proxysql-hostname without parameters" {
-    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --proxysql-hostname
+    run sudo $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --proxysql-hostname
     echo "$output" >&2
     [ "$status" -eq 1 ]
 }
 
 @test "run percona-scheduler-admin --cluster-username without parameters" {
-    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --cluster-username
+    run sudo $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --cluster-username
     echo "$output" >&2
     [ "$status" -eq 1 ]
 }
 
 @test "run percona-scheduler-admin --cluster-port without parameters" {
-    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --cluster-port
+    run sudo $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --cluster-port
     echo "$output" >&2
     [ "$status" -eq 1 ]
 }
 
 @test "run percona-scheduler-admin --cluster-hostname without parameters" {
-    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --cluster-hostname
+    run sudo $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --cluster-hostname
     echo "$output" >&2
     [ "$status" -eq 1 ]
 }
 
 @test "run percona-scheduler-admin --cluster-app-username without parameters" {
-    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --cluster-app-username
+    run sudo $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --cluster-app-username
     echo "$output" >&2
     [ "$status" -eq 1 ]
 }
 
 @test "run percona-scheduler-admin --monitor-username without parameters" {
-    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --monitor-username
+    run sudo $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --monitor-username
     echo "$output" >&2
     [ "$status" -eq 1 ]
 }
 
 @test "run percona-scheduler-admin --write-node without parameters" {
-    run sudo $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --write-node
+    run sudo $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --write-node
     echo "$output" >&2
     [ "$status" -eq 1 ]
     [[ "${lines[0]}" =~ .*--write-node.* ]]
 }
 
 @test "run percona-scheduler-admin --write-node with missing port" {
-    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --write-node=1.1.1.1,2.2.2.2:44 --disable
+    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --write-node=1.1.1.1,2.2.2.2:44 --disable
     echo "$output" >&2
     [ "$status" -eq 1 ]
     [[ "${lines[0]}" =~ ERROR.*--write-node.*expects.* ]]
 
-    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --write-node=[1:1:1:1],[2:2:2:2]:44 --disable
+    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --write-node=[1:1:1:1],[2:2:2:2]:44 --disable
     echo "$output" >&2
     [ "$status" -eq 1 ]
     [[ "${lines[0]}" =~ ERROR.*--write-node.*expects.* ]]
@@ -129,17 +129,17 @@ PROXYSQL_BASEDIR=$WORKDIR/proxysql-bin
 
 # Mutually exclusive options
 @test "run percona-scheduler-admin --auto-assign-weights, write-node and --update-write-weight options" {
-    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --auto-assign-weights --write-node=1.1.1.1,2.2.2.2:44
+    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --auto-assign-weights --write-node=1.1.1.1,2.2.2.2:44
     echo "$output" >&2
     [ "$status" -eq 1 ]
     [[ "${lines[0]}" =~ ERROR.*options.are.mutually.exclusive.* ]]
 
-    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --write-node=2.2.2.2:44 --update-write-weight="[::1]:4130,2000"
+    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --write-node=2.2.2.2:44 --update-write-weight="[::1]:4130,2000"
     echo "$output" >&2
     [ "$status" -eq 1 ]
     [[ "${lines[0]}" =~ ERROR.*options.are.mutually.exclusive.* ]]
 
-    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-write-weight="[::1]:4130,2000" --auto-assign-weights
+    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --update-write-weight="[::1]:4130,2000" --auto-assign-weights
     echo "$output" >&2
     [ "$status" -eq 1 ]
     [[ "${lines[0]}" =~ ERROR.*options.are.mutually.exclusive.* ]]
@@ -147,12 +147,12 @@ PROXYSQL_BASEDIR=$WORKDIR/proxysql-bin
 
 # Malformed address in --update-write-weight
 @test "run percona-scheduler-admin --update-write-weight" {
-    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-write-weight="[::1]:4130av,20s00"
+    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --update-write-weight="[::1]:4130av,20s00"
     echo "$output" >&2
     [ "$status" -eq 1 ]
     [[ "${lines[0]}" =~ ERROR.*expected.address.in.format.* ]]
 
-    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=testsuite.toml --update-write-weight="[::1]:4130,20s00"
+    run sudo PATH=$PATH $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --update-write-weight="[::1]:4130,20s00"
     echo "$output" >&2
     [ "$status" -eq 1 ]
     [[ "${lines[0]}" =~ ERROR.*Weight.in.--update-write-weight.requires.a.number.* ]]
