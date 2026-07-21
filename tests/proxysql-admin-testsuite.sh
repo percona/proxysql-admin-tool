@@ -16,6 +16,16 @@ TEST_SUITES+=("proxysql-admin-testsuite.bats")
 TEST_SUITES2=()
 TEST_SUITES2+=("scheduler-admin-testsuite.bats")
 
+# Tests to run to verify mysql_native_password auth plugin compatibility
+AUTH_COMPAT_TEST_NAMES=(
+  syncusers_big
+  syncusers_basic
+  syncusers_server
+  syncusers_multicluster_server
+  adduser
+  user_sync_password_update
+  add_query_rule
+)
 
 #
 # Variables
@@ -51,6 +61,13 @@ declare USE_IPVERSION="v4"
 declare ALLOW_SHUTDOWN="Yes"
 
 declare PROXYSQL_EXTRA_OPTIONS=""
+
+# MySQL authentication plugin; can be overridden by environment variable
+declare AUTH_PLUGIN="${AUTH_PLUGIN:-caching_sha2_password}"
+
+# Set to 1 to skip the auth plugin compatibility test pass
+# using mysql_native_password (runs by default)
+declare SKIP_AUTH_PLUGIN_COMPAT_TEST=0
 
 declare TEST_NAMES=""
 
@@ -100,6 +117,10 @@ Options:
   --proxysql-options=OPTIONS
                       Specify additional options that will be passed
                       to proxysql.
+  --skip-auth-plugin-compat-test
+                      Skip the additional test pass that verifies
+                      mysql_native_password compatibility.
+                      (default: compat test is run)
   --test=test1,test2  Specify a list of comma-separated test names to run.
 
 EOF
@@ -148,6 +169,9 @@ function parse_args() {
         --no-kill-proxysql)
           KILL_OLD_PROXYSQL=0
           ;;
+        --skip-auth-plugin-compat-test)
+          SKIP_AUTH_PLUGIN_COMPAT_TEST=1
+          ;;
         *)
           echo "ERROR: unknown parameter \"$param\""
           usage
@@ -188,6 +212,10 @@ function get_mysql_version() {
     echo "8.0"
   elif echo "$mysqld_version" | grep -qe "[[:space:]]8\.4\."; then
     echo "8.4"
+  elif echo "$mysqld_version" | grep -qe "[[:space:]]9\.6\."; then
+    echo "9.6"
+  elif echo "$mysqld_version" | grep -qe "[[:space:]]9\.7\."; then
+    echo "9.7"
   elif echo "$version_string" | grep -qe "[[:space:]]10\.1\."; then
     echo "10.1"
   elif echo "$version_string" | grep -qe "[[:space:]]10\.2\."; then
@@ -316,8 +344,12 @@ function start_pxc_node(){
   echo "log-bin" >> my.cnf
   echo "user=$OS_USER" >> my.cnf
   if compare_versions "5.6" "<" "$MYSQL_VERSION"; then
-    echo "wsrep_slave_threads=2" >> my.cnf
     echo "pxc_maint_transition_period=1" >> my.cnf
+  fi
+  if compare_versions "$MYSQL_VERSION" ">=" "8.0"; then
+    echo "wsrep_applier_threads=2" >> my.cnf
+  else
+    echo "wsrep_slave_threads=2" >> my.cnf
   fi
   if [[ $USE_IPVERSION == "v6" ]]; then
     echo "bind-address = ::" >> my.cnf
@@ -331,8 +363,9 @@ function start_pxc_node(){
     echo "log-error-verbosity=3" >> my.cnf
     echo "wsrep_sst_method=xtrabackup-v2" >> my.cnf
   fi
-  # Add 8.4+ options here
-  if compare_versions "$MYSQL_VERSION" ">=" "8.4"; then
+  # The mysql-native-password server option only exists in 8.4 and below.
+  # It was removed in MySQL 9.0 (along with the mysql_native_password plugin).
+  if compare_versions "$MYSQL_VERSION" ">=" "8.4" && compare_versions "$MYSQL_VERSION" "<" "9.0"; then
     echo "mysql-native-password=ON" >> my.cnf
   fi
 
@@ -472,8 +505,9 @@ function start_async_slave() {
   if compare_versions "$MYSQL_VERSION" ">=" "8.0"; then
     echo "log-error-verbosity=3" >> my-slave.cnf
   fi
-  # Add 8.4+ options here
-  if compare_versions "$MYSQL_VERSION" ">=" "8.4"; then
+  # The mysql-native-password server option only exists in 8.4 and below.
+  # It was removed in MySQL 9.0 (along with the mysql_native_password plugin).
+  if compare_versions "$MYSQL_VERSION" ">=" "8.4" && compare_versions "$MYSQL_VERSION" "<" "9.0"; then
     echo "mysql-native-password=ON" >> my-slave.cnf
   fi
 
@@ -694,12 +728,6 @@ if [[ ! -x $PROXYSQL_BASE/usr/bin/proxysql ]]; then
   exit 1
 fi
 
-echo "Removing the previous proxysql logs"
-rm -f $WORKDIR/proxysql_db/proxysql.log
-export PROXYSQL_DATADIR="$WORKDIR/proxysql_db"
-$PROXYSQL_BASE/usr/bin/proxysql -D $PROXYSQL_DATADIR $PROXYSQL_EXTRA_OPTIONS --foreground > $PROXYSQL_DATADIR/proxysql.log 2>&1 &
-echo "....ProxySQL started. Redirecting the logs to $PROXYSQL_DATADIR/proxysql.log"
-
 echo "Creating link: $WORKDIR/pxc-bin --> $PXC_BASEDIR"
 rm -f $WORKDIR/pxc-bin
 ln -s "$PXC_BASEDIR" "$WORKDIR/pxc-bin"
@@ -708,21 +736,37 @@ echo "Creating link: $WORKDIR/proxysql-bin --> $PROXYSQL_BASE"
 rm -f $WORKDIR/proxysql-bin
 ln -s "$PROXYSQL_BASE" "$WORKDIR/proxysql-bin"
 
-
 MYSQL_VERSION=$(get_mysql_version "${PXC_BASEDIR}/bin/mysqld")
 MYSQL_CLIENT_VERSION=$(get_mysql_version "${PXC_BASEDIR}/bin/mysql")
 
 echo "MySQL Version is $MYSQL_VERSION"
 echo "MySQL Client Version is $MYSQL_CLIENT_VERSION"
 
+if compare_versions "$MYSQL_VERSION" ">=" "9.0"; then
+  if [[ ${AUTH_PLUGIN} == "mysql_native_password" ]]; then
+    echo "ERROR: mysql_native_password plugin is not supported in MySQL 9.0 and above"
+    exit 1
+  elif [[ ${AUTH_PLUGIN} == "caching_sha2_password" ]]; then
+    echo "Using caching_sha2_password plugin for MySQL 9.0 and above"
+    echo "Creating a config file for proxysql with caching_sha2_password plugin"
+    printf "mysql_variables=\n{\n default_authentication_plugin=\"caching_sha2_password\"\n}\n" > "$PROXYSQL_BASE/etc/proxysql.cnf"
+    PROXYSQL_EXTRA_OPTIONS="--config $PROXYSQL_BASE/etc/proxysql.cnf --initial"
+  else
+    echo "ERROR: Unknown authentication plugin specified: ${AUTH_PLUGIN}"
+    exit 1
+  fi
+fi
+
+echo "Removing the previous proxysql logs"
+rm -f $WORKDIR/proxysql_db/proxysql.log
+export PROXYSQL_DATADIR="$WORKDIR/proxysql_db"
+$PROXYSQL_BASE/usr/bin/proxysql -D $PROXYSQL_DATADIR $PROXYSQL_EXTRA_OPTIONS --foreground > $PROXYSQL_DATADIR/proxysql.log 2>&1 &
+echo "....ProxySQL started. Redirecting the logs to $PROXYSQL_DATADIR/proxysql.log"
+
 echo "Initializing PXC..."
 if [[ $MYSQL_VERSION == "5.6" ]]; then
   MID="${PXC_BASEDIR}/scripts/mysql_install_db --no-defaults --basedir=${PXC_BASEDIR}"
-elif [[ $MYSQL_VERSION == "5.7" ]]; then
-  MID="${PXC_BASEDIR}/bin/mysqld --no-defaults --initialize-insecure --basedir=${PXC_BASEDIR}"
-elif [[ $MYSQL_VERSION == "8.0" ]]; then
-  MID="${PXC_BASEDIR}/bin/mysqld --no-defaults --initialize-insecure --basedir=${PXC_BASEDIR}"
-elif [[ $MYSQL_VERSION == "8.4" ]]; then
+elif [[ $MYSQL_VERSION == "5.7" || $MYSQL_VERSION == "8.0" || $MYSQL_VERSION == "8.4" || $MYSQL_VERSION == "9.6" || $MYSQL_VERSION == "9.7" ]]; then
   MID="${PXC_BASEDIR}/bin/mysqld --no-defaults --initialize-insecure --basedir=${PXC_BASEDIR}"
 else
   echo "Unknown/unexpected MySQL version: $MYSQL_VERSION"
@@ -757,9 +801,9 @@ EOF
 elif [[ $MYSQL_VERSION > "8.0" || $MYSQL_VERSION == "8.0" ]]; then
   # For 8.0+ separate out the user creation from the grant
   ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock <<EOF
-CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH mysql_native_password BY 'admin';
+CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH ${AUTH_PLUGIN} BY 'admin';
 GRANT ALL ON *.* TO admin@'%' WITH GRANT OPTION;
--- CREATE USER '${REPL_USER}'@'${LOCALHOST_NAME}' IDENTIFIED WITH mysql_native_password BY '${REPL_PASSWORD}';
+-- CREATE USER '${REPL_USER}'@'${LOCALHOST_NAME}' IDENTIFIED WITH ${AUTH_PLUGIN} BY '${REPL_PASSWORD}';
 -- GRANT REPLICATION SLAVE ON *.* TO '${REPL_USER}'@'${LOCALHOST_NAME}';
 FLUSH PRIVILEGES;
 EOF
@@ -788,7 +832,7 @@ EOF
 elif [[ $MYSQL_VERSION > "8.0" || $MYSQL_VERSION == "8.0" ]]; then
   # For 8.0+ separate out the user creation from the grant
   ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one_slave.sock <<EOF
-CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH mysql_native_password BY 'admin';
+CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH ${AUTH_PLUGIN} BY 'admin';
 GRANT ALL ON *.* TO admin@'%' WITH GRANT OPTION;
 CHANGE REPLICATION SOURCE TO SOURCE_HOST='$LOCALHOST_IP', SOURCE_PORT=4110, SOURCE_USER='${REPL_USER}', SOURCE_PASSWORD='${REPL_PASSWORD}', SOURCE_AUTO_POSITION=1 FOR CHANNEL 'source-a';
 FLUSH PRIVILEGES;
@@ -846,6 +890,9 @@ if [[ $RUN_TEST -eq 1 ]]; then
         bats $SCRIPT_DIR/scheduler-args.bats
   echo "================================================================"
   echo ""
+
+  # Disable scheduler admin after args test, since it will run in the background and interfere with the other tests
+  $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --disable >/dev/null 2>&1 || exit 1
 
   if [[ ${#TEST_SUITES[@]} -gt 0 ]]; then
     for test_file in ${TEST_SUITES[@]}; do
@@ -907,7 +954,7 @@ EOF
   elif [[ $MYSQL_VERSION > "8.0" || $MYSQL_VERSION == "8.0" ]]; then
     # For 8.0 separate out the user creation from the grant
     ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock <<EOF
-CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH mysql_native_password BY 'admin';
+CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH ${AUTH_PLUGIN} BY 'admin';
 GRANT ALL ON *.* TO admin@'%' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
 EOF
@@ -932,7 +979,7 @@ EOF
   elif [[ $MYSQL_VERSION > "8.0" || $MYSQL_VERSION == "8.0" ]]; then
     # For 8.0 separate out the user creation from the grant
     ${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two_slave.sock <<EOF
-CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH mysql_native_password BY 'admin';
+CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED WITH ${AUTH_PLUGIN} BY 'admin';
 GRANT ALL ON *.* TO admin@'%' WITH GRANT OPTION;
 CHANGE REPLICATION SOURCE TO SOURCE_HOST='$LOCALHOST_IP', SOURCE_PORT=4210, SOURCE_USER='${REPL_USER}', SOURCE_PASSWORD='${REPL_PASSWORD}', SOURCE_AUTO_POSITION=1 FOR CHANNEL 'source-a';
 FLUSH PRIVILEGES;
@@ -982,6 +1029,45 @@ EOF
     done
     echo ""
   fi
+
+  if compare_versions "$MYSQL_VERSION" ">=" "9.0"; then
+    echo ""
+    echo "================================================================"
+    echo "Skipping auth plugin compatibility test:"
+    echo "mysql_native_password was removed in MySQL 9.0+"
+    echo "================================================================"
+    echo ""
+  elif [[ $SKIP_AUTH_PLUGIN_COMPAT_TEST -eq 0 ]]; then
+    echo ""
+    echo "================================================================"
+    echo "Auth plugin compatibility test (mysql_native_password)"
+
+    # Save the original value before switching
+    ORIG_AUTH_PLUGIN="$AUTH_PLUGIN"
+
+    AUTH_PLUGIN="mysql_native_password"
+    sudo sed -i "s|export AUTH_PLUGIN=.*|export AUTH_PLUGIN='mysql_native_password'|" /etc/proxysql-admin.cnf
+
+    sudo WORKDIR=$WORKDIR SCRIPTDIR=$SCRIPT_DIR USE_IPVERSION=$USE_IPVERSION \
+      TEST_NAME="$(IFS=,; echo "${AUTH_COMPAT_TEST_NAMES[*]}")" PATH=$PATH \
+      bats $SCRIPT_DIR/proxysql-admin-testsuite.bats
+    rc=$?
+
+    # Always restore, regardless of test outcome
+    AUTH_PLUGIN="$ORIG_AUTH_PLUGIN"
+    sudo sed -i "s|export AUTH_PLUGIN=.*|export AUTH_PLUGIN='${ORIG_AUTH_PLUGIN}'|" /etc/proxysql-admin.cnf
+
+    if [[ $rc -ne 0 ]]; then
+      echo "********************************"
+      echo "* Auth plugin compat test failed"
+      echo "* Servers will be left running for debugging."
+      echo "********************************"
+      ALLOW_SHUTDOWN="No"
+      exit 1
+    fi
+    echo "================================================================"
+    echo ""
+  fi
 fi
 
 
@@ -1023,6 +1109,15 @@ if [[ $RUN_TEST -eq 1 ]]; then
   fi
   echo "================================================================"
 
+  CLUSTER_ONE_PORT=$(${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_one1.sock -Bs -e "select @@port")
+  sudo sed -i "0,/^[ \t]*export CLUSTER_PORT[ \t]*=.*$/s|^[ \t]*export CLUSTER_PORT[ \t]*=.*$|export CLUSTER_PORT=\"$CLUSTER_ONE_PORT\"|" /etc/proxysql-admin.cnf
+  sudo sed -i "0,/^[ \t]*export CLUSTER_HOSTNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_HOSTNAME[ \t]*=.*$|export CLUSTER_HOSTNAME=\"${LOCALHOST_NAME}\"|" /etc/proxysql-admin.cnf
+  sudo sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_one\"|" /etc/proxysql-admin.cnf
+  sudo sed -i "0,/^[ \t]*export WRITER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITER_HOSTGROUP_ID[ \t]*=.*$|export WRITER_HOSTGROUP_ID=\"10\"|" /etc/proxysql-admin.cnf
+  sudo sed -i "0,/^[ \t]*export READER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READER_HOSTGROUP_ID[ \t]*=.*$|export READER_HOSTGROUP_ID=\"11\"|" /etc/proxysql-admin.cnf
+  sudo sed -i "0,/^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$|export BACKUP_WRITER_HOSTGROUP_ID=\"12\"|" /etc/proxysql-admin.cnf
+  sudo sed -i "0,/^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$|export OFFLINE_HOSTGROUP_ID=\"13\"|" /etc/proxysql-admin.cnf
+
   for test_file in ${TEST_SUITES2[@]}; do
     echo "cluster_one : $test_file"
     SECONDS=0
@@ -1055,6 +1150,23 @@ if [[ $RUN_TEST -eq 1 ]]; then
 
 
   if [[ $USE_CLUSTER_TWO -eq 1 ]]; then
+    # Switch to cluster two for the next tests
+    CLUSTER_TWO_PORT=$(${PXC_BASEDIR}/bin/mysql -uroot -S/tmp/cluster_two1.sock -Bs -e "select @@port")
+    sudo sed -i "0,/^[ \t]*export CLUSTER_PORT[ \t]*=.*$/s|^[ \t]*export CLUSTER_PORT[ \t]*=.*$|export CLUSTER_PORT=\"$CLUSTER_TWO_PORT\"|" /etc/proxysql-admin.cnf
+    sudo sed -i "0,/^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$/s|^[ \t]*export CLUSTER_APP_USERNAME[ \t]*=.*$|export CLUSTER_APP_USERNAME=\"cluster_two\"|" /etc/proxysql-admin.cnf
+    sudo sed -i "0,/^[ \t]*export WRITER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export WRITER_HOSTGROUP_ID[ \t]*=.*$|export WRITER_HOSTGROUP_ID=\"20\"|" /etc/proxysql-admin.cnf
+    sudo sed -i "0,/^[ \t]*export READER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export READER_HOSTGROUP_ID[ \t]*=.*$|export READER_HOSTGROUP_ID=\"21\"|" /etc/proxysql-admin.cnf
+    sudo sed -i "0,/^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export BACKUP_WRITER_HOSTGROUP_ID[ \t]*=.*$|export BACKUP_WRITER_HOSTGROUP_ID=\"22\"|" /etc/proxysql-admin.cnf
+    sudo sed -i "0,/^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$/s|^[ \t]*export OFFLINE_HOSTGROUP_ID[ \t]*=.*$|export OFFLINE_HOSTGROUP_ID=\"23\"|" /etc/proxysql-admin.cnf
+
+
+    # Disable scheduler admin after for first cluster, since it will run in the background and interfere with the other tests
+    $WORKDIR/percona-scheduler-admin --config-file=$WORKDIR/testsuite.toml --disable >/dev/null 2>&1 || exit 1
+
+    sudo sed -i "0,/^[ \t]*clusterPort[ \t]*=.*$/s|^[ \t]*clusterPort[ \t]*=.*$|clusterPort=$CLUSTER_TWO_PORT|" $WORKDIR/testsuite.toml
+    sudo sed -i "0,/^[ \t]*hgW[ \t]*=.*$/s|^[ \t]*hgW[ \t]*=.*$|hgW = 200|" $WORKDIR/testsuite.toml
+    sudo sed -i "0,/^[ \t]*hgR[ \t]*=.*$/s|^[ \t]*hgR[ \t]*=.*$|hgR = 201|" $WORKDIR/testsuite.toml
+
     for test_file in ${TEST_SUITES2[@]}; do
       echo "cluster_two : $test_file"
       SECONDS=0
@@ -1085,5 +1197,10 @@ if [[ $RUN_TEST -eq 1 ]]; then
       echo ""
     done
     echo ""
+
+    # Reset the testsuite.toml to cluster one for any future runs
+    sudo sed -i "0,/^[ \t]*clusterPort[ \t]*=.*$/s|^[ \t]*clusterPort[ \t]*=.*$|clusterPort=$CLUSTER_ONE_PORT|" $WORKDIR/testsuite.toml
+    sudo sed -i "0,/^[ \t]*hgW[ \t]*=.*$/s|^[ \t]*hgW[ \t]*=.*$|hgW = 100|" $WORKDIR/testsuite.toml
+    sudo sed -i "0,/^[ \t]*hgR[ \t]*=.*$/s|^[ \t]*hgR[ \t]*=.*$|hgR = 101|" $WORKDIR/testsuite.toml
   fi
 fi
