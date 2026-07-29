@@ -82,10 +82,7 @@ function exec_sql() {
   fi
 
   debug "$lineno" "exec_sql : $user@$hostname:$port ==> $query"
-
-  if [[ $MYSQL_CLIENT_VERSION == "8.0" ]]; then
-    auth_option="default-auth=${AUTH_PLUGIN}"
-  fi
+  auth_option="default-auth=${AUTH_PLUGIN}"
 
   defaults=$(printf '[client]\nuser=%s\npassword="%s"\nhost=%s\nport=%s\nconnect-timeout=%s\n%s' \
     "${user}" \
