@@ -70,7 +70,7 @@ function exec_sql() {
   local more_options=""
   local retvalue
   local retoutput
-  local default_auth=""
+  local auth_option=""
   local defaults=""
 
   if [[ $# -ge 7 ]]; then
@@ -82,10 +82,7 @@ function exec_sql() {
   fi
 
   debug "$lineno" "exec_sql : $user@$hostname:$port ==> $query"
-
-  if [[ $MYSQL_CLIENT_VERSION == "8.0" ]]; then
-    default_auth="default-auth=mysql_native_password"
-  fi
+  auth_option="default-auth=${AUTH_PLUGIN}"
 
   defaults=$(printf '[client]\nuser=%s\npassword="%s"\nhost=%s\nport=%s\nconnect-timeout=%s\n%s' \
     "${user}" \
@@ -93,7 +90,7 @@ function exec_sql() {
     "${hostname}" \
     "${port}" \
     "${TIMEOUT}" \
-    "${default_auth}"
+    "${auth_option}"
   )
 
   # shellcheck disable=SC2086
@@ -591,7 +588,7 @@ function syncusers() {
     5.5 | 5.6)
       password_field="Password"
       ;;
-    5.7 | 8.0 | 8.4)
+    5.7 | 8.0 | 8.4 | 9.6 | 9.7)
       password_field="authentication_string"
       ;;
     10.0 | 10.1 | 10.2 | 10.3 | 10.4 | 10.5 | 10.6 | 10.11)

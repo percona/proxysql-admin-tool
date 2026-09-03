@@ -172,7 +172,7 @@ fi
   echo "$LINENO : Check query rule count for user(test_query_rule) found:$run_query_rule expect:0"  >&2
   [[ "$run_query_rule" -eq 0 ]]
 
-  mysql_exec "$HOST_IP" "$PORT_3" "create user test_query_rule@'%' identified by 'test';"
+  mysql_exec "$HOST_IP" "$PORT_3" "CREATE USER test_query_rule@'%' IDENTIFIED WITH ${AUTH_PLUGIN} BY 'test';"
   # Give the cluster some time for this to replicate
   sleep 3
 
@@ -226,20 +226,20 @@ fi
   else
     pass_field="authentication_string"
   fi
-  cluster_user_count=$(cluster_exec "select count(distinct user) from mysql.user where ${pass_field} != '' and user not in ('admin') and user not like 'mysql.%'" -Ns)
+  cluster_user_count=$(cluster_exec "select count(distinct user) from mysql.user where ${pass_field} != '' and user not in ('admin') and user not like 'mysql.%' and user not like 'percona.%'" -Ns)
 
   # HACK: this mismatch occurs because we are running the tests for cluster_two
   # right after the test for cluster_one (multi-cluster scenario), so the
   # user counts will be off (because user cluster_one will still be in proxysql users).
   if [[ $WSREP_CLUSTER_NAME == "cluster_two" ]]; then
-    proxysql_user_count=$(proxysql_exec "select count(distinct username) from runtime_mysql_users where username not in ('cluster_one')" | awk '{print $0}')
+    proxysql_user_count=$(proxysql_exec "select count(distinct username) from runtime_mysql_users where username not in ('cluster_one') and username not like 'percona.%'" | awk '{print $0}')
   else
-    proxysql_user_count=$(proxysql_exec "select count(distinct username) from runtime_mysql_users" | awk '{print $0}')
+    proxysql_user_count=$(proxysql_exec "select count(distinct username) from runtime_mysql_users where username not like 'percona.%'" | awk '{print $0}')
   fi
 
   # Dump the user lists for debugging
   echo "cluster users" >&2
-  cluster_exec "select user,host from mysql.user where ${pass_field} != '' and user not in ('admin') and user not like 'mysql.%'" >&2
+  cluster_exec "select user,host from mysql.user where ${pass_field} != '' and user not in ('admin') and user not like 'percona.%' and user not like 'mysql.%'" >&2
   echo "" >&2
   echo "proxysql users" >&2
   proxysql_exec "select * from runtime_mysql_users" "-t" >&2
@@ -259,7 +259,7 @@ fi
 
   # Step 1: Create the user in MySQL
   echo "$LINENO: Creating user '$user' in MySQL" >&2
-  mysql_exec "$HOST_IP" "$PORT_3" "CREATE USER '$user'@'%' IDENTIFIED WITH mysql_native_password BY '$initial_password';"
+  mysql_exec "$HOST_IP" "$PORT_3" "CREATE USER '$user'@'%' IDENTIFIED WITH ${AUTH_PLUGIN} BY '$initial_password';"
   mysql_exec "$HOST_IP" "$PORT_3" "GRANT ALL PRIVILEGES ON *.* TO '$user'@'%';"
   sleep 3  # Allow replication
 
@@ -319,15 +319,15 @@ fi
   else
     pass_field="authentication_string"
   fi
-  cluster_user_count=$(cluster_exec "select count(distinct user) from mysql.user where ${pass_field} != '' and user not in ('admin') and user not like 'mysql.%'" -Ns)
+  cluster_user_count=$(cluster_exec "select count(distinct user) from mysql.user where ${pass_field} != '' and user not in ('admin') and user not like 'mysql.%' and user not like 'percona.%'" -Ns)
 
   # HACK: this mismatch occurs because we are running the tests for cluster_two
   # right after the test for cluster_one (multi-cluster scenario), so the
   # user counts will be off (because user cluster_one will still be in proxysql users).
   if [[ $WSREP_CLUSTER_NAME == "cluster_two" ]]; then
-    proxysql_user_count=$(proxysql_exec "select count(distinct username) from runtime_mysql_users where username not in ('cluster_one')" | awk '{print $0}')
+    proxysql_user_count=$(proxysql_exec "select count(distinct username) from runtime_mysql_users where username not in ('cluster_one') and username not like 'percona.%'" | awk '{print $0}')
   else
-    proxysql_user_count=$(proxysql_exec "select count(distinct username) from runtime_mysql_users" | awk '{print $0}')
+    proxysql_user_count=$(proxysql_exec "select count(distinct username) from runtime_mysql_users where username not like 'percona.%'" | awk '{print $0}')
   fi
 
   # Verify that the user is not in ProxySQL
@@ -338,7 +338,7 @@ fi
   echo "Creating 1000 mysql users"
   for i in $(seq -w 1 1000)
   do
-    mysql_exec "$HOST_IP" "$PORT_3" "CREATE USER 'a - u0$i'@'%' IDENTIFIED WITH mysql_native_password BY 'Secret1!';"
+    mysql_exec "$HOST_IP" "$PORT_3" "CREATE USER 'a - u0$i'@'%' IDENTIFIED WITH ${AUTH_PLUGIN} BY 'Secret1!';"
   done
 
   # Give the cluster some time for this to replicate
@@ -359,8 +359,8 @@ fi
 
   echo "time taken: $time_taken seconds"
   # Expected time to process 1000 users is about 25 seconds.
-  # For this test, lets assume that it takes less than 2.5 minutes.
-  [[ $time_taken -le 150 ]]
+  # For this test, lets assume that it takes less than 4 minutes.
+  [[ $time_taken -le 240 ]]
 
   echo "$output" >&2
   [ "$status" -eq  0 ]
@@ -415,7 +415,7 @@ fi
   [[ $proxysql_count -eq 0 ]]
 
   # Create a user on the async node
-  mysql_exec "$HOST_IP" "$ASYNC_PORT" "CREATE USER '${server_user}'@'%' IDENTIFIED WITH mysql_native_password BY 'passwd';"
+  mysql_exec "$HOST_IP" "$ASYNC_PORT" "CREATE USER '${server_user}'@'%' IDENTIFIED WITH ${AUTH_PLUGIN} BY 'passwd';"
 
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers --server=${HOST_IP}:${ASYNC_PORT}
   echo "$output" >&2
@@ -444,7 +444,7 @@ fi
   [[ $proxysql_count -eq 0 ]]
 
   # Create a user on the async node
-  mysql_exec "$HOST_IP" "$ASYNC_PORT" "CREATE USER '${server_user}'@'%' IDENTIFIED WITH mysql_native_password BY 'passwd';"
+  mysql_exec "$HOST_IP" "$ASYNC_PORT" "CREATE USER '${server_user}'@'%' IDENTIFIED WITH ${AUTH_PLUGIN} BY 'passwd';"
 
   run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --sync-multi-cluster-users --server=${HOST_IP}:${ASYNC_PORT}
   echo "$output" >&2

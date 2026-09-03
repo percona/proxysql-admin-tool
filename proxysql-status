@@ -142,7 +142,7 @@ function mysql_exec() {
   local retvalue
   local retoutput
   local defaults=""
-  local default_auth=""
+  local auth_option=""
 
   # shellcheck disable=SC2086
   if [[ $CREDENTIALS_FROM_CLIENT_CONFIG -eq 0 ]]; then
@@ -151,7 +151,7 @@ function mysql_exec() {
       "${PASSWORD}" \
       "${HOST}" \
       "${PORT}" \
-      "${default_auth}"
+      "${auth_option}"
     )
 
     if [[ $USE_STDIN_FOR_CREDENTIALS -eq 1 ]]; then
